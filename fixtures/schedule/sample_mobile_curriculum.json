@@ -1,0 +1,29 @@
+{
+  "code": "1",
+  "msg": "success",
+  "data": [
+    {
+      "date": [
+        { "zc": "7", "xqid": "1", "mxrq": "2026-04-20" },
+        { "zc": "7", "xqid": "2", "mxrq": "2026-04-21" },
+        { "zc": "7", "xqid": "3", "mxrq": "2026-04-22" },
+        { "zc": "7", "xqid": "4", "mxrq": "2026-04-23" },
+        { "zc": "7", "xqid": "5", "mxrq": "2026-04-24" },
+        { "zc": "7", "xqid": "6", "mxrq": "2026-04-25" },
+        { "zc": "7", "xqid": "0", "mxrq": "2026-04-26" }
+      ],
+      "courses": [
+        {
+          "weekDay": "1",
+          "classTime": "10102",
+          "courseName": "高等数学",
+          "teaName": "张老师",
+          "classroomName": "1-101",
+          "classWeekDetails": ",7,",
+          "sksj": "08:00-09:35",
+          "credit": "4.0"
+        }
+      ]
+    }
+  ]
+}

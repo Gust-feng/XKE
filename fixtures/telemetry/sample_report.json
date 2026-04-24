@@ -1,0 +1,19 @@
+{
+  "reason": "manual",
+  "session_started_at": "2026-04-23T12:00:00Z",
+  "foreground_seconds_delta": 120,
+  "background_seconds_delta": 30,
+  "active_tab": "updates",
+  "module_hint": "about",
+  "build": "2026.04.23",
+  "student_id": "20260001",
+  "feature_usage_deltas": {
+    "updates": {
+      "open_count": 1,
+      "foreground_seconds_delta": 120,
+      "background_seconds_delta": 30
+    }
+  },
+  "cloud_upload_enabled": false,
+  "cloud_skip_reason": "local-only"
+}

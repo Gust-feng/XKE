@@ -1,0 +1,4 @@
+interface:
+  display_name: "XKE DotNet8 Maintainer"
+  short_description: "Maintain the XKE.DotNet8 vertical-slice migration boundaries."
+  default_prompt: "Use this skill when continuing XKE.DotNet8 refactoring work."

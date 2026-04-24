@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Xke.Core</RootNamespace>
+    <AssemblyName>Xke.Core</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Xke.Contracts\Xke.Contracts.csproj" />
+    <ProjectReference Include="..\Xke.Storage\Xke.Storage.csproj" />
+    <ProjectReference Include="..\Xke.Security\Xke.Security.csproj" />
+  </ItemGroup>
+</Project>

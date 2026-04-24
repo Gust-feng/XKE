@@ -1,0 +1,55 @@
+{
+  "source": "移动教务课表",
+  "source_label": "移动教务课表",
+  "source_key": "mobile_schedule",
+  "source_type": "mobile",
+  "week_label": "第7周",
+  "available_weeks": [
+    { "value": "7", "label": "第7周", "selected": true }
+  ],
+  "week_dates": {
+    "星期一": "2026-04-20",
+    "星期日": "2026-04-26"
+  },
+  "current_week_label": "第7周",
+  "current_week_number": 7,
+  "viewed_week_number": 7,
+  "remarks": "当前显示本地缓存课表",
+  "rows": [
+    {
+      "source": "加密",
+      "week_label": "第7周",
+      "weekday": "星期一",
+      "section": "第1-2节",
+      "time_text": "星期一 / 第1-2节 / 08:00-09:35",
+      "time_range": "08:00-09:35",
+      "block_time": "",
+      "small_section_1": "",
+      "small_section_2": "",
+      "break_minutes": 0,
+      "course_name": "高等数学",
+      "teacher": "张老师",
+      "room": "1-101",
+      "weeks": "第7周",
+      "credit": "4"
+    }
+  ],
+  "block_times": [],
+  "saved_files": [
+    ".runtime/data/students/20260001/schedules/current/weeks/第7周/mobile_schedule.json"
+  ],
+  "fallback_reason": "",
+  "data_warnings": [],
+  "term": {
+    "label": "2025-2026-2",
+    "academic_term": "2025-2026-2"
+  },
+  "student": {
+    "student_id": "20260001",
+    "name": "测试同学"
+  },
+  "cached": true,
+  "data_origin": "local_cache",
+  "updated_at": "2026-04-23T12:00:00Z",
+  "file_updated_at": "2026-04-23T12:00:01Z"
+}

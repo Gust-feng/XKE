@@ -1,0 +1,4 @@
+.runtime/
+.vs/
+**/bin/
+**/obj/

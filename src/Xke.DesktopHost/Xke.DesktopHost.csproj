@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>Xke.DesktopHost</RootNamespace>
+    <AssemblyName>Xke.DesktopHost</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2592.51" />
+    <ProjectReference Include="..\Xke.Contracts\Xke.Contracts.csproj" />
+    <ProjectReference Include="..\Xke.Core\Xke.Core.csproj" />
+    <ProjectReference Include="..\Xke.Storage\Xke.Storage.csproj" />
+    <ProjectReference Include="..\Xke.WebHost\Xke.WebHost.csproj" />
+  </ItemGroup>
+</Project>

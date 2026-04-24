@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "manifest_id": "beta",
+  "updated_at": "2026-04-23T12:00:00Z",
+  "title": "XKE 控制面样本",
+  "subtitle": "脱敏 notice manifest",
+  "notice_text": "这是一个用于 .NET 控制面兼容验证的样本。",
+  "bundles": [
+    {
+      "bundle_id": "operations",
+      "path": "notice/bundles/operations.json",
+      "updated_at": "2026-04-23T12:00:00Z",
+      "sha256": "sample-bundle-sha256"
+    }
+  ]
+}

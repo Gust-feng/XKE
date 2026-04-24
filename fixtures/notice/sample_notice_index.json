@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-04-23T12:00:00Z",
+  "notice": {
+    "path": "notice/directory.json",
+    "updated_at": "2026-04-23T12:00:00Z",
+    "sha256": "sample-notice-directory-sha256"
+  },
+  "version_policy": {
+    "path": "config/version_policy.json",
+    "updated_at": "2026-04-23T12:00:00Z",
+    "sha256": "sample-version-policy-sha256"
+  },
+  "update_info": {
+    "path": "config/update_info.json",
+    "updated_at": "2026-04-23T12:00:00Z",
+    "sha256": "sample-update-info-sha256"
+  },
+  "access_policy": {
+    "path": "config/access_policy.json",
+    "updated_at": "2026-04-23T12:00:00Z",
+    "sha256": "sample-access-policy-sha256"
+  }
+}

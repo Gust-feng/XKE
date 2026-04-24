@@ -1,0 +1,41 @@
+{
+  "round_id": "round-2026-spring-01",
+  "courses": [
+    {
+      "kch": "A1001",
+      "kcmc": "大学美育",
+      "xf": "2",
+      "skls": "李老师",
+      "sksj": "周一 1-2 节",
+      "skdd": "教学楼 101",
+      "xqmc": "主校区",
+      "xkrs": "30",
+      "syrs": "12",
+      "ctsm": "",
+      "szkcflmc": "公共选修",
+      "jx02id": "course-1001",
+      "jx0404id": "section-2002"
+    },
+    {
+      "kch": "A1002",
+      "kcmc": "大学写作",
+      "xf": "2",
+      "skls": "周老师",
+      "sksj": "周三 3-4 节",
+      "skdd": "教学楼 205",
+      "xqmc": "主校区",
+      "xkrs": "30",
+      "syrs": "8",
+      "ctsm": "",
+      "szkcflmc": "公共选修",
+      "jx02id": "course-1002",
+      "jx0404id": "section-2003"
+    }
+  ],
+  "count": 2,
+  "cached": false,
+  "updated_at": "2026-04-23T12:03:00Z",
+  "warnings": [
+    "desensitized-fixture"
+  ]
+}

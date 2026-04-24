@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Xke.WebHost</RootNamespace>
+    <AssemblyName>Xke.WebHost</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\Xke.Contracts\Xke.Contracts.csproj" />
+    <ProjectReference Include="..\Xke.Core\Xke.Core.csproj" />
+    <ProjectReference Include="..\Xke.Storage\Xke.Storage.csproj" />
+    <ProjectReference Include="..\Xke.Security\Xke.Security.csproj" />
+  </ItemGroup>
+</Project>
