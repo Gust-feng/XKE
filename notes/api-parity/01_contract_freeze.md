@@ -1,5 +1,7 @@
 # 第一批契约冻结说明
 
+> 状态：历史冻结记录。当前 API 行为以 [12_legacy_api_contract_extract.md](./12_legacy_api_contract_extract.md)、`roadmap/`、`review-issues/` 和代码测试为准。
+
 ## 当前已冻结到 .NET 的内容
 - `APIResponse` -> `src/Xke.Contracts/Api/ApiEnvelope.cs`
 - `X-XKE-Session` / `session_id` 语义 -> `src/Xke.Contracts/Api/SessionConstants.cs`
@@ -37,7 +39,6 @@
 - `Z:/XKE/web/assets/modules/storage.js`
 
 ## 当前策略
-- 先冻结字段名和默认值
-- 暂未实现完整校验器
-- 暂未实现完整路由与返回 DTO
-- 下一步继续补：Preferences / Profile / Telemetry / ScheduleRow 等契约
+- 本文件保留早期字段冻结和来源对照，作为兼容记录。
+- 已完成切片的当前语义不在本文件重复维护。
+- 若新增或调整 API 字段，优先更新 `12_legacy_api_contract_extract.md` 和对应测试，再回填本目录索引。

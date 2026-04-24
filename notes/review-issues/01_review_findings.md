@@ -2,8 +2,14 @@
 
 > 更新时间：2026-04-24  
 > 范围：`Z:/XKE/XKE.DotNet8/`  
-> 来源：合并 `17_重构审查问题清单.md` 与 `18_重构问题.md` 后的当前执行版。  
-> 使用规则：本文件是后续修复排序的唯一主报告；`18_重构问题.md` 与 `19_重构审查收敛报告.md` 只作为历史材料，不再作为独立决策依据。
+> 来源：合并 `18_重构问题.md`（归档于 `Z:/XKE/reference-archive/notes/legacy-notes/legacy-18-review-issue-memo.md`）与历史修订后的当前执行版。  
+> 使用规则：本文件是后续修复排序的唯一主报告；`18_重构问题.md` 与 `19_重构审查收敛报告.md`（分别归档于 `Z:/XKE/reference-archive/notes/legacy-notes/legacy-18-review-issue-memo.md`、`Z:/XKE/reference-archive/notes/legacy-notes/legacy-19-convergence-memo.md`）只作为历史材料，不再作为独立决策依据。  
+
+## 0. 名词边界（统一）
+
+- 移动教务（Mobile JW）：作为当前唯一主链路数据源，覆盖身份、课表、首登初始化、定期维护。
+- 教务系统（Legacy JW）：指传统教务站点与验证码/OCR/Cookie 场景，当前仅保留未来边界，**不进入主登录和本次恢复链路**。
+- 传统教务功能若出现术语歧义，以“教务系统”为准；涉及课表/身份同步的实际优先级以“移动教务”为准。
 
 ## 1. 总体判断
 
@@ -115,3 +121,24 @@ dotnet build src/Xke.LegacyCompat/Xke.LegacyCompat.csproj --nologo
 5. 启动 WebHost 注册、错误处理、session/context 加载、blocked policy 的长期结构拆分。
 6. 建立 `Xke.Core.Tests`，把 normalize/parser/decision 纯逻辑逐步迁出 WebHost 集成测试。
 7. Network 认证历史脱敏、Feedback outbox DPAPI、运营商凭据清空语义作为后续隐私/设置增强切片处理。
+
+## 8. 收束方向图（用于后续开发排队）
+
+### 8.1 当前主线（不改变现有 API）
+- 首先保证数据主链路稳定：Auth 首登/本地恢复、Schedule 初始化与恢复、Notice 兼容、Desktop settings、Network/Telemetry/Feedback 本地闭环。
+- 优化后端结构：集中排查活跃链路边界、测试重复、错误面和 session/blocked 边界，不新增前端字段。
+- 将文档、测试、注释全部按照“移动教务主线 + 教务系统后置”统一标注。
+
+### 8.2 下一步开发优先级
+- P0：`AuthService` 首登异常回滚测试与实现、`NetworkService` 运营商清空语义与文档澄清。
+- P1：后端测试支持层统一、`Xke.Core.Tests` 建立、`XkeWebHostApplication` 结构性拆分。
+- P2：`Course` 维持 deferred 入口，补齐课程框架说明与占位文档；不回填验证码/抢课逻辑。
+- P3：`Mobile JW` 与前端数据契约对齐：若真实格式差异继续出现，先补解析器与 fixtures，再看需要。
+- P4：在确认稳定后，再启用任何云端或隐私落盘加固切片。
+
+### 8.3 术语与边界约束（跨文档一致）
+- 所有文档和注释默认先写“移动教务”，只有明确与验证码/Cookie/传统课程抢课相关时才写“教务系统”。
+- 任何实现计划若要提到“登录恢复”，必须区分：
+  - 移动教务：可信本地状态恢复 + 可选重连；
+  - 教务系统：人工 challenge / OCR / 抢课链路，属于后置切片。
+- 本文件更新时保持 `../roadmap/01_phase_summary.md`、`./00_current_issues.md`、`../future-plans/00_traditional_jw_manual_login.md` 的指向一致，不产生并行口径。

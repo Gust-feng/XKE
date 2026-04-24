@@ -1,7 +1,7 @@
 # 运行时与桌面宿主索引
 
 ## 目标
-整理当前 Python 版本的启动链路、桌面宿主职责、单实例机制与后续 .NET DesktopHost 的迁移边界。
+整理 legacy Python 版本的启动链路、桌面宿主职责、单实例机制与当前 .NET DesktopHost 的迁移参考。
 
 ## 当前关键路径
 - `Z:/XKE/start_xke.py`

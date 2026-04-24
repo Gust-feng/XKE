@@ -1,7 +1,7 @@
 # 核心业务与安全索引
 
 ## 目标
-标记当前 Python 版本的核心业务巨石、数据存储、安全边界、公告与遥测实现，为未来 `Xke.Core` / `Xke.Storage` / `Xke.Security` 拆分提供依据。
+标记 legacy Python 版本的核心业务巨石、数据存储、安全边界、公告与遥测实现，为当前 `Xke.Core` / `Xke.Storage` / `Xke.Security` 收敛提供参考。
 
 ## 当前关键路径
 - `Z:/XKE/core/jw_services.py`
