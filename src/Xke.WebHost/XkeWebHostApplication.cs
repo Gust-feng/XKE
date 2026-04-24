@@ -68,6 +68,8 @@ public static partial class XkeWebHostApplication
             hostOptions.DesktopWindowController ?? new NoopDesktopWindowController());
         builder.Services.AddSingleton<AuthService>();
         builder.Services.AddSingleton<CourseService>();
+        builder.Services.AddSingleton<JwCaptchaChallengeStore>();
+        builder.Services.AddSingleton<IJwCaptchaSolver, ManualCaptchaSolver>();
         builder.Services.AddSingleton<ScheduleService>();
         builder.Services.AddSingleton<NetworkService>();
         builder.Services.AddSingleton<ITelemetryTransport, LocalOnlyTelemetryTransport>();

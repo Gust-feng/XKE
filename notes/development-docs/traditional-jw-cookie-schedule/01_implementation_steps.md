@@ -99,6 +99,126 @@
 - JW bootstrap 失败不请求课表
 - Cookie 失效可触发完整重登一次
 
+## 阶段 4A：人工验证码 challenge
+
+目标：先用 Web 界面完成人工验证码识别，同时为后续 OCR 接入保留稳定扩展点。
+
+### 交互流程
+
+```text
+用户触发 /api/schedule/cookie
+-> 后端执行 get_login_page + prepare_prelogin_bootstrap
+-> 后端获取验证码图片
+-> 后端创建 challenge_id 并保存预登录上下文
+-> 返回 captcha_required
+-> Web 前端展示验证码图片和输入框
+-> 用户输入 captcha_code
+-> 前端提交 challenge_id + captcha_code
+-> 后端继续 login_portal -> bootstrap_jw_session -> fetch_schedule_html
+```
+
+### 后端职责
+
+- 保存 challenge 状态，包括登录页上下文、预登录结果、验证码图片来源、初始会话和过期时间。
+- 生成一次性 `challenge_id`。
+- 校验 challenge 是否属于当前 session。
+- 验证码提交后继续传统教务登录流程。
+- 登录成功或失败后清理 challenge。
+- 不把 Cookie、请求头、验证码原图或预登录录包正文返回给前端。
+
+### 前端职责
+
+- 展示验证码图片。
+- 收集用户输入。
+- 提交 `challenge_id` 和 `captcha_code`。
+- 显示验证码错误、过期、重试等状态。
+- 不保存 Cookie、请求头、预登录上下文或真实响应。
+
+### 推荐接口形态
+
+首次请求：
+
+```text
+POST /api/schedule/cookie?session_id=<SESSION_ID>
+```
+
+需要人工验证码时返回：
+
+```json
+{
+  "msg": "需要输入教务系统验证码",
+  "data": {
+    "status": "captcha_required",
+    "challenge_id": "<CHALLENGE_ID>",
+    "captcha_image": "data:image/png;base64,<REDACTED>",
+    "expires_in_seconds": 120
+  }
+}
+```
+
+提交验证码：
+
+```text
+POST /api/auth/jw-captcha/submit?session_id=<SESSION_ID>
+```
+
+请求体：
+
+```json
+{
+  "challenge_id": "<CHALLENGE_ID>",
+  "captcha_code": "<CODE>"
+}
+```
+
+成功后返回 Cookie 课表刷新结果，或者返回可继续重试的验证码错误。
+
+### OCR 兼容点
+
+验证码求解必须通过后端抽象，不能写死在 Web UI 或登录流程中。
+
+建议抽象：
+
+```csharp
+public interface IJwCaptchaSolver
+{
+    Task<JwCaptchaSolveResult> SolveAsync(
+        JwCaptchaChallenge challenge,
+        CancellationToken cancellationToken);
+}
+```
+
+第一阶段实现：
+
+- `ManualCaptchaSolver`
+  - 返回 `captcha_required`
+  - 等待 Web 前端提交验证码
+
+后续实现：
+
+- `OcrCaptchaSolver`
+  - 自动识别验证码
+  - 成功时直接返回 `captcha_code`
+  - 失败或低置信度时回退 `ManualCaptchaSolver`
+
+### 注释要求
+
+代码注释要明确：
+
+- 验证码不是独立功能，而是传统教务预登录状态机的一环。
+- 人工识别和 OCR 只是 `captcha_code` 的不同来源。
+- Cookie 不是入口；验证码提交后仍必须继续 `login_portal -> bootstrap_jw_session`。
+- 前端不得持有传统教务 Cookie、请求头或预登录上下文。
+
+### 验收
+
+- 未提交验证码时，后端返回 `captcha_required`，不阻塞请求线程等待用户输入。
+- `challenge_id` 过期后提交返回明确错误。
+- 验证码错误时可重新生成或重新提交，具体行为需保持一致。
+- 登录成功后 challenge 被清理。
+- OCR 未实现时，不影响人工验证码流程。
+- 后续 OCR 失败时，仍能回退人工验证码输入。
+
 ## 阶段 5：真实开发态 smoke
 
 目标：用测试账号验证真实链路。

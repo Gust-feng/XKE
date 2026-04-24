@@ -12,6 +12,7 @@ public sealed class NativeJwScheduleClient : IJwScheduleClient
     private static readonly Uri MobileBaseUri = new("http://222.243.161.213:81/hnrjzyxyhd/");
     private readonly HttpClient _client;
     private readonly MobileJwLoginClient _loginClient;
+    private readonly TraditionalJwScheduleHtmlParser _cookieParser;
 
     public NativeJwScheduleClient(HttpClient client)
         : this(client, new MobileJwLoginClient(client))
@@ -19,9 +20,18 @@ public sealed class NativeJwScheduleClient : IJwScheduleClient
     }
 
     public NativeJwScheduleClient(HttpClient client, MobileJwLoginClient loginClient)
+        : this(client, loginClient, new TraditionalJwScheduleHtmlParser())
+    {
+    }
+
+    internal NativeJwScheduleClient(
+        HttpClient client,
+        MobileJwLoginClient loginClient,
+        TraditionalJwScheduleHtmlParser cookieParser)
     {
         _client = client;
         _loginClient = loginClient;
+        _cookieParser = cookieParser;
         _client.Timeout = TimeSpan.FromSeconds(15);
     }
 
@@ -79,7 +89,56 @@ public sealed class NativeJwScheduleClient : IJwScheduleClient
         string existingToken = "",
         MobileJwEncryptedCredentialDocument? mobileJw = null)
     {
-        throw new JwScheduleException("Cookie 课表原生刷新暂不可用，请使用移动教务来源刷新课表");
+        _ = user;
+        _ = password;
+        _ = preloginMode;
+        _ = existingToken;
+        _ = mobileJw;
+        return FetchCookieFromFixtureOrChallengeAsync(request, cancellationToken);
+    }
+
+    private async Task<JwScheduleFetchResult> FetchCookieFromFixtureOrChallengeAsync(
+        ScheduleRequest request,
+        CancellationToken cancellationToken)
+    {
+        var fixturePath = ResolveCookieScheduleHtmlPath();
+        if (!string.IsNullOrWhiteSpace(fixturePath) && File.Exists(fixturePath))
+        {
+            var html = await File.ReadAllTextAsync(fixturePath, cancellationToken).ConfigureAwait(false);
+            return _cookieParser.Parse(html, request);
+        }
+
+        throw new JwScheduleException("传统教务真实登录续跑尚未接入；请启用 XKE_JW_COOKIE_FIXTURE 或配置 XKE_JW_COOKIE_SCHEDULE_HTML 进行开发态验证");
+    }
+
+    private static string ResolveCookieScheduleHtmlPath()
+    {
+        var explicitPath = (Environment.GetEnvironmentVariable("XKE_JW_COOKIE_SCHEDULE_HTML") ?? string.Empty).Trim();
+        if (!string.IsNullOrWhiteSpace(explicitPath))
+        {
+            return Path.GetFullPath(explicitPath);
+        }
+
+        var fixtureEnabled = (Environment.GetEnvironmentVariable("XKE_JW_COOKIE_FIXTURE") ?? string.Empty).Trim();
+        if (!fixtureEnabled.Equals("1", StringComparison.Ordinal)
+            && !fixtureEnabled.Equals("true", StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Empty;
+        }
+
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        while (current is not null)
+        {
+            var candidate = Path.Combine(current.FullName, "fixtures", "schedule", "sample_cookie_schedule.html");
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            current = current.Parent;
+        }
+
+        return string.Empty;
     }
 
     private async Task<MobileWeekResolution> ResolveWeekNumberAsync(

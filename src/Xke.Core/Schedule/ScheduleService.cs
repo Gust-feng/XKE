@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using Xke.Contracts.Models;
 using Xke.Contracts.Requests;
+using Xke.Contracts.Responses;
 using Xke.Core.Auth.Jw;
 using Xke.Storage;
 
@@ -11,12 +12,21 @@ public sealed class ScheduleService
     private readonly XkeDataRoot _dataRoot;
     private readonly IJwScheduleClient _scheduleClient;
     private readonly MobileSessionRuntimeStore _mobileSessionRuntime;
+    private readonly JwCaptchaChallengeStore _captchaChallengeStore;
+    private readonly IJwCaptchaSolver _captchaSolver;
 
-    public ScheduleService(XkeDataRoot dataRoot, IJwScheduleClient scheduleClient, MobileSessionRuntimeStore mobileSessionRuntime)
+    public ScheduleService(
+        XkeDataRoot dataRoot,
+        IJwScheduleClient scheduleClient,
+        MobileSessionRuntimeStore mobileSessionRuntime,
+        JwCaptchaChallengeStore captchaChallengeStore,
+        IJwCaptchaSolver captchaSolver)
     {
         _dataRoot = dataRoot;
         _scheduleClient = scheduleClient;
         _mobileSessionRuntime = mobileSessionRuntime;
+        _captchaChallengeStore = captchaChallengeStore;
+        _captchaSolver = captchaSolver;
     }
 
     public (string Message, Dictionary<string, object?> Payload) LoadLocal(string sessionId, string weekLabel, string source)
@@ -88,10 +98,85 @@ public sealed class ScheduleService
         ScheduleRequest request,
         CancellationToken cancellationToken = default)
     {
-        _ = request;
-        _ = cancellationToken;
-        _ = LoadContext(sessionId);
-        throw new ScheduleException(409, "教务系统验证码登录暂未接入，请先使用移动教务课表");
+        var context = LoadContext(sessionId);
+        try
+        {
+            var result = await _scheduleClient.FetchCookieAsync(
+                context.Session.User,
+                context.Credentials.Password,
+                context.Session.PreloginMode,
+                request,
+                cancellationToken,
+                existingToken: string.Empty,
+                mobileJw: context.Credentials.MobileJw).ConfigureAwait(false);
+            var payload = SaveLivePayload(context, result, request, fallbackReason: string.Empty);
+            return ("Cookie 课表获取成功", payload);
+        }
+        catch (JwCaptchaRequiredException ex)
+        {
+            var challenge = _captchaChallengeStore.Create(context.SessionId, request, ex);
+            return ("需要输入教务系统验证码", BuildCaptchaPayload(challenge));
+        }
+        catch (JwScheduleException ex)
+        {
+            throw new ScheduleException(500, ex.Message);
+        }
+    }
+
+    public async Task<(string Message, Dictionary<string, object?> Payload)> SubmitJwCaptchaAsync(
+        string sessionId,
+        JwCaptchaSubmitRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (request is null)
+        {
+            throw new ScheduleException(400, "验证码提交参数不能为空");
+        }
+
+        var context = LoadContext(sessionId);
+        var challenge = _captchaChallengeStore.Consume(request.ChallengeId, context.SessionId);
+        var solved = await _captchaSolver.ResolveAsync(
+            new JwCaptchaSolveContext(
+                challenge.ChallengeId,
+                challenge.CaptchaImage,
+                request.CaptchaCode),
+            cancellationToken).ConfigureAwait(false);
+        if (!solved.HasCode)
+        {
+            throw new ScheduleException(400, solved.FailureReason);
+        }
+
+        if (challenge.ContinueAsync is null)
+        {
+            throw new ScheduleException(409, "验证码已提交，但真实教务登录续跑尚未接入；请使用开发态 HTML fixture 或等待下一切片");
+        }
+
+        try
+        {
+            var result = await challenge.ContinueAsync(solved.Code, cancellationToken).ConfigureAwait(false);
+            var payload = SaveLivePayload(context, result, challenge.Request, fallbackReason: string.Empty);
+            return ("Cookie 课表获取成功", payload);
+        }
+        catch (JwScheduleException ex)
+        {
+            throw new ScheduleException(400, ex.Message);
+        }
+    }
+
+    private static Dictionary<string, object?> BuildCaptchaPayload(JwCaptchaChallenge challenge)
+    {
+        var payload = new JwCaptchaChallengePayload(
+            Status: "captcha_required",
+            ChallengeId: challenge.ChallengeId,
+            CaptchaImage: challenge.CaptchaImage,
+            ExpiresInSeconds: challenge.RemainingSeconds(DateTimeOffset.Now));
+        return new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["status"] = payload.Status,
+            ["challenge_id"] = payload.ChallengeId,
+            ["captcha_image"] = payload.CaptchaImage,
+            ["expires_in_seconds"] = payload.ExpiresInSeconds,
+        };
     }
 
     private Dictionary<string, object?> SaveLivePayload(

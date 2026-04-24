@@ -5,8 +5,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $dotnetRoot = Split-Path -Parent $PSScriptRoot
-$repoRoot = Split-Path -Parent $dotnetRoot
-$webRoot = Join-Path $repoRoot "web"
+$webRoot = Join-Path $dotnetRoot "web"
 
 function Resolve-ToolPath {
     param(

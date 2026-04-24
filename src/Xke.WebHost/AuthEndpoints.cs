@@ -2,6 +2,7 @@ using Xke.Contracts.Requests;
 using Xke.Core.Auth;
 using Xke.Core.Course;
 using Xke.Core.Notice;
+using Xke.Core.Schedule;
 
 namespace Xke.WebHost;
 
@@ -242,6 +243,29 @@ public static partial class XkeWebHostApplication
             catch (AuthException ex)
             {
                 return AuthError(ex);
+            }
+            catch (Exception ex)
+            {
+                return Results.Json(new { detail = ex.Message }, statusCode: StatusCodes.Status500InternalServerError);
+            }
+        });
+
+        auth.MapPost("/jw-captcha/submit", async (JwCaptchaSubmitRequest request, ScheduleService scheduleService, AuthService authService, NoticeService noticeService, HttpContext context) =>
+        {
+            try
+            {
+                var sessionId = ResolveSessionId(context);
+                await EnsureSessionAllowedAsync(authService, noticeService, sessionId, context.RequestAborted);
+                var result = await scheduleService.SubmitJwCaptchaAsync(sessionId, request, context.RequestAborted);
+                return Ok(result.Message, result.Payload);
+            }
+            catch (BlockedAccessException ex)
+            {
+                return BlockedError(ex);
+            }
+            catch (ScheduleException ex)
+            {
+                return ScheduleError(ex);
             }
             catch (Exception ex)
             {

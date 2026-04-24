@@ -3,11 +3,11 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { resolve, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const repoRoot = resolve(fileURLToPath(new URL("../..", import.meta.url)));
+const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const backendRoots = [
-  "XKE.DotNet8/src",
-  "XKE.DotNet8/tests",
-  "XKE.DotNet8/tools",
+  "src",
+  "tests",
+  "tools",
 ];
 const webRoots = [
   "web/assets",
@@ -146,8 +146,8 @@ const report = {
   remaining_deferred_top_files: byFileCount(deferredHits).slice(0, 15),
   duplicate_test_support: duplicateSummary,
   allowed_legacy_boundaries: [
-    "XKE.DotNet8/src/Xke.Storage/LegacyNotice* remains active for notice cache format compatibility",
-    "XKE.DotNet8/src/Xke.Storage/NoticeCompatibility.cs remains active for notice normalize/fail-closed projection",
+    "src/Xke.Storage/LegacyNotice* remains active for notice cache format compatibility",
+    "src/Xke.Storage/NoticeCompatibility.cs remains active for notice normalize/fail-closed projection",
     "LegacyDataRoot*/LegacyStudent* must stay reference-only and must not be wired into active runtime services",
   ],
   legacy_reference_samples: legacyHits.slice(0, 20),
