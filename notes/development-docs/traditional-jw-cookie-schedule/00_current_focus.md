@@ -24,6 +24,13 @@
 
 第一阶段不直接接真实教务登录，先使用 `fixtures/schedule/sample_cookie_schedule.html` 固定解析结果、返回结构和缓存行为。
 
+验证码策略：
+
+- v1 先做人工验证码识别。
+- 后端负责预登录上下文、验证码图片、challenge 状态和后续登录提交。
+- Web 前端只负责展示验证码图片、收集用户输入、提交验证码。
+- 后续 OCR 只作为验证码求解器的替换实现；OCR 失败时必须能回退人工输入。
+
 ## 当前第一个任务
 
 实现传统教务 HTML 课表离线解析：
@@ -40,6 +47,7 @@
 - 不实现真实抢课
 - 不实现课程轮次和预览真实连接
 - 不把外部 Cookie 当作登录入口
+- 不把验证码识别写死在 Web 前端或后端阻塞输入里
 - 不改移动教务主链路
 - 不写入真实账号、密码、Cookie、token、验证码图片或原始响应
 
@@ -52,6 +60,7 @@
 - `/api/schedule/cookie` 的成功路径能在测试中使用假客户端或 fixture 跑通
 - 成功后可写入 `jw_schedule` 缓存
 - `/api/schedule/local?source=cookie` 能读取该缓存
+- 人工验证码 challenge 设计完成，且保留 OCR fallback 到人工的扩展点
 - 移动教务 `schedule/preferred` 和 `schedule/local` 回归不变
 
 ## 依赖文档

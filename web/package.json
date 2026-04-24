@@ -1,0 +1,9 @@
+{
+  "name": "xke-frontend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check assets/app.js && node --check assets/modules/capability-policy.js && node --check assets/modules/http.js && node --check assets/modules/constants.js && node --check assets/modules/profile.js && node --check assets/modules/schedule-fetch.js && node --check assets/modules/select-menu.js && node --check assets/modules/storage.js && node --check assets/modules/trusted-accounts.js",
+    "test": "node --test"
+  }
+}

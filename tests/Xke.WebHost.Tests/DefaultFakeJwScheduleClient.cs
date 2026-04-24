@@ -42,24 +42,30 @@ internal sealed class DefaultFakeJwScheduleClient : IJwScheduleClient
         string existingToken = "",
         MobileJwEncryptedCredentialDocument? mobileJw = null)
     {
-        throw new JwScheduleException("教务系统验证码登录暂未接入，请先使用移动教务课表");
+        return Task.FromResult(BuildResult(user, sourceKey: "jw_schedule", sourceLabel: "教务系统课表", sourceType: "jw", weekNumber: 8));
     }
 
-    private static JwScheduleFetchResult BuildResult(string user)
+    private static JwScheduleFetchResult BuildResult(
+        string user,
+        string sourceKey = "mobile_schedule",
+        string sourceLabel = "移动教务课表",
+        string sourceType = "mobile",
+        int weekNumber = 7)
     {
+        var weekLabel = $"第{weekNumber}周";
         return new JwScheduleFetchResult(
-            SourceKey: "mobile_schedule",
-            SourceLabel: "移动教务课表",
-            SourceType: "mobile",
-            WeekLabel: "第7周",
-            CurrentWeekNumber: 7,
-            ViewedWeekNumber: 7,
+            SourceKey: sourceKey,
+            SourceLabel: sourceLabel,
+            SourceType: sourceType,
+            WeekLabel: weekLabel,
+            CurrentWeekNumber: weekNumber,
+            ViewedWeekNumber: weekNumber,
             AvailableWeeks:
             [
                 new Dictionary<string, object?>
                 {
-                    ["value"] = "7",
-                    ["label"] = "第7周",
+                    ["value"] = weekNumber.ToString(),
+                    ["label"] = weekLabel,
                     ["selected"] = true,
                 },
             ],
@@ -85,8 +91,8 @@ internal sealed class DefaultFakeJwScheduleClient : IJwScheduleClient
             [
                 new Dictionary<string, object?>
                 {
-                    ["source"] = "加密",
-                    ["week_label"] = "第7周",
+                    ["source"] = sourceType == "jw" ? "Cookie" : "加密",
+                    ["week_label"] = weekLabel,
                     ["weekday"] = "星期一",
                     ["section"] = "第1-2节",
                     ["time_text"] = "星期一 / 第1-2节 / 08:00-09:35",
@@ -94,16 +100,16 @@ internal sealed class DefaultFakeJwScheduleClient : IJwScheduleClient
                     ["course_name"] = "高等数学",
                     ["teacher"] = "张老师",
                     ["room"] = "1-101",
-                    ["weeks"] = "第7周",
+                    ["weeks"] = weekLabel,
                     ["credit"] = "4",
                 },
             ],
             RawPayload: new Dictionary<string, object?>
             {
                 ["student_id"] = user,
-                ["source"] = "mobile",
+                ["source"] = sourceType,
             },
-            Remarks: "移动教务课表初始化成功",
+            Remarks: sourceType == "jw" ? "Cookie 课表刷新成功" : "移动教务课表初始化成功",
             FallbackReason: string.Empty);
     }
 }

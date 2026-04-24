@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -79,7 +80,7 @@ public sealed class ScheduleWebHostTests
     }
 
     [Fact]
-    public async Task ScheduleEndpoints_CookieRouteIsDeferredAndPreferredStaysMobileOnly()
+    public async Task ScheduleEndpoints_CookieRouteRefreshesJwCacheAndPreferredStaysMobileOnly()
     {
         using var webRoot = new TemporaryWebRoot();
         using var dataRoot = new TemporaryDirectory("xke-schedule-webhost-cookie");
@@ -105,17 +106,24 @@ public sealed class ScheduleWebHostTests
         Assert.True(loginData.GetProperty("connected").GetBoolean());
         Assert.Equal("live_fetch", loginData.GetProperty("cached_schedule").GetProperty("data_origin").GetString());
 
-        var cookieDenied = await client.PostAsJsonAsync($"/api/schedule/cookie?session_id={sessionId}", new ScheduleRequest
+        var cookieRefresh = await client.PostAsJsonAsync($"/api/schedule/cookie?session_id={sessionId}", new ScheduleRequest
         {
             Mode = "current",
         });
-        var cookieDeniedDoc = await ReadJsonAsync(cookieDenied);
+        var cookieData = GetData(await ReadJsonAsync(cookieRefresh));
 
-        Assert.Equal(HttpStatusCode.Conflict, cookieDenied.StatusCode);
-        Assert.False(cookieDeniedDoc.RootElement.GetProperty("ok").GetBoolean());
-        Assert.Equal("教务系统验证码登录暂未接入，请先使用移动教务课表", cookieDeniedDoc.RootElement.GetProperty("msg").GetString());
-        Assert.Equal("教务系统验证码登录暂未接入，请先使用移动教务课表", cookieDeniedDoc.RootElement.GetProperty("detail").GetString());
-        Assert.Equal(0, fakeSchedule.CookieCalls);
+        Assert.Equal(HttpStatusCode.OK, cookieRefresh.StatusCode);
+        Assert.Equal("jw_schedule", cookieData.GetProperty("source_key").GetString());
+        Assert.Equal("jw", cookieData.GetProperty("source_type").GetString());
+        Assert.Equal("live_fetch", cookieData.GetProperty("data_origin").GetString());
+        Assert.Equal("第8周", cookieData.GetProperty("week_label").GetString());
+        Assert.Equal(1, fakeSchedule.CookieCalls);
+
+        var cookieLocal = await client.GetAsync($"/api/schedule/local?session_id={sessionId}&source=cookie");
+        var cookieLocalData = GetData(await ReadJsonAsync(cookieLocal));
+        Assert.Equal(HttpStatusCode.OK, cookieLocal.StatusCode);
+        Assert.True(cookieLocalData.GetProperty("cached").GetBoolean());
+        Assert.Equal("jw_schedule", cookieLocalData.GetProperty("source_key").GetString());
 
         fakeSchedule.FailPreferredOnce = true;
         var fallback = await client.PostAsJsonAsync($"/api/schedule/preferred?session_id={sessionId}", new ScheduleRequest
@@ -129,7 +137,7 @@ public sealed class ScheduleWebHostTests
         Assert.False(fallbackDoc.RootElement.GetProperty("ok").GetBoolean());
         Assert.Equal("移动教务暂不可用", fallbackDoc.RootElement.GetProperty("msg").GetString());
         Assert.Equal("移动教务暂不可用", fallbackDoc.RootElement.GetProperty("detail").GetString());
-        Assert.Equal(0, fakeSchedule.CookieCalls);
+        Assert.Equal(1, fakeSchedule.CookieCalls);
     }
 
     [Fact]
@@ -187,13 +195,79 @@ public sealed class ScheduleWebHostTests
         var local = await secondClient.SendAsync(localRequest);
         Assert.Equal(HttpStatusCode.OK, local.StatusCode);
 
-        var cookieDenied = await secondClient.PostAsJsonAsync($"/api/schedule/cookie?session_id={sessionId}", new ScheduleRequest
+        var cookieRefresh = await secondClient.PostAsJsonAsync($"/api/schedule/cookie?session_id={sessionId}", new ScheduleRequest
         {
             Mode = "current",
         });
-        var cookieDeniedDoc = await ReadJsonAsync(cookieDenied);
-        Assert.Equal(HttpStatusCode.Conflict, cookieDenied.StatusCode);
-        Assert.Equal("教务系统验证码登录暂未接入，请先使用移动教务课表", cookieDeniedDoc.RootElement.GetProperty("detail").GetString());
+        var cookieData = GetData(await ReadJsonAsync(cookieRefresh));
+        Assert.Equal(HttpStatusCode.OK, cookieRefresh.StatusCode);
+        Assert.Equal("jw_schedule", cookieData.GetProperty("source_key").GetString());
+    }
+
+    [Fact]
+    public void TraditionalJwScheduleHtmlParser_ParsesCookieFixture()
+    {
+        var html = ReadFixtureText(Path.Combine("fixtures", "schedule", "sample_cookie_schedule.html"));
+        var result = new TraditionalJwScheduleHtmlParser().Parse(html, new ScheduleRequest
+        {
+            Mode = "current",
+        });
+
+        Assert.Equal("jw_schedule", result.SourceKey);
+        Assert.Equal("jw", result.SourceType);
+        Assert.Equal("第8周", result.WeekLabel);
+        Assert.NotEmpty(result.Rows);
+        Assert.Equal("高等数学", result.Rows[0]["course_name"]);
+        Assert.Equal("星期一", result.Rows[0]["weekday"]);
+        Assert.Equal("第1-2节", result.Rows[0]["section"]);
+        Assert.NotEmpty(result.BlockTimes);
+    }
+
+    [Fact]
+    public async Task ScheduleEndpoints_CaptchaRequiredReturnsChallengeAndSubmitContinues()
+    {
+        using var webRoot = new TemporaryWebRoot();
+        using var dataRoot = new TemporaryDirectory("xke-schedule-webhost-captcha");
+        var fakeSchedule = new FakeJwScheduleClient
+        {
+            RequireCaptchaOnce = true,
+        };
+
+        await using var host = await WebHostTestServer.StartAsync(
+            webRoot,
+            dataRoot,
+            hostMode: "test-schedule",
+            jwAuthClient: new FakeJwAuthClient(),
+            jwScheduleClient: fakeSchedule);
+        var client = host.Client;
+        var sessionId = GetData(await ReadJsonAsync(await client.PostAsJsonAsync("/api/auth/login", new
+        {
+            user = "20260001",
+            password = "secret",
+            prelogin_mode = "capture",
+        }))).GetProperty("session_id").GetString()!;
+
+        var challenge = await client.PostAsJsonAsync($"/api/schedule/cookie?session_id={sessionId}", new ScheduleRequest
+        {
+            Mode = "current",
+        });
+        var challengeData = GetData(await ReadJsonAsync(challenge));
+
+        Assert.Equal(HttpStatusCode.OK, challenge.StatusCode);
+        Assert.Equal("captcha_required", challengeData.GetProperty("status").GetString());
+        Assert.False(string.IsNullOrWhiteSpace(challengeData.GetProperty("challenge_id").GetString()));
+        Assert.False(string.IsNullOrWhiteSpace(challengeData.GetProperty("captcha_image").GetString()));
+
+        var submit = await client.PostAsJsonAsync($"/api/auth/jw-captcha/submit?session_id={sessionId}", new JwCaptchaSubmitRequest
+        {
+            ChallengeId = challengeData.GetProperty("challenge_id").GetString()!,
+            CaptchaCode = "2468",
+        });
+        var submitData = GetData(await ReadJsonAsync(submit));
+
+        Assert.Equal(HttpStatusCode.OK, submit.StatusCode);
+        Assert.Equal("jw_schedule", submitData.GetProperty("source_key").GetString());
+        Assert.Equal("live_fetch", submitData.GetProperty("data_origin").GetString());
     }
 
     [Fact]
@@ -280,6 +354,23 @@ public sealed class ScheduleWebHostTests
     {
         var text = await response.Content.ReadAsStringAsync();
         return JsonDocument.Parse(text);
+    }
+
+    private static string ReadFixtureText(string relativePath)
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        while (current is not null)
+        {
+            var candidate = Path.Combine(current.FullName, relativePath);
+            if (File.Exists(candidate))
+            {
+                return File.ReadAllText(candidate);
+            }
+
+            current = current.Parent;
+        }
+
+        throw new FileNotFoundException($"Fixture not found: {relativePath}");
     }
 
     private static NoticeFixture CreateBlockedNoticeFixture(string blockedStudentId)
@@ -449,6 +540,7 @@ public sealed class ScheduleWebHostTests
     {
         public bool FailPreferredOnce { get; set; }
         public bool IncludeMissingSectionWarning { get; set; }
+        public bool RequireCaptchaOnce { get; set; }
         public int PreferredCalls { get; private set; }
         public int CookieCalls { get; private set; }
         public string LastExistingToken { get; private set; } = string.Empty;
@@ -469,6 +561,25 @@ public sealed class ScheduleWebHostTests
         public Task<JwScheduleFetchResult> FetchCookieAsync(string user, string password, string preloginMode, ScheduleRequest request, CancellationToken cancellationToken = default, string existingToken = "", MobileJwEncryptedCredentialDocument? mobileJw = null)
         {
             CookieCalls++;
+            if (RequireCaptchaOnce)
+            {
+                RequireCaptchaOnce = false;
+                throw new JwCaptchaRequiredException(
+                    "需要输入教务系统验证码",
+                    "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxODAiIGhlaWdodD0iNjQiPjx0ZXh0IHg9IjIwIiB5PSIzNiI+SldURVNUPC90ZXh0Pjwvc3ZnPg==",
+                    expiresInSeconds: 120,
+                    continueAsync: (captchaCode, token) =>
+                    {
+                        token.ThrowIfCancellationRequested();
+                        if (!string.Equals(captchaCode, "2468", StringComparison.Ordinal))
+                        {
+                            throw new JwScheduleException("验证码错误");
+                        }
+
+                        return Task.FromResult(BuildResult("jw_schedule", "教务系统课表", "jw", 8, "Cookie 课表刷新成功"));
+                    });
+            }
+
             return Task.FromResult(BuildResult("jw_schedule", "教务系统课表", "jw", 8, "Cookie 课表刷新成功"));
         }
 

@@ -1,0 +1,1989 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>XKE·软大课务</title>
+    <script>
+      (function () {
+        try {
+          var themeId = localStorage.getItem("xke-theme-fallback");
+          if (themeId) document.documentElement.dataset.theme = themeId;
+        } catch (error) {
+          void error;
+        }
+      })();
+    </script>
+    <link
+      rel="stylesheet"
+      href="/assets/styles/themes.css?v=20260315-packprep1"
+    />
+    <link
+      rel="stylesheet"
+      href="/assets/styles/base.css?v=20260321-devabout1"
+    />
+  </head>
+  <body>
+    <div id="app">
+      <div
+        class="desktop-chrome-shell hidden"
+        id="desktopChromeShell"
+        aria-hidden="true"
+      >
+        <div
+          class="desktop-drag-strip pywebview-drag-region"
+          id="desktopChromeHandle"
+          aria-hidden="true"
+        ></div>
+        <div class="desktop-chrome" id="desktopChrome">
+          <div
+            class="desktop-chrome-controls"
+            role="toolbar"
+            aria-label="窗口控制"
+          >
+            <button
+              class="desktop-window-control is-minimize"
+              id="btnDesktopMinimize"
+              type="button"
+              aria-label="最小化窗口"
+            >
+              <span class="desktop-window-control-core">
+                <span
+                  class="desktop-window-control-glyph glyph-minimize"
+                  aria-hidden="true"
+                ></span>
+              </span>
+            </button>
+            <button
+              class="desktop-window-control is-maximize"
+              id="btnDesktopMaximize"
+              type="button"
+              aria-label="放大窗口"
+              data-mode="maximize"
+            >
+              <span class="desktop-window-control-core">
+                <span
+                  class="desktop-window-control-glyph glyph-maximize"
+                  aria-hidden="true"
+                ></span>
+              </span>
+            </button>
+            <button
+              class="desktop-window-control is-close"
+              id="btnDesktopClose"
+              type="button"
+              aria-label="关闭窗口"
+            >
+              <span class="desktop-window-control-core">
+                <span
+                  class="desktop-window-control-glyph glyph-close"
+                  aria-hidden="true"
+                ></span>
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="system-status-hidden" aria-hidden="true">
+        <span class="status-dot" id="connDot"></span>
+        <span class="status-text" id="connText">未连接</span>
+      </div>
+
+      <main class="workspace">
+        <!-- Login -->
+        <section class="card login-card" id="loginCard">
+          <div class="login-hero" id="loginHero">
+            <div class="login-hero-copywrap">
+              <h1 class="login-hero-mark">
+                <span class="login-hero-mark-dot"></span>XKE·软大课务
+              </h1>
+            </div>
+            <div class="login-scene" id="loginScene" aria-hidden="true">
+              <div class="login-installation">
+                <span class="login-installation-aura"></span>
+                <span class="login-installation-haze"></span>
+                <span class="login-installation-lens"></span>
+                <span class="login-installation-ribbon"></span>
+                <span class="login-installation-orbit orbit-horizontal"></span>
+                <span class="login-installation-orbit orbit-vertical"></span>
+                <span class="login-installation-prism prism-back"></span>
+                <span class="login-installation-prism prism-front"></span>
+                <div class="login-installation-mirror">
+                  <span class="login-installation-shadow"></span>
+                  <span class="login-installation-plane"></span>
+                  <span class="login-installation-trace"></span>
+                  <span class="login-installation-echo"></span>
+                </div>
+                <span class="login-installation-seal">
+                  <span class="login-installation-mouse-wheel"></span>
+                  <span class="login-installation-mouse-core"></span>
+                  <span class="login-installation-mouse-feet"></span>
+                </span>
+              </div>
+            </div>
+          </div>
+          <div class="login-form-panel">
+            <div class="login-beta-banner" id="loginBetaBanner">内测版本</div>
+            <div class="card-header">
+              <h2>进入工作区</h2>
+            </div>
+            <div class="card-body">
+              <section
+                class="trusted-account-panel hidden"
+                id="trustedAccountPanel"
+                aria-live="polite"
+              >
+                <div class="trusted-account-head">
+                  <div>
+                    <strong>本机可信账号</strong>
+                    <p>选择已保存的账号进入，不需要再次输入密码。</p>
+                  </div>
+                  <button
+                    class="btn ghost small"
+                    id="btnTrustedAccountUsePassword"
+                    type="button"
+                  >
+                    使用密码初始化
+                  </button>
+                </div>
+                <div
+                  class="trusted-account-list"
+                  id="trustedAccountList"
+                ></div>
+                <p class="trusted-account-hint" id="trustedAccountHint">
+                  退出登录只会结束当前会话；如需移除自动进入能力，请点击“忘记”。
+                </p>
+              </section>
+              <form class="login-form" id="loginForm" autocomplete="on">
+                <div class="field field-user">
+                  <label>学号</label>
+                  <input
+                    type="text"
+                    id="inputUser"
+                    placeholder="统一认证学号"
+                    autocomplete="username"
+                  />
+                </div>
+                <div class="field field-password">
+                  <label>密码</label>
+                  <div class="field-control">
+                    <input
+                      type="password"
+                      id="inputPassword"
+                      placeholder="统一认证密码"
+                      autocomplete="current-password"
+                    />
+                    <button
+                      class="field-toggle"
+                      id="btnPasswordVisibility"
+                      type="button"
+                      aria-pressed="false"
+                      aria-label="显示密码"
+                      title="显示密码"
+                    >
+                      <svg
+                        class="field-toggle-eye eye-open"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                        aria-hidden="true"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          d="M2.25 12s3.75-6.75 9.75-6.75S21.75 12 21.75 12s-3.75 6.75-9.75 6.75S2.25 12 2.25 12Z"
+                        />
+                        <circle cx="12" cy="12" r="2.8" />
+                      </svg>
+                      <svg
+                        class="field-toggle-eye eye-closed"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                        aria-hidden="true"
+                        hidden
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          d="M4.5 4.5 19.5 19.5"
+                        />
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          d="M9.9 5.8A10.9 10.9 0 0 1 12 5.25c6 0 9.75 6.75 9.75 6.75a17.6 17.6 0 0 1-3.04 3.91"
+                        />
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          d="M14.12 14.12A3 3 0 0 1 9.88 9.88"
+                        />
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          d="M6.52 9.02A17.58 17.58 0 0 0 2.25 12s3.75 6.75 9.75 6.75c1.53 0 2.95-.44 4.24-1.1"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <button
+                  class="btn primary full login-submit"
+                  id="btnLogin"
+                  type="submit"
+                >
+                  <span class="login-submit-text">登录</span>
+                  <span class="login-submit-accent" aria-hidden="true"></span>
+                </button>
+                <button
+                  class="btn ghost full login-reinitialize hidden"
+                  id="btnReinitializeAuth"
+                  type="button"
+                >
+                  重新初始化本地数据
+                </button>
+              </form>
+              <div class="msg" id="loginMsg"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Dashboard -->
+        <div class="dashboard hidden" id="dashboard">
+          <aside class="sidebar-shell">
+            <div class="profile-block">
+              <div class="profile-header-wrap">
+                <div class="profile-avatar" id="profileAvatar">
+                  <img
+                    class="profile-avatar-img hidden"
+                    id="profileAvatarImg"
+                    alt="头像"
+                  />
+                  <svg
+                    id="profileAvatarIcon"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"
+                    />
+                  </svg>
+                  <button
+                    class="avatar-upload-trigger"
+                    id="btnAvatarUpload"
+                    type="button"
+                  >
+                    更换
+                  </button>
+                  <input
+                    class="hidden"
+                    id="inputAvatar"
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                  />
+                </div>
+                <div class="profile-header-text">
+                  <div class="profile-name" id="studentName">--</div>
+                  <div class="profile-meta" id="studentMeta">基础信息</div>
+                </div>
+              </div>
+              <div class="profile-details">
+                <div id="profileAcademy"></div>
+                <div id="profileMajorClass"></div>
+                <div id="profileName" class="hidden"></div>
+                <div id="profileLevel"></div>
+              </div>
+            </div>
+
+            <section
+              class="sidebar-quote-card"
+              id="hitokotoCard"
+              aria-live="polite"
+            >
+              <div class="sidebar-quote-body" id="hitokotoContent">
+                <div class="quote-content" id="btnHitokoto">
+                  <div class="quote-sentence">正在准备一段话…</div>
+                </div>
+              </div>
+            </section>
+
+            <nav class="side-nav">
+              <button class="tab active" data-tab="schedule" type="button">
+                <svg
+                  width="16"
+                  height="16"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                  ></path>
+                </svg>
+                课表
+              </button>
+              <button class="tab" data-tab="network" type="button">
+                <svg
+                  width="16"
+                  height="16"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 011.06 0z"
+                  ></path>
+                </svg>
+                校园网
+              </button>
+              <button class="tab" data-tab="course" type="button">
+                <svg
+                  width="16"
+                  height="16"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
+                  ></path>
+                </svg>
+                选课中心
+              </button>
+              <button class="tab" data-tab="settings" type="button">
+                <svg
+                  width="16"
+                  height="16"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+                  ></path>
+                  <circle cx="12" cy="12" r="3" stroke-width="2"></circle>
+                </svg>
+                设置
+              </button>
+              <button class="tab" data-tab="log" type="button">
+                <svg
+                  width="16"
+                  height="16"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                  ></path>
+                </svg>
+                运行日志
+              </button>
+              <button
+                class="tab tab-updates"
+                data-tab="updates"
+                id="tabUpdates"
+                type="button"
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="1.9"
+                    d="M14.857 17.082a23.91 23.91 0 005.454-1.31A8.963 8.963 0 0018 9.75V9A6 6 0 006 9v.75a8.963 8.963 0 00-2.311 6.022 23.91 23.91 0 005.454 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"
+                  ></path>
+                </svg>
+                <span class="tab-label">公告</span>
+                <span
+                  class="tab-notice-dot hidden"
+                  id="updatesTabDot"
+                  aria-hidden="true"
+                ></span>
+              </button>
+              <button class="tab" data-tab="about" id="tabAbout" type="button">
+                <svg
+                  width="16"
+                  height="16"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="1.9"
+                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  ></path>
+                </svg>
+                关于
+              </button>
+            </nav>
+
+            <div class="sidebar-bottom">
+              <button class="btn primary full" id="btnConnectJw" type="button">
+                验证移动教务
+              </button>
+              <button class="btn default full" id="btnLogout" type="button">
+                注销登录
+              </button>
+            </div>
+          </aside>
+
+          <section class="content-shell">
+            <!-- Schedule -->
+            <section class="tab-panel active" id="panelSchedule">
+              <div class="board-wrap" id="schedBoardWrap">
+                <div
+                  class="board-loading hidden"
+                  id="schedLoading"
+                  aria-live="polite"
+                  aria-busy="true"
+                >
+                  <div class="board-loading-panel">
+                    <div class="board-loading-spinner" aria-hidden="true">
+                      <span></span><span></span><span></span>
+                    </div>
+                    <div class="board-loading-copy">
+                      <strong>正在准备课表</strong>
+                      <p id="schedLoadingLabel">正在加载本周课表...</p>
+                    </div>
+                    <div class="board-loading-skeleton" aria-hidden="true">
+                      <span class="skeleton-block wide"></span>
+                      <span class="skeleton-block mid"></span>
+                      <span class="skeleton-block narrow"></span>
+                    </div>
+                  </div>
+                </div>
+                <div class="board" id="schedBoard"></div>
+                <div
+                  class="empty hidden"
+                  id="schedEmpty"
+                  tabindex="0"
+                  aria-live="polite"
+                ></div>
+              </div>
+              <div id="schedWarnings" class="sched-warnings hidden"></div>
+              <div class="schedule-info-bar is-empty" id="schedStatusBar">
+                <div class="schedule-info-copy">
+                  <div class="schedule-info-summary" id="schedInfo">
+                    暂无课表数据
+                  </div>
+                  <div class="schedule-info-meta" id="schedDataMeta">
+                    登录后会优先读取本地缓存课表，并在这里标注数据源与更新时间。
+                  </div>
+                </div>
+                <div class="schedule-info-actions">
+                  <button
+                    class="btn primary small"
+                    id="btnSchedFetch"
+                    type="button"
+                  >
+                    刷新课表
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <!-- Course -->
+            <section class="tab-panel" id="panelCourse">
+              <div class="panel-header">
+                <h2>选课中心</h2>
+                <div class="course-toolbar">
+                  <div class="course-round-picker field inline">
+                    <label>选课轮次</label>
+                    <div class="round-combobox" id="roundCombobox">
+                      <button
+                        class="round-combobox-trigger"
+                        id="btnRoundSelect"
+                        type="button"
+                      >
+                        请选择选课轮次
+                      </button>
+                      <div
+                        class="round-combobox-menu hidden"
+                        id="roundMenu"
+                      ></div>
+                    </div>
+                    <select id="selectRound" class="short-select hidden">
+                      <option value="">请选择轮次</option>
+                    </select>
+                  </div>
+                  <div class="course-toolbar-actions">
+                    <button
+                      class="btn default small course-toolbar-btn"
+                      id="btnCourseConnect"
+                      type="button"
+                      disabled
+                    >
+                      后续接入
+                    </button>
+                    <button
+                      class="btn default small course-toolbar-btn"
+                      id="btnLoadRounds"
+                      type="button"
+                    >
+                      加载轮次
+                    </button>
+                    <button
+                      class="btn primary small course-toolbar-btn"
+                      id="btnPreview"
+                      type="button"
+                    >
+                      获取列表
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <input type="hidden" id="inputZbid" />
+
+              <div class="data-table-wrap">
+                <table class="data-table" id="courseTable">
+                  <thead>
+                    <tr>
+                      <th>课程名</th>
+                      <th>授课教师</th>
+                      <th>时间</th>
+                      <th>地点</th>
+                      <th>学分</th>
+                      <th>余量</th>
+                    </tr>
+                  </thead>
+                  <tbody id="courseBody"></tbody>
+                </table>
+                <div class="empty hidden" id="courseEmpty">暂无公选列表</div>
+              </div>
+              <div class="table-footnote">
+                <span id="courseInfo"></span>
+                <span class="highlight" id="courseConnectionStatus">未登录</span>
+                <span class="highlight" id="selectedCourse">未选中</span>
+              </div>
+
+              <div class="form-section course-grab-section">
+                <h3>快速抢课</h3>
+                <div class="inline-form course-grab-form">
+                  <div class="field course-grab-field">
+                    <label>课程代码 (jx02id)</label>
+                    <input type="text" id="grabKcid" readonly />
+                  </div>
+                  <div class="field course-grab-field">
+                    <label>教学代码 (jx0404id)</label>
+                    <input type="text" id="grabJx0404id" readonly />
+                  </div>
+                  <div class="field course-grab-field course-grab-frequency">
+                    <label>频率(秒)</label>
+                    <input
+                      type="number"
+                      id="grabInterval"
+                      value="0.5"
+                      step="0.1"
+                      min="0.5"
+                    />
+                  </div>
+                  <div class="course-grab-actions-wrap">
+                    <div class="btn-group course-grab-actions">
+                      <button
+                        class="btn primary"
+                        id="btnGrabStart"
+                        type="button"
+                        disabled
+                      >
+                        开始抢课
+                      </button>
+                      <button
+                        class="btn default"
+                        id="btnGrabStop"
+                        type="button"
+                        disabled
+                      >
+                        停止抢课
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div
+                  class="course-grab-status"
+                  id="grabMsg"
+                  data-state="info"
+                  aria-live="polite"
+                >
+                  <span class="course-grab-status-badge">后续切片</span>
+                  <p class="course-grab-status-message">
+                    当前只交付选课中心连接、轮次和课程预览，快速抢课后续单独开发。
+                  </p>
+                  <span class="course-grab-status-meta">本轮不启动真实轮询</span>
+                </div>
+              </div>
+            </section>
+
+            <!-- Campus Network -->
+            <section class="tab-panel" id="panelNetwork">
+              <div class="network-panel-grid">
+                <section class="sidebar-settings-card network-status-card">
+                  <div class="panel-header network-panel-header">
+                    <div>
+                      <h2>校园网保活</h2>
+                    </div>
+                    <div class="network-panel-actions">
+                      <button
+                        class="btn default small"
+                        id="btnNetworkRefresh"
+                        type="button"
+                      >
+                        立即检测
+                      </button>
+                      <button
+                        class="btn primary small"
+                        id="btnNetworkHeartbeat"
+                        type="button"
+                      >
+                        补发心跳
+                      </button>
+                    </div>
+                  </div>
+                  <div class="network-status-hero">
+                    <div class="network-status-pill" id="networkCampusStatus">
+                      校园网未检测
+                    </div>
+                    <div class="network-status-pill" id="networkInternetStatus">
+                      外网未检测
+                    </div>
+                    <div class="network-status-pill" id="networkHeartbeatState">
+                      保活未开启
+                    </div>
+                  </div>
+                  <div
+                    class="network-status-summary"
+                    id="networkStatusSummary"
+                  ></div>
+
+                  <div class="network-status-grid-section">
+                    <div class="network-status-section-title">连接信息</div>
+                    <div class="network-status-grid">
+                      <div>
+                        <span>门户地址</span>
+                        <strong id="networkPortalHost">10.199.199.199</strong>
+                      </div>
+                      <div>
+                        <span>本机 IP</span>
+                        <strong id="networkLocalIp">--</strong>
+                      </div>
+                      <div>
+                        <span>认证 IP</span>
+                        <strong id="networkAuthIp">--</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="network-status-grid-section">
+                    <div class="network-status-section-title">网络配置</div>
+                    <div class="network-status-grid">
+                      <div>
+                        <span>网卡</span>
+                        <strong id="networkInterfaceName">--</strong>
+                      </div>
+                      <div>
+                        <span>子网掩码</span>
+                        <strong id="networkSubnetMask">--</strong>
+                      </div>
+                      <div>
+                        <span>默认网关</span>
+                        <strong id="networkGateway">--</strong>
+                      </div>
+                      <div>
+                        <span>DNS</span>
+                        <strong id="networkDnsServers">--</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="network-status-grid-section">
+                    <div class="network-status-section-title">账号信息</div>
+                    <div class="network-status-grid network-status-grid-3col">
+                      <div>
+                        <span>认证账号</span>
+                        <strong id="networkActiveAccount">--</strong>
+                      </div>
+                      <div>
+                        <span>在线时长</span>
+                        <strong id="networkOnlineDuration">--</strong>
+                      </div>
+                      <div>
+                        <span>已用流量</span>
+                        <strong id="networkUsedFlow">--</strong>
+                      </div>
+                      <div>
+                        <span>最近检查</span>
+                        <strong id="networkCheckedAt">--</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="network-attempts" id="networkAttempts">
+                    最近一次检测结果会显示在这里。
+                  </div>
+                </section>
+
+                <section class="sidebar-settings-card network-config-card">
+                  <div class="sidebar-settings-header">
+                    <div>
+                      <h3>认证配置</h3>
+                      <p class="sidebar-settings-subtitle">
+                        切换认证方式后保存即可。
+                      </p>
+                    </div>
+                  </div>
+                  <div class="network-config-grid">
+                    <div class="field inline">
+                      <label>认证类型</label>
+                      <div class="round-combobox" id="networkProviderCombobox">
+                        <button
+                          class="round-combobox-trigger"
+                          id="btnNetworkProviderSelect"
+                          type="button"
+                          aria-expanded="false"
+                        >
+                          校园账号
+                        </button>
+                        <div
+                          class="round-combobox-menu hidden"
+                          id="networkProviderMenu"
+                        ></div>
+                      </div>
+                      <select
+                        id="networkProvider"
+                        class="short-select hidden"
+                        aria-hidden="true"
+                        tabindex="-1"
+                      >
+                        <option value="campus">校园账号</option>
+                        <option value="telecom">中国电信</option>
+                        <option value="unicom">中国联通</option>
+                        <option value="mobile">中国移动</option>
+                      </select>
+                    </div>
+                    <div class="field inline">
+                      <label>保活间隔</label>
+                      <div
+                        class="round-combobox"
+                        id="networkHeartbeatIntervalCombobox"
+                      >
+                        <button
+                          class="round-combobox-trigger"
+                          id="btnNetworkHeartbeatIntervalSelect"
+                          type="button"
+                          aria-expanded="false"
+                        >
+                          每 5 分钟
+                        </button>
+                        <div
+                          class="round-combobox-menu hidden"
+                          id="networkHeartbeatIntervalMenu"
+                        ></div>
+                      </div>
+                      <select
+                        id="networkHeartbeatInterval"
+                        class="short-select hidden"
+                        aria-hidden="true"
+                        tabindex="-1"
+                      >
+                        <option value="3">每 3 分钟</option>
+                        <option value="5">每 5 分钟</option>
+                        <option value="10">每 10 分钟</option>
+                        <option value="15">每 15 分钟</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div
+                    class="network-campus-fields hidden"
+                    id="networkCampusFields"
+                  >
+                    <div class="network-campus-fields-head">
+                      <div>
+                        <h4>修改 IP</h4>
+                        <p>
+                          当前版本暂未开放该能力，后续版本再补充系统权限申请与网卡应用流程。
+                        </p>
+                      </div>
+                      <!-- 未来开发：当前版本不开放本机网卡 IP 直接修改入口。 -->
+                      <button
+                        class="btn default small"
+                        id="btnNetworkApplyIp"
+                        type="button"
+                        disabled
+                        title="暂未开放，未来开发"
+                      >
+                        暂未开放
+                      </button>
+                    </div>
+                    <div class="network-campus-fields-grid">
+                      <div class="field">
+                        <label for="networkCampusIp">IP 地址</label>
+                        <input
+                          type="text"
+                          id="networkCampusIp"
+                          placeholder="选填"
+                        />
+                      </div>
+                      <div class="field">
+                        <label for="networkCampusSubnetPrefix">子网掩码</label>
+                        <input
+                          type="number"
+                          id="networkCampusSubnetPrefix"
+                          min="1"
+                          max="32"
+                          step="1"
+                          value="24"
+                        />
+                      </div>
+                      <div class="field">
+                        <label for="networkCampusGateway">默认网关</label>
+                        <input
+                          type="text"
+                          id="networkCampusGateway"
+                          placeholder="默认"
+                        />
+                      </div>
+                      <div class="field">
+                        <label for="networkCampusDns">DNS</label>
+                        <input
+                          type="text"
+                          id="networkCampusDns"
+                          placeholder="默认"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <label
+                    class="checkbox-field inline network-enable-toggle"
+                    for="networkHeartbeatEnabled"
+                  >
+                    <input type="checkbox" id="networkHeartbeatEnabled" />
+                    <span>开启自动保活</span>
+                  </label>
+                  <div
+                    class="network-operator-fields hidden"
+                    id="networkOperatorFields"
+                  >
+                    <div class="field">
+                      <label id="networkAccountLabel"></label>
+                      <input
+                        type="text"
+                        id="networkAccount"
+                        placeholder="手机号 / 宽带账号"
+                      />
+                    </div>
+                    <div class="field">
+                      <label id="networkPasswordLabel"></label>
+                      <input
+                        type="password"
+                        id="networkPassword"
+                        placeholder="运营商密码"
+                      />
+                    </div>
+                  </div>
+                  <div class="network-config-actions">
+                    <button
+                      class="btn primary"
+                      id="btnNetworkSaveConfig"
+                      type="button"
+                    >
+                      保存校园网配置
+                    </button>
+                  </div>
+                </section>
+              </div>
+            </section>
+
+            <!-- Settings -->
+            <section class="tab-panel" id="panelSettings">
+              <section class="sidebar-settings-card" id="scheduleSettings">
+                <div class="sidebar-settings-header">
+                  <div>
+                    <h3>课表设置</h3>
+                    <p class="sidebar-settings-subtitle" id="autoRqText">--</p>
+                  </div>
+                  <div class="sidebar-settings-actions">
+                    <button
+                      class="btn default small btn-toggle-settings"
+                      id="btnToggleScheduleSettings"
+                      type="button"
+                      data-target="scheduleSettingsBody"
+                    >
+                      展开设置
+                    </button>
+                  </div>
+                </div>
+                <div class="sidebar-settings-summary">
+                  <div>
+                    <span>数据节点</span>
+                    <strong id="schedSourceQuick">--</strong>
+                  </div>
+                  <div>
+                    <span>自动刷新</span>
+                    <strong id="schedRefreshQuick">已关闭</strong>
+                  </div>
+                  <div>
+                    <span>周末跳周</span>
+                    <strong id="schedWeekendQuick">已关闭</strong>
+                  </div>
+                  <div>
+                    <span>高级设置</span>
+                    <strong id="schedSettingsState">已收起</strong>
+                  </div>
+                </div>
+                <div
+                  class="sidebar-settings-body hidden"
+                  id="scheduleSettingsBody"
+                >
+                  <!-- 数据节点选择器 - 使用统一的 round-combobox 组件 -->
+                  <div class="field">
+                    <label>数据节点</label>
+                    <div
+                      class="round-combobox sched-source-combobox"
+                      id="schedSourceCombobox"
+                    >
+                      <button
+                        class="round-combobox-trigger"
+                        id="btnSchedSourceSelect"
+                        type="button"
+                        aria-expanded="false"
+                      >
+                        自动选择
+                      </button>
+                      <div
+                        class="round-combobox-menu hidden"
+                        id="schedSourceMenu"
+                      ></div>
+                    </div>
+                    <!-- 原生 select 用于存储值，保持与后端兼容性 -->
+                    <select
+                      id="schedSource"
+                      class="short-select hidden"
+                      aria-hidden="true"
+                      tabindex="-1"
+                    >
+                      <option value="preferred">自动选择</option>
+                      <option value="mobile">移动教务</option>
+                      <option value="cookie">教务系统</option>
+                    </select>
+                  </div>
+                  <div class="settings-mode-note">
+                    自动选择仍以移动教务为主；教务系统来源用于开发态验证，遇到验证码时会弹出人工输入窗口。
+                  </div>
+                  <section class="schedule-settings-group">
+                    <div class="schedule-settings-group-head">
+                      <div>
+                        <h4>定时刷新课表</h4>
+                        <p>
+                          用于降低调课遗漏风险；移动教务保持原刷新行为，教务系统来源需人工验证码时会暂停等待输入。
+                        </p>
+                      </div>
+                      <label
+                        class="checkbox-field inline schedule-compact-toggle"
+                        for="schedAutoRefreshEnabled"
+                      >
+                        <input type="checkbox" id="schedAutoRefreshEnabled" />
+                        <span>开启</span>
+                      </label>
+                    </div>
+                    <div class="schedule-settings-inline-grid">
+                      <div class="field inline">
+                        <label>刷新方式</label>
+                        <div
+                          class="round-combobox"
+                          id="schedAutoRefreshModeCombobox"
+                        >
+                          <button
+                            class="round-combobox-trigger"
+                            id="btnSchedAutoRefreshModeSelect"
+                            type="button"
+                            aria-expanded="false"
+                          >
+                            每天定时
+                          </button>
+                          <div
+                            class="round-combobox-menu hidden"
+                            id="schedAutoRefreshModeMenu"
+                          ></div>
+                        </div>
+                        <select
+                          id="schedAutoRefreshMode"
+                          class="short-select hidden"
+                          aria-hidden="true"
+                          tabindex="-1"
+                        >
+                          <option value="daily">每天定时</option>
+                          <option value="interval">每隔数小时</option>
+                        </select>
+                      </div>
+                      <div class="field inline" id="schedAutoRefreshDailyField">
+                        <label>执行时间</label>
+                        <div class="schedule-time-picker">
+                          <div
+                            class="round-combobox schedule-time-combobox"
+                            id="schedAutoRefreshDailyHourCombobox"
+                          >
+                            <button
+                              class="round-combobox-trigger schedule-time-trigger"
+                              id="btnSchedAutoRefreshDailyHourSelect"
+                              type="button"
+                              aria-expanded="false"
+                            >
+                              20 时
+                            </button>
+                            <div
+                              class="round-combobox-menu hidden schedule-time-menu"
+                              id="schedAutoRefreshDailyHourMenu"
+                            ></div>
+                          </div>
+                        </div>
+                        <input
+                          type="hidden"
+                          id="schedAutoRefreshDailyTime"
+                          value="20:00"
+                        />
+                      </div>
+                      <div
+                        class="field inline hidden"
+                        id="schedAutoRefreshIntervalField"
+                      >
+                        <label>间隔时长</label>
+                        <div
+                          class="round-combobox"
+                          id="schedAutoRefreshIntervalCombobox"
+                        >
+                          <button
+                            class="round-combobox-trigger"
+                            id="btnSchedAutoRefreshIntervalSelect"
+                            type="button"
+                            aria-expanded="false"
+                          >
+                            每 4 小时
+                          </button>
+                          <div
+                            class="round-combobox-menu hidden"
+                            id="schedAutoRefreshIntervalMenu"
+                          ></div>
+                        </div>
+                        <select
+                          id="schedAutoRefreshIntervalHours"
+                          class="short-select hidden"
+                          aria-hidden="true"
+                          tabindex="-1"
+                        >
+                          <option value="3">每 3 小时</option>
+                          <option value="4">每 4 小时</option>
+                          <option value="5">每 5 小时</option>
+                          <option value="6">每 6 小时</option>
+                        </select>
+                      </div>
+                    </div>
+                  </section>
+                  <section class="schedule-settings-group">
+                    <div class="schedule-settings-group-head">
+                      <div>
+                        <h4>课程提醒</h4>
+                        <p>
+                          根据当前课表和实时节次，在上课前按设定时间弹出桌面通知。
+                        </p>
+                      </div>
+                      <label
+                        class="checkbox-field inline schedule-compact-toggle"
+                        for="schedLessonReminderEnabled"
+                      >
+                        <input
+                          type="checkbox"
+                          id="schedLessonReminderEnabled"
+                        />
+                        <span>开启</span>
+                      </label>
+                    </div>
+                    <div class="schedule-settings-inline-grid">
+                      <div class="field inline">
+                        <label>提醒时间</label>
+                        <div
+                          class="round-combobox"
+                          id="schedLessonReminderCombobox"
+                        >
+                          <button
+                            class="round-combobox-trigger"
+                            id="btnSchedLessonReminderSelect"
+                            type="button"
+                            aria-expanded="false"
+                          >
+                            提前 15 分钟
+                          </button>
+                          <div
+                            class="round-combobox-menu hidden"
+                            id="schedLessonReminderMenu"
+                          ></div>
+                        </div>
+                        <select
+                          id="schedLessonReminderMinutes"
+                          class="short-select hidden"
+                          aria-hidden="true"
+                          tabindex="-1"
+                        >
+                          <option value="5">提前 5 分钟</option>
+                          <option value="10">提前 10 分钟</option>
+                          <option value="15">提前 15 分钟</option>
+                          <option value="20">提前 20 分钟</option>
+                          <option value="30">提前 30 分钟</option>
+                        </select>
+                      </div>
+                    </div>
+                  </section>
+                  <section class="schedule-settings-group">
+                    <div class="schedule-settings-group-head">
+                      <div>
+                        <h4>默认切到下周</h4>
+                        <p>
+                          当本周只剩被忽略的周末课程时，课表会默认跳到下周；你仍然可以手动切回本周查看。
+                        </p>
+                      </div>
+                      <label
+                        class="checkbox-field inline schedule-compact-toggle"
+                        for="schedWeekendAutoSwitchEnabled"
+                      >
+                        <input
+                          type="checkbox"
+                          id="schedWeekendAutoSwitchEnabled"
+                        />
+                        <span>开启</span>
+                      </label>
+                    </div>
+                    <div
+                      class="schedule-weekend-grid"
+                      id="schedWeekendIgnoreGrid"
+                      aria-label="忽略周末节次"
+                    ></div>
+                  </section>
+                </div>
+              </section>
+              <section
+                class="sidebar-settings-card collapsed"
+                id="loginModeSettingsCard"
+              >
+                <div class="sidebar-settings-header">
+                  <div>
+                    <h3>登录方式</h3>
+                    <p class="sidebar-settings-subtitle" id="loginModeHint">
+                      切换教务认证流程，下一次本地登录时生效。
+                    </p>
+                  </div>
+                  <div class="sidebar-settings-actions">
+                    <button
+                      class="btn default small btn-toggle-settings"
+                      type="button"
+                      data-target="loginModeSettingsBody"
+                    >
+                      展开设置
+                    </button>
+                  </div>
+                </div>
+                <div class="sidebar-settings-summary">
+                  <div>
+                    <span>当前流程</span><strong id="loginModeName">--</strong>
+                  </div>
+                  <div><span>生效时机</span><strong>下次连接</strong></div>
+                </div>
+                <div
+                  class="sidebar-settings-body hidden"
+                  id="loginModeSettingsBody"
+                >
+                  <div class="field">
+                    <label>联网认证流程</label>
+                    <div
+                      class="round-combobox login-mode-combobox"
+                      id="loginModeCombobox"
+                    >
+                      <button
+                        class="round-combobox-trigger"
+                        id="btnLoginModeSelect"
+                        type="button"
+                        aria-expanded="false"
+                      >
+                        请选择登录流程
+                      </button>
+                      <div
+                        class="round-combobox-menu hidden"
+                        id="loginModeMenu"
+                      ></div>
+                    </div>
+                    <select
+                      id="selectMode"
+                      class="short-select hidden"
+                      aria-hidden="true"
+                      tabindex="-1"
+                    >
+                      <option value="capture">录包重放</option>
+                      <option value="coded">代码自动化登录</option>
+                    </select>
+                  </div>
+                  <div class="settings-mode-note" id="loginModeDescription">
+                    首次无本地账号时会自动完成初始化；当前联网认证只验证移动教务，传统教务验证码链路后续接入。
+                  </div>
+                </div>
+              </section>
+
+              <section
+                class="sidebar-settings-card collapsed"
+                id="appearanceSettingsCard"
+              >
+                <div class="sidebar-settings-header">
+                  <div>
+                    <h3>外观皮肤</h3>
+                  </div>
+                  <div class="sidebar-settings-actions">
+                    <button
+                      class="btn default small btn-toggle-settings"
+                      type="button"
+                      data-target="appearanceSettingsBody"
+                    >
+                      展开设置
+                    </button>
+                  </div>
+                </div>
+                <div
+                  class="sidebar-settings-body hidden"
+                  id="appearanceSettingsBody"
+                >
+                  <div
+                    class="theme-option-grid"
+                    id="appearanceThemeGrid"
+                    aria-label="主题皮肤列表"
+                  ></div>
+                </div>
+              </section>
+
+              <section
+                class="sidebar-settings-card desktop-settings-card"
+                id="desktopSettingsCard"
+              >
+                <div class="sidebar-settings-header desktop-settings-header">
+                  <div>
+                    <h3>开机与托盘</h3>
+                  </div>
+                </div>
+                <div class="desktop-settings-grid" id="desktopSettingsBody">
+                  <article
+                    class="desktop-setting-tile"
+                    data-desktop-setting="launch"
+                  >
+                    <div class="desktop-setting-head">
+                      <div class="desktop-setting-copy">
+                        <h4>开机自启</h4>
+                        <p>跟随系统进入待命</p>
+                      </div>
+                      <strong
+                        class="desktop-setting-state"
+                        id="desktopStartupSummary"
+                        >已关闭</strong>
+                    </div>
+                    <div class="desktop-setting-foot">
+                      <label
+                        class="desktop-setting-switch"
+                        for="desktopLaunchAtStartup"
+                      >
+                        <input type="checkbox" id="desktopLaunchAtStartup" />
+                        <span
+                          class="desktop-setting-switch-track"
+                          aria-hidden="true"
+                        >
+                          <span class="desktop-setting-switch-thumb"></span>
+                        </span>
+                        <span class="desktop-setting-switch-text">启用</span>
+                      </label>
+                    </div>
+                  </article>
+                  <article
+                    class="desktop-setting-tile"
+                    data-desktop-setting="silent"
+                  >
+                    <div class="desktop-setting-head">
+                      <div class="desktop-setting-copy">
+                        <h4>静默启动</h4>
+                        <p>随开机进入后台，不抢前台</p>
+                      </div>
+                      <strong
+                        class="desktop-setting-state"
+                        id="desktopSilentSummary"
+                        >已关闭</strong>
+                    </div>
+                    <div class="desktop-setting-foot">
+                      <label
+                        class="desktop-setting-switch"
+                        for="desktopSilentStartup"
+                      >
+                        <input type="checkbox" id="desktopSilentStartup" />
+                        <span
+                          class="desktop-setting-switch-track"
+                          aria-hidden="true"
+                        >
+                          <span class="desktop-setting-switch-thumb"></span>
+                        </span>
+                        <span class="desktop-setting-switch-text">启用</span>
+                      </label>
+                    </div>
+                  </article>
+                  <article
+                    class="desktop-setting-tile"
+                    data-desktop-setting="tray"
+                  >
+                    <div class="desktop-setting-head">
+                      <div class="desktop-setting-copy">
+                        <h4>关闭到托盘</h4>
+                        <p>关窗后仍留在后台运行</p>
+                      </div>
+                      <strong
+                        class="desktop-setting-state"
+                        id="desktopTraySummary"
+                        >已开启</strong>
+                    </div>
+                    <div class="desktop-setting-foot">
+                      <label
+                        class="desktop-setting-switch"
+                        for="desktopCloseToTray"
+                      >
+                        <input
+                          type="checkbox"
+                          id="desktopCloseToTray"
+                          checked
+                        />
+                        <span
+                          class="desktop-setting-switch-track"
+                          aria-hidden="true"
+                        >
+                          <span class="desktop-setting-switch-thumb"></span>
+                        </span>
+                        <span class="desktop-setting-switch-text">启用</span>
+                      </label>
+                    </div>
+                  </article>
+                </div>
+              </section>
+
+              <section
+                class="sidebar-settings-card devtools-settings-card hidden"
+                id="devToolsCard"
+              >
+                <div class="sidebar-settings-header devtools-settings-header">
+                  <div>
+                    <h3>本地开发</h3>
+                    <p
+                      class="sidebar-settings-subtitle"
+                      id="devToolsRuntimeLabel"
+                    >
+                      仅在本地开发环境显示，不会写入账号目录。
+                    </p>
+                  </div>
+                  <div class="devtools-build-chip" id="devToolsBuildChip">
+                    build --
+                  </div>
+                </div>
+                <div class="devtools-actions">
+                  <button
+                    class="btn default small"
+                    type="button"
+                    id="btnDevReloadUpdates"
+                  >
+                    重新拉取公告
+                  </button>
+                  <button
+                    class="btn default small"
+                    type="button"
+                    id="btnDevPreviewReminder"
+                  >
+                    预览提醒
+                  </button>
+                  <button
+                    class="btn danger small"
+                    type="button"
+                    id="btnDevClearFrontendCache"
+                  >
+                    清空前端缓存
+                  </button>
+                </div>
+                <div class="devtools-diagnostics">
+                  <div class="devtools-diagnostics-head">
+                    <h4>云端配置诊断</h4>
+                    <p>仅开发环境可见，用于排查云端配置命中与缓存来源。</p>
+                  </div>
+                  <div class="devtools-diagnostics-grid">
+                    <div>
+                      <span>运行通道</span>
+                      <strong id="devConfigChannel">--</strong>
+                    </div>
+                    <div>
+                      <span>公告来源</span>
+                      <strong id="devNoticeSource">--</strong>
+                    </div>
+                    <div>
+                      <span>同步时间</span>
+                      <strong id="devConfigUpdatedAt">--</strong>
+                    </div>
+                    <div>
+                      <span>软件策略路径</span>
+                      <strong id="devSoftwarePolicyPath">--</strong>
+                    </div>
+                    <div>
+                      <span>版本策略路径</span>
+                      <strong id="devVersionPolicyPath">--</strong>
+                    </div>
+                    <div>
+                      <span>升级信息路径</span>
+                      <strong id="devUpdateInfoPath">--</strong>
+                    </div>
+                    <div>
+                      <span>公告入口路径</span>
+                      <strong id="devNoticePath">--</strong>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section
+                class="sidebar-settings-card developer-settings-card hidden"
+                id="developerSettingsCard"
+              >
+                <div class="sidebar-settings-header developer-settings-header">
+                  <div>
+                    <h3>开发者设置</h3>
+                    <p
+                      class="sidebar-settings-subtitle"
+                      id="developerSettingsHint"
+                    >
+                      调试参数与本机运行信息会在这里显示。
+                    </p>
+                  </div>
+                  <div
+                    class="sidebar-settings-actions developer-settings-actions"
+                  >
+                    <div
+                      class="devtools-build-chip"
+                      id="developerSettingsBuildChip"
+                    >
+                      build --
+                    </div>
+                    <label
+                      class="desktop-setting-switch developer-settings-switch"
+                      for="developerSettingsToggle"
+                    >
+                      <input type="checkbox" id="developerSettingsToggle" />
+                      <span
+                        class="desktop-setting-switch-track"
+                        aria-hidden="true"
+                      >
+                        <span class="desktop-setting-switch-thumb"></span>
+                      </span>
+                      <span class="desktop-setting-switch-text">启用</span>
+                    </label>
+                  </div>
+                </div>
+                <div
+                  class="sidebar-settings-body developer-settings-body"
+                  id="developerSettingsBody"
+                >
+                  <div class="developer-settings-info-grid">
+                    <div>
+                      <span>当前环境</span>
+                      <strong id="developerSettingsRuntime">--</strong>
+                    </div>
+                    <div>
+                      <span>运行通道</span>
+                      <strong id="developerSettingsChannel">--</strong>
+                    </div>
+                    <div>
+                      <span>WebHost 地址</span>
+                      <strong id="developerSettingsBaseUrl">--</strong>
+                    </div>
+                    <div>
+                      <span>Web 根目录</span>
+                      <strong id="developerSettingsWebRoot">--</strong>
+                    </div>
+                    <div>
+                      <span>关键资产</span>
+                      <strong id="developerSettingsAssetHash">--</strong>
+                    </div>
+                  </div>
+                  <article class="desktop-setting-tile devtools-setting-tile">
+                    <div class="desktop-setting-head">
+                      <div class="desktop-setting-copy">
+                        <h4>静默弹窗</h4>
+                        <p>保留公告面板列表，但不自动弹出提醒和模态。</p>
+                      </div>
+                      <strong
+                        class="desktop-setting-state"
+                        id="devMuteNoticeSummary"
+                        >已关闭</strong>
+                    </div>
+                    <div class="desktop-setting-foot">
+                      <label
+                        class="desktop-setting-switch"
+                        for="devMuteNoticeReminder"
+                      >
+                        <input type="checkbox" id="devMuteNoticeReminder" />
+                        <span
+                          class="desktop-setting-switch-track"
+                          aria-hidden="true"
+                        >
+                          <span class="desktop-setting-switch-thumb"></span>
+                        </span>
+                        <span class="desktop-setting-switch-text">启用</span>
+                      </label>
+                    </div>
+                  </article>
+                  <div
+                    class="dev-settings sidebar-dev-settings"
+                    id="devOnlyFields"
+                  >
+                    <div class="field">
+                      <label>查询范围</label>
+                      <div class="round-combobox" id="schedWeekModeCombobox">
+                        <button
+                          class="round-combobox-trigger"
+                          id="btnSchedWeekModeSelect"
+                          type="button"
+                          aria-expanded="false"
+                        >
+                          本周
+                        </button>
+                        <div
+                          class="round-combobox-menu hidden"
+                          id="schedWeekModeMenu"
+                        ></div>
+                      </div>
+                      <select
+                        id="schedWeekMode"
+                        class="short-select hidden"
+                        aria-hidden="true"
+                        tabindex="-1"
+                      >
+                        <option value="current">本周</option>
+                        <option value="next">下周</option>
+                        <option value="manual">指定周次</option>
+                      </select>
+                    </div>
+                    <div class="field">
+                      <label>指定周次</label>
+                      <input type="text" id="schedManualWeek" />
+                    </div>
+                    <div class="field">
+                      <label>RQ时间（教务课表参数）</label>
+                      <input
+                        type="text"
+                        id="schedCookieRq"
+                        placeholder="仅作为课表日期/周次参数，不是 Cookie"
+                      />
+                    </div>
+                    <div class="field">
+                      <label>学期标记</label>
+                      <input type="text" id="schedTermLabel" />
+                    </div>
+                    <div class="field">
+                      <label>所属学年</label>
+                      <input type="text" id="schedAcademicTerm" />
+                    </div>
+                    <div class="field inline">
+                      <label>模拟星期</label>
+                      <div class="round-combobox" id="devMockDayCombobox">
+                        <button
+                          class="round-combobox-trigger"
+                          id="btnDevMockDaySelect"
+                          type="button"
+                          aria-expanded="false"
+                        >
+                          关闭模拟
+                        </button>
+                        <div
+                          class="round-combobox-menu hidden"
+                          id="devMockDayMenu"
+                        ></div>
+                      </div>
+                      <select
+                        id="devMockDay"
+                        class="short-select hidden"
+                        aria-hidden="true"
+                        tabindex="-1"
+                      >
+                        <option value="">关闭模拟</option>
+                        <option value="1">周一</option>
+                        <option value="2">周二</option>
+                        <option value="3">周三</option>
+                        <option value="4">周四</option>
+                        <option value="5">周五</option>
+                        <option value="6">周六</option>
+                        <option value="7">周日</option>
+                      </select>
+                    </div>
+                    <div class="field inline">
+                      <label>模拟时刻</label>
+                      <input type="time" id="devMockTime" />
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </section>
+
+            <!-- Updates -->
+            <section class="tab-panel" id="panelUpdates">
+              <div class="panel-header updates-panel-header">
+                <div class="updates-panel-copy">
+                  <span class="updates-panel-eyebrow" id="updatesPanelEyebrow"
+                    >系统公告</span>
+                  <h2 id="updatesPanelTitle">公告</h2>
+                  <p class="updates-panel-subtitle" id="updatesPanelSubtitle">
+                    查看系统公告与维护通知
+                  </p>
+                </div>
+                <div class="updates-panel-side">
+                  <div class="updates-panel-meta">
+                    <div class="updates-meta-chip">
+                      <span>总计</span>
+                      <strong id="updatesMetaTotal">0</strong>
+                    </div>
+                    <div class="updates-meta-chip">
+                      <span>未读</span>
+                      <strong id="updatesMetaUnread">0</strong>
+                    </div>
+                  </div>
+                  <div class="updates-panel-actions">
+                    <button
+                      class="btn ghost small"
+                      type="button"
+                      id="btnUpdatesToggleFeedback"
+                    >
+                      反馈
+                    </button>
+                    <button
+                      class="btn default small"
+                      type="button"
+                      id="btnUpdatesManualRefresh"
+                    >
+                      拉取公告
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <section
+                class="updates-block-banner hidden"
+                id="updatesBlockBanner"
+              >
+                <span class="updates-block-kicker">访问受限</span>
+                <div class="updates-block-actions" id="updatesBlockActions"></div>
+                <h3 id="updatesBlockTitle">当前账号已被停止使用</h3>
+                <p id="updatesBlockMessage">
+                  当前只能查看公告内容，如有疑问请联系开发者。
+                </p>
+              </section>
+
+              <div class="updates-content-grid" id="updatesContentGrid">
+                <section
+                  class="sidebar-settings-card updates-workspace-card"
+                  id="updatesWorkspaceCard"
+                >
+                  <div class="updates-workspace">
+                    <aside class="updates-list-pane">
+                      <div class="updates-timeline" id="updatesTimeline"></div>
+                      <div class="updates-empty" id="updatesEmpty">暂无公告</div>
+                    </aside>
+                    <article class="updates-detail-pane" id="updatesDetail">
+                      <div class="updates-detail-empty">
+                        <h3>选择一条公告</h3>
+                        <p>从左侧公告列表中选择一条内容，在这里阅读完整正文。</p>
+                      </div>
+                    </article>
+                  </div>
+                </section>
+
+                <section
+                  class="sidebar-settings-card updates-feedback-card hidden"
+                  id="updatesFeedbackCard"
+                >
+                  <div class="sidebar-settings-header">
+                    <div>
+                      <h3>问题反馈</h3>
+                    </div>
+                  </div>
+                  <div class="field-grid two">
+                    <label class="field">
+                      <span>反馈分类</span>
+                      <div
+                        class="round-combobox"
+                        id="updatesFeedbackCategoryCombobox"
+                      >
+                        <button
+                          class="round-combobox-trigger"
+                          id="btnUpdatesFeedbackCategorySelect"
+                          type="button"
+                          aria-expanded="false"
+                        >
+                          问题
+                        </button>
+                        <div
+                          class="round-combobox-menu hidden"
+                          id="updatesFeedbackCategoryMenu"
+                        ></div>
+                      </div>
+                      <select
+                        id="updatesFeedbackCategory"
+                        class="short-select hidden"
+                        aria-hidden="true"
+                        tabindex="-1"
+                      >
+                        <option value="bug">问题</option>
+                        <option value="suggestion">建议</option>
+                        <option value="other">其他</option>
+                      </select>
+                    </label>
+                    <label class="field">
+                      <span>联系方式（选填）</span>
+                      <input
+                        type="text"
+                        id="updatesFeedbackContact"
+                        placeholder="邮箱 / QQ / 其他"
+                      />
+                    </label>
+                  </div>
+                  <label class="field">
+                    <span>反馈内容</span>
+                    <textarea
+                      id="updatesFeedbackContent"
+                      rows="10"
+                      placeholder="尽量写清楚发生了什么、你做了什么、你希望它变成什么样。"
+                    ></textarea>
+                  </label>
+                  <div class="sidebar-settings-actions">
+                    <span class="updates-feed-status" id="updatesFeedbackStatus"
+                      >登录后可提交反馈</span>
+                    <button
+                      class="btn default small"
+                      type="button"
+                      id="btnUpdatesSubmitFeedback"
+                    >
+                      提交反馈
+                    </button>
+                  </div>
+                </section>
+              </div>
+            </section>
+
+            <!-- About -->
+            <section class="tab-panel" id="panelAbout">
+              <div class="panel-header about-panel-header">
+                <div>
+                  <h2>关于</h2>
+                  <p class="about-panel-subtitle">
+                    查看当前客户端版本、升级状态与运行限制摘要。
+                  </p>
+                </div>
+              </div>
+
+              <section class="about-highlights-grid">
+                <article class="about-highlight-tile is-build">
+                  <span class="about-highlight-label">当前版本</span>
+                  <strong id="aboutHighlightBuild">--</strong>
+                  <span class="about-highlight-meta">客户端版本</span>
+                </article>
+                <article
+                  class="about-highlight-tile"
+                  id="aboutHighlightUpdateTile"
+                >
+                  <span class="about-highlight-label">更新状态</span>
+                  <strong id="aboutHighlightUpdate">--</strong>
+                  <span
+                    class="about-highlight-meta"
+                    id="aboutHighlightUpdateMeta"
+                    >--</span>
+                </article>
+                <article
+                  class="about-highlight-tile"
+                  id="aboutHighlightRuntimeTile"
+                >
+                  <span class="about-highlight-label">运行状态</span>
+                  <strong id="aboutHighlightRuntime">--</strong>
+                  <span
+                    class="about-highlight-meta"
+                    id="aboutHighlightRuntimeMeta"
+                    >--</span>
+                </article>
+              </section>
+
+              <section class="about-details-grid">
+                <article class="sidebar-settings-card about-detail-card">
+                  <div class="about-detail-head">
+                    <div>
+                      <h3>版本更新</h3>
+                      <p class="sidebar-settings-subtitle">
+                        展示当前版本状态、下载地址与立即升级入口。
+                      </p>
+                    </div>
+                    <span class="about-feature-summary" id="aboutUpdateBadge"
+                      >--</span>
+                  </div>
+                  <div class="about-version-hero">
+                    <div>
+                      <span id="aboutUpdateEyebrow">--</span>
+                      <strong id="aboutUpdateTitle">--</strong>
+                    </div>
+                    <a
+                      class="btn primary hidden"
+                      id="aboutUpdateAction"
+                      href="#"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      立即更新
+                    </a>
+                  </div>
+                  <div class="about-kv-grid">
+                    <div>
+                      <span>当前版本</span>
+                      <strong id="aboutBuild">--</strong>
+                    </div>
+                    <div>
+                      <span>最新版本</span>
+                      <strong id="aboutLatestVersion">--</strong>
+                    </div>
+                    <div>
+                      <span>最低支持版本</span>
+                      <strong id="aboutMinSupportedVersion">--</strong>
+                    </div>
+                    <div>
+                      <span>运行限制</span>
+                      <strong id="aboutAppControlState">--</strong>
+                    </div>
+                    <div>
+                      <span>生命周期</span>
+                      <strong id="aboutLifecycleStage">--</strong>
+                    </div>
+                    <div>
+                      <span>下载地址</span>
+                      <a
+                        class="about-kv-link is-empty"
+                        id="aboutDownloadUrl"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        >--</a>
+                    </div>
+                  </div>
+                  <div class="about-message-stack">
+                    <div class="about-message-block">
+                      <span class="about-message-label">更新说明</span>
+                      <p id="aboutUpdateMessage">--</p>
+                    </div>
+                  </div>
+                </article>
+                <article class="sidebar-settings-card about-feature-card">
+                  <div class="sidebar-settings-header">
+                    <div>
+                      <h3>功能限制</h3>
+                      <p class="sidebar-settings-subtitle">
+                        仅展示当前版本存在的关闭项或显式限制。
+                      </p>
+                    </div>
+                  </div>
+                  <div class="about-feature-list" id="aboutFeatureList"></div>
+                </article>
+              </section>
+            </section>
+
+            <!-- Log -->
+            <section class="tab-panel" id="panelLog">
+              <div class="panel-header">
+                <h2>系统日志</h2>
+                <div class="actions">
+                  <button
+                    class="btn default small"
+                    id="btnClearLog"
+                    type="button"
+                  >
+                    清空
+                  </button>
+                </div>
+              </div>
+              <pre class="log-view" id="logArea"></pre>
+            </section>
+          </section>
+        </div>
+      </main>
+    </div>
+    <aside
+      class="notice-reminder-toast hidden"
+      id="noticeReminderToast"
+      aria-live="polite"
+    >
+      <div class="notice-reminder-badge" id="noticeReminderBadge">公告提醒</div>
+      <h3 id="noticeReminderTitle">云端公告</h3>
+      <p id="noticeReminderBody">这里会显示需要主动提醒你的公告。</p>
+      <div class="notice-reminder-actions">
+        <button
+          class="btn default small"
+          type="button"
+          id="btnNoticeReminderDismiss"
+        >
+          知道了
+        </button>
+        <button
+          class="btn primary small"
+          type="button"
+          id="btnNoticeReminderOpen"
+        >
+          查看公告
+        </button>
+      </div>
+    </aside>
+    <div
+      class="notice-modal-overlay hidden"
+      id="noticeModalOverlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="noticeModalTitle"
+    >
+      <div class="notice-modal">
+        <div class="notice-modal-header">
+          <span class="notice-modal-badge" id="noticeModalBadge">公告</span>
+          <h2 id="noticeModalTitle">公告标题</h2>
+        </div>
+        <div class="notice-modal-body" id="noticeModalBody">
+          <p>公告内容</p>
+        </div>
+        <div class="notice-modal-actions">
+          <button class="btn primary" type="button" id="btnNoticeModalDismiss">
+            我知道了
+          </button>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/assets/app.js?v=20260425-jw-cookie1"></script>
+  </body>
+</html>
