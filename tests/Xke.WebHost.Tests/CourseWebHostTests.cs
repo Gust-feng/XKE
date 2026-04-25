@@ -19,7 +19,7 @@ namespace Xke.WebHost.Tests;
 public sealed class CourseWebHostTests
 {
     [Fact]
-    public async Task CourseEndpoints_ProductionAdapterReportsDeferredConnectionAndGrab()
+    public async Task CourseEndpoints_ProductionAdapterRequiresTraditionalJwConnectionAndDefersGrab()
     {
         using var webRoot = new TemporaryWebRoot();
         using var dataRoot = new TemporaryDirectory("xke-course-webhost-deferred");
@@ -40,15 +40,15 @@ public sealed class CourseWebHostTests
 
         Assert.Equal(HttpStatusCode.OK, status.StatusCode);
         Assert.False(statusData.GetProperty("course_connection").GetProperty("connected").GetBoolean());
-        Assert.Equal("deferred", statusData.GetProperty("course_connection").GetProperty("status").GetString());
-        Assert.Equal("traditional-jw-captcha-deferred", statusData.GetProperty("course_connection").GetProperty("reason").GetString());
+        Assert.Equal("disconnected", statusData.GetProperty("course_connection").GetProperty("status").GetString());
+        Assert.Equal("course_connection_required", statusData.GetProperty("course_connection").GetProperty("reason").GetString());
         Assert.False(statusData.GetProperty("features").GetProperty("grab").GetBoolean());
 
         var connect = await client.PostAsJsonAsync($"/api/course/connect?session_id={sessionId}", new { });
         var connectDoc = await ReadJsonAsync(connect);
-        Assert.Equal(HttpStatusCode.NotImplemented, connect.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, connect.StatusCode);
         Assert.False(connectDoc.RootElement.GetProperty("ok").GetBoolean());
-        Assert.Equal("traditional-jw-captcha-deferred", connectDoc.RootElement.GetProperty("reason").GetString());
+        Assert.Equal("course_connection_required", connectDoc.RootElement.GetProperty("reason").GetString());
 
         var rounds = await client.GetAsync($"/api/course/rounds?session_id={sessionId}");
         var roundsDoc = await ReadJsonAsync(rounds);
@@ -134,6 +134,43 @@ public sealed class CourseWebHostTests
         Assert.Equal(HttpStatusCode.OK, previewCached.StatusCode);
         Assert.True(previewCachedData.GetProperty("cached").GetBoolean());
         Assert.Equal(1, fakeCourse.PreviewCalls);
+    }
+
+    [Fact]
+    public async Task CourseEndpoints_ClearsConnectionWhenRuntimeSessionExpires()
+    {
+        using var webRoot = new TemporaryWebRoot();
+        using var dataRoot = new TemporaryDirectory("xke-course-webhost-expired");
+        var fakeCourse = new FakeCourseClient
+        {
+            ExpireOnRounds = true,
+        };
+
+        await using var host = await WebHostTestServer.StartAsync(
+            webRoot,
+            dataRoot,
+            hostMode: "test-course",
+            jwAuthClient: new FakeJwAuthClient(),
+            jwScheduleClient: new DefaultFakeJwScheduleClient(),
+            courseClient: fakeCourse);
+        var client = host.Client;
+        var sessionId = await LoginAsync(client, "20260001");
+
+        var connect = await client.PostAsJsonAsync($"/api/course/connect?session_id={sessionId}", new { });
+        Assert.Equal(HttpStatusCode.OK, connect.StatusCode);
+
+        var rounds = await client.GetAsync($"/api/course/rounds?refresh=true&session_id={sessionId}");
+        var roundsDoc = await ReadJsonAsync(rounds);
+        Assert.Equal(HttpStatusCode.Conflict, rounds.StatusCode);
+        Assert.Equal("course_connection_required", roundsDoc.RootElement.GetProperty("reason").GetString());
+
+        using var statusRequest = new HttpRequestMessage(HttpMethod.Get, "/api/course/status");
+        statusRequest.Headers.Add(SessionConstants.SessionHeaderName, sessionId);
+        var status = await client.SendAsync(statusRequest);
+        var statusData = GetData(await ReadJsonAsync(status));
+        Assert.Equal(HttpStatusCode.OK, status.StatusCode);
+        Assert.False(statusData.GetProperty("course_connection").GetProperty("connected").GetBoolean());
+        Assert.Equal("disconnected", statusData.GetProperty("course_connection").GetProperty("status").GetString());
     }
 
     [Fact]
@@ -363,9 +400,26 @@ public sealed class CourseWebHostTests
             },
         };
 
+        var cloudFeed = new Dictionary<string, object?>
+        {
+            ["schema_version"] = "1",
+            ["updated_at"] = updatedAt,
+            ["announcement"] = new Dictionary<string, object?>
+            {
+                ["items"] = new List<object?>(),
+            },
+            ["policy"] = new Dictionary<string, object?>
+            {
+                ["version_policy"] = versionPolicy,
+                ["access_policy"] = accessPolicy,
+            },
+            ["update_info"] = updateInfo,
+        };
+
         using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP521);
         var files = new Dictionary<string, byte[]>(StringComparer.Ordinal)
         {
+            ["cloud-feed.json"] = SerializeJson(cloudFeed),
             ["index.json"] = SerializeJson(index),
             ["index.sig"] = Encoding.UTF8.GetBytes(Convert.ToBase64String(ecdsa.SignData(NoticeCanonicalJson.Serialize(index), HashAlgorithmName.SHA512)).TrimEnd('=')),
             ["notice/directory.json"] = SerializeJson(noticeDirectory),
@@ -421,19 +475,26 @@ public sealed class CourseWebHostTests
         public bool IsAvailable => true;
         public string UnavailableReason => string.Empty;
         public string UnavailableMessage => string.Empty;
+        public bool ExpireOnRounds { get; init; }
+        public bool ExpireOnPreview { get; init; }
         public int ConnectCalls { get; private set; }
         public int RoundsCalls { get; private set; }
         public int PreviewCalls { get; private set; }
 
-        public Task ConnectAsync(string studentId, CancellationToken cancellationToken = default)
+        public Task ConnectAsync(string sessionId, string studentId, CancellationToken cancellationToken = default)
         {
             ConnectCalls++;
             return Task.CompletedTask;
         }
 
-        public Task<CourseRoundsFetchResult> LoadRoundsAsync(string studentId, bool refresh, CancellationToken cancellationToken = default)
+        public Task<CourseRoundsFetchResult> LoadRoundsAsync(string sessionId, string studentId, bool refresh, CancellationToken cancellationToken = default)
         {
             RoundsCalls++;
+            if (ExpireOnRounds)
+            {
+                throw new CourseException(409, "传统教务会话已失效，请重新连接教务系统", "course_connection_required");
+            }
+
             return Task.FromResult(new CourseRoundsFetchResult(
                 Rounds:
                 [
@@ -452,9 +513,14 @@ public sealed class CourseWebHostTests
                 }));
         }
 
-        public Task<CoursePreviewFetchResult> LoadPreviewAsync(string studentId, string roundId, bool refresh, CancellationToken cancellationToken = default)
+        public Task<CoursePreviewFetchResult> LoadPreviewAsync(string sessionId, string studentId, string roundId, bool refresh, CancellationToken cancellationToken = default)
         {
             PreviewCalls++;
+            if (ExpireOnPreview)
+            {
+                throw new CourseException(409, "传统教务会话已失效，请重新连接教务系统", "course_connection_required");
+            }
+
             return Task.FromResult(new CoursePreviewFetchResult(
                 RoundId: roundId,
                 Courses:

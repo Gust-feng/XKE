@@ -130,7 +130,7 @@ public sealed class ContractSerializationTests
                         Sunday = new[] { 2 },
                     },
                 },
-                Auth = new AuthSettingsDocument { PreloginMode = "capture" },
+                Auth = new AuthSettingsDocument { PreloginMode = "auto" },
                 Network = new NetworkSettingsDocument
                 {
                     Provider = "campus",
@@ -149,7 +149,7 @@ public sealed class ContractSerializationTests
             },
             StorageDir: ".runtime/data/students/20260001",
             Connected: false,
-            PreloginMode: "capture",
+            PreloginMode: "auto",
             CachedSchedule: null,
             TrustedLoginToken: "trusted-token",
             CourseGrabState: new AuthCourseGrabState(Status: "idle", Running: false));
@@ -160,7 +160,7 @@ public sealed class ContractSerializationTests
         Assert.Contains("\"student_id\":\"20260001\"", json);
         Assert.Contains("\"avatar_url\":\"/api/auth/avatar?v=1\"", json);
         Assert.Contains("\"storage_dir\":\".runtime/data/students/20260001\"", json);
-        Assert.Contains("\"prelogin_mode\":\"capture\"", json);
+        Assert.Contains("\"prelogin_mode\":\"auto\"", json);
         Assert.Contains("\"ignored_weekend_blocks\":", json);
         Assert.Contains("\"course_grab_state\":", json);
         Assert.DoesNotContain("\"SessionId\":", json);
@@ -532,7 +532,7 @@ public sealed class ContractSerializationTests
             Encryption: new TelemetryEncryptionSummary(
                 Algorithm: "AES-256-GCM",
                 Fingerprint: "abc123",
-                KeyPath: ".runtime/data/.telemetry/telemetry_aes_key.json"),
+                KeyPath: "client://xke-local-data-v1"),
             SnapshotPath: ".runtime/data/students/20260001/info/remote_sensing_snapshot.json");
         var feedback = new FeedbackReportPayload(
             FeedbackId: "feedback-1",

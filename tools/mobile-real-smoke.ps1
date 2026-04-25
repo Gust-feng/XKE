@@ -20,7 +20,7 @@ if ($ProjectPath) {
     Write-Warning "-ProjectPath is ignored; the Node smoke resolves the WebHost project from the repository root."
 }
 if ($PreloginMode) {
-    Write-Warning "-PreloginMode is ignored; the mobile real smoke uses the current capture initialization path."
+    Write-Warning "-PreloginMode is ignored; the mobile real smoke uses the unified auto login path."
 }
 if ($NoRestart) {
     Write-Warning "-NoRestart is ignored; restart validation is mandatory for local credential verification."

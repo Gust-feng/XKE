@@ -1,5 +1,4 @@
 using System.Security.Cryptography;
-using Xke.Contracts.Enums;
 using Xke.Contracts.Models;
 using Xke.Contracts.Requests;
 using Xke.Contracts.Responses;
@@ -262,6 +261,14 @@ public sealed class AuthService
             ?? throw new AuthException(404, "未设置头像");
     }
 
+    public (byte[] Content, string FileName) GetAvatar(string sessionId)
+    {
+        var context = LoadContext(sessionId);
+        var path = context.StudentStore.GetAvatarPath()
+            ?? throw new AuthException(404, "未设置头像");
+        return (context.StudentStore.ReadAvatar(path), path);
+    }
+
     public (string Message, AuthAvatarUploadPayload Payload) SaveAvatar(string sessionId, string fileName, byte[] content)
     {
         var context = LoadContext(sessionId);
@@ -329,9 +336,7 @@ public sealed class AuthService
 
     private static string NormalizePreloginMode(string? value)
     {
-        return AppOptions.PreloginModes.Contains((value ?? string.Empty).Trim(), StringComparer.Ordinal)
-            ? (value ?? string.Empty).Trim()
-            : "capture";
+        return AuthSettingsCatalog.NormalizePreloginMode(value);
     }
 
     private static string ResolveStudentId(string user, string? storedStudentId)

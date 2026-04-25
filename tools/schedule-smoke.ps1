@@ -2,7 +2,7 @@ param(
     [string]$ProjectPath = "",
     [switch]$ManualMobile,
     [string]$User = "",
-    [string]$PreloginMode = "coded",
+    [string]$PreloginMode = "auto",
     [switch]$KeepDataRoot
 )
 

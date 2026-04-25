@@ -21,7 +21,8 @@ public interface IJwScheduleClient
         ScheduleRequest request,
         CancellationToken cancellationToken = default,
         string existingToken = "",
-        MobileJwEncryptedCredentialDocument? mobileJw = null);
+        MobileJwEncryptedCredentialDocument? mobileJw = null,
+        string sessionId = "");
 }
 
 public sealed record JwScheduleFetchResult(

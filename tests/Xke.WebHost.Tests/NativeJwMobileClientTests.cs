@@ -264,6 +264,7 @@ public sealed class NativeJwMobileClientTests
                     {
                         new
                         {
+                            currentWeek = "8",
                             date = new object[]
                             {
                                 new
@@ -287,7 +288,8 @@ public sealed class NativeJwMobileClientTests
                                     teaName = "张老师",
                                     classroomName = "1-101",
                                     classTime = "10102",
-                                    sksj = "08:00-09:35",
+                                    startTime = "08:00",
+                                    endTIme = "09:40",
                                     classWeekDetails = "9",
                                     credit = "4",
                                 },
@@ -310,12 +312,82 @@ public sealed class NativeJwMobileClientTests
         Assert.Equal("mobile_schedule", result.SourceKey);
         Assert.Equal("mobile", result.SourceType);
         Assert.Equal("第9周", result.WeekLabel);
+        Assert.Equal(8, result.CurrentWeekNumber);
+        Assert.Equal(9, result.ViewedWeekNumber);
         Assert.Single(result.Rows);
         Assert.Equal("高等数学", result.Rows[0]["course_name"]);
         Assert.Equal("星期一", result.Rows[0]["weekday"]);
         Assert.Equal("第1-2节", result.Rows[0]["section"]);
+        Assert.Equal("08:00-09:40", result.Rows[0]["time_range"]);
+        Assert.Equal("08:00-09:40", result.Rows[0]["block_time"]);
+        Assert.Equal("08:00-08:45", result.Rows[0]["small_section_1"]);
+        Assert.Equal("08:55-09:40", result.Rows[0]["small_section_2"]);
+        Assert.Equal(10, result.Rows[0]["break_minutes"]);
         Assert.Equal("2026-04-20", result.WeekDates["星期一"]);
         Assert.Equal(3, handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task NativeJwScheduleClient_DropsMismatchedWeekDatesForManualWeek()
+    {
+        using var handler = new ScriptedHttpMessageHandler(
+        [
+            request =>
+            {
+                var query = ParseQuery(request.RequestUri);
+                Assert.Equal("/hnrjzyxyhd/student/curriculum", request.RequestUri!.AbsolutePath);
+                Assert.Equal("9", query["week"]);
+                Assert.Equal("schedule-token", HeaderValue(request, "token"));
+                return Json(new
+                {
+                    code = 1,
+                    data = new object[]
+                    {
+                        new
+                        {
+                            currentWeek = "8",
+                            date = new object[]
+                            {
+                                new
+                                {
+                                    mxrq = "2026-04-20",
+                                    xqid = "1",
+                                    zc = "8",
+                                },
+                            },
+                            courses = new object[]
+                            {
+                                new
+                                {
+                                    courseName = "高等数学",
+                                    teaName = "张老师",
+                                    classroomName = "1-101",
+                                    classTime = "10102",
+                                    startTime = "08:00",
+                                    endTIme = "09:40",
+                                    classWeekDetails = "9",
+                                },
+                            },
+                        },
+                    },
+                });
+            },
+        ]);
+
+        using var client = new HttpClient(handler);
+        var jw = new NativeJwScheduleClient(client);
+
+        var result = await jw.FetchPreferredAsync("20260001", "secret-pass", "capture", new ScheduleRequest
+        {
+            Mode = "manual",
+            ManualWeek = "9",
+        }, existingToken: "schedule-token");
+
+        Assert.Equal("第9周", result.WeekLabel);
+        Assert.Equal(8, result.CurrentWeekNumber);
+        Assert.Equal(9, result.ViewedWeekNumber);
+        Assert.Empty(result.WeekDates);
+        Assert.Single(result.Rows);
     }
 
     [Fact]

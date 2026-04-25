@@ -29,7 +29,7 @@ public sealed class XkeWebHostServiceTests
 
         var config = await client.GetFromJsonAsync<HostConfigResponse>("/api/config");
         Assert.NotNull(config);
-        Assert.Equal("capture", config!.PreloginMode);
+        Assert.Equal("auto", config!.PreloginMode);
         Assert.Equal("dotnet8-test", config.Development.Channel);
         Assert.Equal("test-shell", config.Development.HostMode);
 

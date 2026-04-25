@@ -135,8 +135,9 @@ public sealed class NetworkTelemetryFeedbackWebHostTests
         var telemetryData = GetData(telemetryDoc);
 
         Assert.Equal(HttpStatusCode.OK, telemetry.StatusCode);
-        Assert.True(telemetryData.GetProperty("cloud").GetProperty("skipped").GetBoolean());
-        Assert.Equal("local-only", telemetryData.GetProperty("cloud").GetProperty("reason").GetString());
+        Assert.True(telemetryData.GetProperty("cloud").GetProperty("queued").GetBoolean());
+        Assert.False(telemetryData.GetProperty("cloud").GetProperty("skipped").GetBoolean());
+        Assert.Equal("spooled-local-only", telemetryData.GetProperty("cloud").GetProperty("reason").GetString());
         Assert.Contains("students/20260001/info/remote_sensing_snapshot.json", telemetryData.GetProperty("snapshot_path").GetString());
 
         var overview = await client.GetAsync($"/api/telemetry/overview?session_id={sessionId}");
@@ -350,9 +351,26 @@ public sealed class NetworkTelemetryFeedbackWebHostTests
             },
         };
 
+        var cloudFeed = new Dictionary<string, object?>
+        {
+            ["schema_version"] = "1",
+            ["updated_at"] = updatedAt,
+            ["announcement"] = new Dictionary<string, object?>
+            {
+                ["items"] = new List<object?>(),
+            },
+            ["policy"] = new Dictionary<string, object?>
+            {
+                ["version_policy"] = versionPolicy,
+                ["access_policy"] = accessPolicy,
+            },
+            ["update_info"] = updateInfo,
+        };
+
         using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP521);
         var files = new Dictionary<string, byte[]>(StringComparer.Ordinal)
         {
+            ["cloud-feed.json"] = SerializeJson(cloudFeed),
             ["index.json"] = SerializeJson(index),
             ["index.sig"] = Encoding.UTF8.GetBytes(Convert.ToBase64String(ecdsa.SignData(NoticeCanonicalJson.Serialize(index), HashAlgorithmName.SHA512)).TrimEnd('=')),
             ["notice/directory.json"] = SerializeJson(noticeDirectory),
@@ -410,7 +428,7 @@ public sealed class NetworkTelemetryFeedbackWebHostTests
             throw new NotSupportedException();
         }
 
-        public Task<Xke.Core.Schedule.JwScheduleFetchResult> FetchCookieAsync(string user, string password, string preloginMode, ScheduleRequest request, CancellationToken cancellationToken = default, string existingToken = "", MobileJwEncryptedCredentialDocument? mobileJw = null)
+        public Task<Xke.Core.Schedule.JwScheduleFetchResult> FetchCookieAsync(string user, string password, string preloginMode, ScheduleRequest request, CancellationToken cancellationToken = default, string existingToken = "", MobileJwEncryptedCredentialDocument? mobileJw = null, string sessionId = "")
         {
             throw new NotSupportedException();
         }

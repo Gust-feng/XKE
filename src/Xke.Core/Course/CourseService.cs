@@ -36,7 +36,7 @@ public sealed class CourseService
     public async Task<(string Message, CourseConnectPayload Payload)> ConnectAsync(string sessionId, CancellationToken cancellationToken = default)
     {
         var context = LoadContext(sessionId);
-        await _courseClient.ConnectAsync(context.StudentId, cancellationToken).ConfigureAwait(false);
+        await _courseClient.ConnectAsync(sessionId, context.StudentId, cancellationToken).ConfigureAwait(false);
         MarkSessionConnected(sessionId);
         return (
             "选课中心连接成功",
@@ -60,7 +60,17 @@ public sealed class CourseService
             }
         }
 
-        var result = await _courseClient.LoadRoundsAsync(context.StudentId, refresh, cancellationToken).ConfigureAwait(false);
+        CourseRoundsFetchResult result;
+        try
+        {
+            result = await _courseClient.LoadRoundsAsync(sessionId, context.StudentId, refresh, cancellationToken).ConfigureAwait(false);
+        }
+        catch (CourseException ex) when (IsConnectionRequired(ex))
+        {
+            ClearSession(sessionId);
+            throw;
+        }
+
         var payload = new CourseRoundsPayload(
             Rounds: result.Rounds,
             Count: result.Rounds.Count,
@@ -86,7 +96,17 @@ public sealed class CourseService
             }
         }
 
-        var result = await _courseClient.LoadPreviewAsync(context.StudentId, resolvedRoundId, refresh, cancellationToken).ConfigureAwait(false);
+        CoursePreviewFetchResult result;
+        try
+        {
+            result = await _courseClient.LoadPreviewAsync(sessionId, context.StudentId, resolvedRoundId, refresh, cancellationToken).ConfigureAwait(false);
+        }
+        catch (CourseException ex) when (IsConnectionRequired(ex))
+        {
+            ClearSession(sessionId);
+            throw;
+        }
+
         var payload = new CoursePreviewPayload(
             RoundId: resolvedRoundId,
             Courses: result.Courses,
@@ -192,7 +212,7 @@ public sealed class CourseService
                 Connected: true,
                 Status: "connected",
                 Reason: string.Empty,
-                Message: "选课中心已连接，可加载轮次和课程预览",
+                Message: "课程预览已连接，可加载轮次和课程列表",
                 UpdatedAt: DateTimeOffset.Now.ToString("O"));
         }
 
@@ -260,7 +280,12 @@ public sealed class CourseService
 
     private static string BuildConnectionRequiredMessage()
     {
-        return CourseDeferredPolicy.TraditionalJwCaptchaMessage;
+        return "请先连接教务系统，再加载选课轮次和课程预览";
+    }
+
+    private static bool IsConnectionRequired(CourseException exception)
+    {
+        return string.Equals(exception.Reason, ConnectionRequiredReason, StringComparison.Ordinal);
     }
 
     private sealed record CourseContext(

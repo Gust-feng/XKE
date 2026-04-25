@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Xke.Contracts.Enums;
 
 namespace Xke.Contracts.Requests;
 
@@ -11,5 +12,5 @@ public sealed class LoginRequest
     public required string Password { get; init; }
 
     [JsonPropertyName("prelogin_mode")]
-    public string PreloginMode { get; init; } = "capture";
+    public string PreloginMode { get; init; } = AppOptions.DefaultPreloginMode;
 }

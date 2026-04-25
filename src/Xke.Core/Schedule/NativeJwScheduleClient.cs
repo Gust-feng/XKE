@@ -13,6 +13,8 @@ public sealed class NativeJwScheduleClient : IJwScheduleClient
     private readonly HttpClient _client;
     private readonly MobileJwLoginClient _loginClient;
     private readonly TraditionalJwScheduleHtmlParser _cookieParser;
+    private readonly TraditionalJwSessionRuntimeStore _traditionalSessions;
+    private readonly Func<string, string, string, TraditionalJwClient> _traditionalClientFactory;
 
     public NativeJwScheduleClient(HttpClient client)
         : this(client, new MobileJwLoginClient(client))
@@ -24,14 +26,48 @@ public sealed class NativeJwScheduleClient : IJwScheduleClient
     {
     }
 
+    public NativeJwScheduleClient(
+        HttpClient client,
+        TraditionalJwSessionRuntimeStore traditionalSessions,
+        XkeDataRoot dataRoot)
+        : this(
+            client,
+            new MobileJwLoginClient(client),
+            new TraditionalJwScheduleHtmlParser(),
+            traditionalSessions,
+            (user, password, preloginMode) => new TraditionalJwClient(
+                user,
+                password,
+                preloginMode,
+                TraditionalJwOptions.FromDataRoot(dataRoot)))
+    {
+    }
+
     internal NativeJwScheduleClient(
         HttpClient client,
         MobileJwLoginClient loginClient,
         TraditionalJwScheduleHtmlParser cookieParser)
+        : this(
+            client,
+            loginClient,
+            cookieParser,
+            new TraditionalJwSessionRuntimeStore(),
+            (user, password, preloginMode) => new TraditionalJwClient(user, password, preloginMode))
+    {
+    }
+
+    public NativeJwScheduleClient(
+        HttpClient client,
+        MobileJwLoginClient loginClient,
+        TraditionalJwScheduleHtmlParser cookieParser,
+        TraditionalJwSessionRuntimeStore traditionalSessions,
+        Func<string, string, string, TraditionalJwClient> traditionalClientFactory)
     {
         _client = client;
         _loginClient = loginClient;
         _cookieParser = cookieParser;
+        _traditionalSessions = traditionalSessions;
+        _traditionalClientFactory = traditionalClientFactory;
         _client.Timeout = TimeSpan.FromSeconds(15);
     }
 
@@ -77,7 +113,7 @@ public sealed class NativeJwScheduleClient : IJwScheduleClient
             rawPayload = await FetchMobileScheduleRawAsync(token, resolution.WeekNumber, cancellationToken).ConfigureAwait(false);
         }
 
-        return BuildPreferredResult(rawPayload, request) with { MobileJw = refreshedMobileJw };
+        return BuildPreferredResult(rawPayload, resolution.WeekNumber) with { MobileJw = refreshedMobileJw };
     }
 
     public Task<JwScheduleFetchResult> FetchCookieAsync(
@@ -87,18 +123,20 @@ public sealed class NativeJwScheduleClient : IJwScheduleClient
         ScheduleRequest request,
         CancellationToken cancellationToken = default,
         string existingToken = "",
-        MobileJwEncryptedCredentialDocument? mobileJw = null)
+        MobileJwEncryptedCredentialDocument? mobileJw = null,
+        string sessionId = "")
     {
-        _ = user;
-        _ = password;
-        _ = preloginMode;
         _ = existingToken;
         _ = mobileJw;
-        return FetchCookieFromFixtureOrChallengeAsync(request, cancellationToken);
+        return FetchCookieFromFixtureOrChallengeAsync(user, password, preloginMode, request, sessionId, cancellationToken);
     }
 
     private async Task<JwScheduleFetchResult> FetchCookieFromFixtureOrChallengeAsync(
+        string user,
+        string password,
+        string preloginMode,
         ScheduleRequest request,
+        string sessionId,
         CancellationToken cancellationToken)
     {
         var fixturePath = ResolveCookieScheduleHtmlPath();
@@ -108,7 +146,31 @@ public sealed class NativeJwScheduleClient : IJwScheduleClient
             return _cookieParser.Parse(html, request);
         }
 
-        throw new JwScheduleException("传统教务真实登录续跑尚未接入；请启用 XKE_JW_COOKIE_FIXTURE 或配置 XKE_JW_COOKIE_SCHEDULE_HTML 进行开发态验证");
+        var runtimeKey = string.IsNullOrWhiteSpace(sessionId) ? user : sessionId.Trim();
+        if (_traditionalSessions.TryGet(runtimeKey, out var existingClient))
+        {
+            try
+            {
+                return await existingClient.FetchScheduleAsync(request, _cookieParser, cancellationToken).ConfigureAwait(false);
+            }
+            catch (TraditionalJwSessionExpiredException)
+            {
+                _traditionalSessions.Remove(runtimeKey);
+            }
+        }
+
+        var loginClient = _traditionalClientFactory(user, password, preloginMode);
+        var challenge = await loginClient.BeginLoginAsync(cancellationToken).ConfigureAwait(false);
+        throw new JwCaptchaRequiredException(
+            "需要输入教务系统验证码",
+            challenge.CaptchaImage,
+            challenge.ExpiresInSeconds,
+            async (captchaCode, token) =>
+            {
+                var result = await loginClient.CompleteLoginAndFetchScheduleAsync(captchaCode, request, _cookieParser, token).ConfigureAwait(false);
+                _traditionalSessions.Store(runtimeKey, loginClient);
+                return result;
+            });
     }
 
     private static string ResolveCookieScheduleHtmlPath()
@@ -230,25 +292,29 @@ public sealed class NativeJwScheduleClient : IJwScheduleClient
         return rawPayload;
     }
 
-    private JwScheduleFetchResult BuildPreferredResult(Dictionary<string, object?> rawPayload, ScheduleRequest request)
+    private JwScheduleFetchResult BuildPreferredResult(Dictionary<string, object?> rawPayload, string requestedWeekNumber)
     {
         var block = ResolveScheduleBlock(rawPayload);
-        var weekValue = ResolveWeekValue(rawPayload);
-        var weekLabel = string.IsNullOrWhiteSpace(weekValue) ? "当前周" : $"第{weekValue}周";
+        var currentWeekValue = ResolveWeekValue(rawPayload);
+        var viewedWeekValue = string.IsNullOrWhiteSpace(requestedWeekNumber)
+            ? currentWeekValue
+            : FirstNumberText(requestedWeekNumber);
+        var weekLabel = string.IsNullOrWhiteSpace(viewedWeekValue) ? "当前周" : $"第{viewedWeekValue}周";
         var warnings = new List<Dictionary<string, object?>>();
-        var rows = BuildRows(rawPayload, block, weekValue, warnings);
+        var rows = BuildRows(rawPayload, block, viewedWeekValue, warnings);
         if (rows.Count == 0)
         {
             throw new JwScheduleException("移动教务课表返回中未找到可归一化的课程行");
         }
 
-        var weekDates = ExtractWeekDates(rawPayload);
-        var currentWeekNumber = int.TryParse(weekValue, out var parsedWeek) ? parsedWeek : (int?)null;
+        var currentWeekNumber = int.TryParse(currentWeekValue, out var parsedCurrentWeek) ? parsedCurrentWeek : (int?)null;
+        var viewedWeekNumber = int.TryParse(viewedWeekValue, out var parsedViewedWeek) ? parsedViewedWeek : currentWeekNumber;
+        var weekDates = ExtractWeekDates(rawPayload, currentWeekNumber, viewedWeekNumber);
         var availableWeeks = new List<Dictionary<string, object?>>
         {
             new(StringComparer.Ordinal)
             {
-                ["value"] = string.IsNullOrWhiteSpace(weekValue) ? string.Empty : weekValue,
+                ["value"] = string.IsNullOrWhiteSpace(viewedWeekValue) ? string.Empty : viewedWeekValue,
                 ["label"] = weekLabel,
                 ["selected"] = true,
             },
@@ -266,7 +332,7 @@ public sealed class NativeJwScheduleClient : IJwScheduleClient
             SourceType: "mobile",
             WeekLabel: weekLabel,
             CurrentWeekNumber: currentWeekNumber,
-            ViewedWeekNumber: currentWeekNumber,
+            ViewedWeekNumber: viewedWeekNumber,
             AvailableWeeks: availableWeeks,
             WeekDates: weekDates,
             BlockTimes: [],
@@ -334,7 +400,8 @@ public sealed class NativeJwScheduleClient : IJwScheduleClient
             }
 
             var weekLabel = string.IsNullOrWhiteSpace(weekValue) ? string.Empty : $"第{weekValue}周";
-            var timeRange = GetString(course, "sksj", "courseTime", "course_time", "timeRange", "time_range", "time", "skTime");
+            var timeRange = ResolveCourseTimeRange(course);
+            var smallSections = SplitTwoSections(timeRange);
             rows.Add(new Dictionary<string, object?>(StringComparer.Ordinal)
             {
                 ["source"] = "加密",
@@ -343,10 +410,10 @@ public sealed class NativeJwScheduleClient : IJwScheduleClient
                 ["section"] = section,
                 ["time_text"] = BuildTimeText(weekday, section, timeRange),
                 ["time_range"] = timeRange,
-                ["block_time"] = string.Empty,
-                ["small_section_1"] = string.Empty,
-                ["small_section_2"] = string.Empty,
-                ["break_minutes"] = 0,
+                ["block_time"] = timeRange,
+                ["small_section_1"] = smallSections.FirstSmallSection,
+                ["small_section_2"] = smallSections.SecondSmallSection,
+                ["break_minutes"] = smallSections.BreakMinutes,
                 ["course_name"] = courseName,
                 ["teacher"] = teacher,
                 ["room"] = room,
@@ -376,7 +443,7 @@ public sealed class NativeJwScheduleClient : IJwScheduleClient
             .Any(value => value == week);
     }
 
-    private static Dictionary<string, string> ExtractWeekDates(Dictionary<string, object?> rawPayload)
+    private static Dictionary<string, string> ExtractWeekDates(Dictionary<string, object?> rawPayload, int? currentWeekNumber, int? viewedWeekNumber)
     {
         var weekDates = new Dictionary<string, string>(StringComparer.Ordinal);
         var block = ResolveScheduleBlock(rawPayload);
@@ -396,6 +463,19 @@ public sealed class NativeJwScheduleClient : IJwScheduleClient
                 continue;
             }
 
+            var itemWeekNumber = ResolveDateItemWeekNumber(item);
+            if (itemWeekNumber is not null)
+            {
+                if (viewedWeekNumber is not null && itemWeekNumber.Value != viewedWeekNumber.Value)
+                {
+                    continue;
+                }
+            }
+            else if (currentWeekNumber is not null && viewedWeekNumber is not null && currentWeekNumber.Value != viewedWeekNumber.Value)
+            {
+                continue;
+            }
+
             var weekday = WeekdayFromDigit(GetString(item, "xqid", "weekDay", "weekday", "week_day", "xqj")) ?? string.Empty;
             if (string.IsNullOrWhiteSpace(weekday) && index < weekdays.Length)
             {
@@ -409,6 +489,12 @@ public sealed class NativeJwScheduleClient : IJwScheduleClient
         }
 
         return weekDates;
+    }
+
+    private static int? ResolveDateItemWeekNumber(Dictionary<string, object?> item)
+    {
+        var week = GetString(item, "zc", "week", "weekNo", "week_no", "currentWeek", "current_week");
+        return int.TryParse(FirstNumberText(week), out var parsed) ? parsed : null;
     }
 
     private async Task<MobileJwLoginResult> LoginAsync(
@@ -701,6 +787,56 @@ public sealed class NativeJwScheduleClient : IJwScheduleClient
         return string.Join(" / ", parts);
     }
 
+    private static string ResolveCourseTimeRange(Dictionary<string, object?> course)
+    {
+        var direct = GetString(course, "sksj", "courseTime", "course_time", "timeRange", "time_range", "time", "skTime");
+        if (!string.IsNullOrWhiteSpace(direct))
+        {
+            return NormalizeTimeRangeText(direct);
+        }
+
+        var start = NormalizeClockText(GetString(course, "startTime", "start_time", "beginTime", "begin_time", "start"));
+        var end = NormalizeClockText(GetString(course, "endTIme", "endTime", "end_time", "finishTime", "finish_time", "end"));
+        return !string.IsNullOrWhiteSpace(start) && !string.IsNullOrWhiteSpace(end)
+            ? $"{start}-{end}"
+            : string.Empty;
+    }
+
+    private static (string FirstSmallSection, string SecondSmallSection, int BreakMinutes) SplitTwoSections(string timeRange, int breakMinutes = 10)
+    {
+        var parts = Regex.Match(timeRange ?? string.Empty, @"^(\d{1,2}:\d{2})\s*[-~]\s*(\d{1,2}:\d{2})$");
+        if (!parts.Success)
+        {
+            return (string.Empty, string.Empty, 0);
+        }
+
+        var start = ParseClock(parts.Groups[1].Value);
+        var end = ParseClock(parts.Groups[2].Value);
+        if (start is null || end is null || end <= start)
+        {
+            return (string.Empty, string.Empty, 0);
+        }
+
+        var total = end.Value - start.Value;
+        int firstEnd;
+        int secondStart;
+        if (total > breakMinutes + 1)
+        {
+            var oneSlot = (total - breakMinutes) / 2;
+            firstEnd = start.Value + oneSlot;
+            secondStart = firstEnd + breakMinutes;
+        }
+        else
+        {
+            var oneSlot = total / 2;
+            firstEnd = start.Value + oneSlot;
+            secondStart = firstEnd;
+            breakMinutes = 0;
+        }
+
+        return ($"{FormatClock(start.Value)}-{FormatClock(firstEnd)}", $"{FormatClock(secondStart)}-{FormatClock(end.Value)}", breakMinutes);
+    }
+
     private static (string Weekday, string Section) DecodeCompactClassTime(string value)
     {
         var compact = Regex.Replace(value ?? string.Empty, @"\D", string.Empty);
@@ -725,75 +861,17 @@ public sealed class NativeJwScheduleClient : IJwScheduleClient
             }
         }
 
-        return (weekday, FormatSectionRanges(sections));
+        return (weekday, ScheduleSectionNormalizer.FormatSectionRanges(sections));
     }
 
     private static string NormalizeSectionText(string? value)
     {
-        return FormatSectionRanges(ExtractSectionNumbers(value ?? string.Empty));
+        return ScheduleSectionNormalizer.NormalizeSectionText(value);
     }
 
     private static int? FirstSectionNumber(string? value)
     {
-        return ExtractSectionNumbers(value ?? string.Empty).FirstOrDefault();
-    }
-
-    private static List<int> ExtractSectionNumbers(string value)
-    {
-        var numbers = new List<int>();
-        foreach (Match explicitMatch in Regex.Matches(value ?? string.Empty, @"(\d{1,2})\s*[-~]\s*(\d{1,2})"))
-        {
-            var start = int.Parse(explicitMatch.Groups[1].Value);
-            var end = int.Parse(explicitMatch.Groups[2].Value);
-            if (start <= end)
-            {
-                numbers.AddRange(Enumerable.Range(start, end - start + 1));
-            }
-            else
-            {
-                numbers.Add(start);
-                numbers.Add(end);
-            }
-        }
-
-        if (numbers.Count == 0)
-        {
-            foreach (Match match in Regex.Matches(value ?? string.Empty, @"\d+"))
-            {
-                if (int.TryParse(match.Value, out var parsed) && parsed is >= 1 and <= 20)
-                {
-                    numbers.Add(parsed);
-                }
-            }
-        }
-
-        return numbers.Distinct().OrderBy(value => value).ToList();
-    }
-
-    private static string FormatSectionRanges(IReadOnlyList<int> numbers)
-    {
-        if (numbers.Count == 0)
-        {
-            return string.Empty;
-        }
-
-        var ranges = new List<string>();
-        var start = numbers[0];
-        var previous = numbers[0];
-        foreach (var number in numbers.Skip(1))
-        {
-            if (number == previous + 1)
-            {
-                previous = number;
-                continue;
-            }
-
-            ranges.Add(start == previous ? start.ToString() : $"{start}-{previous}");
-            start = previous = number;
-        }
-
-        ranges.Add(start == previous ? start.ToString() : $"{start}-{previous}");
-        return $"第{string.Join(",", ranges)}节";
+        return ScheduleSectionNormalizer.ExtractSectionNumbers(value).FirstOrDefault();
     }
 
     private static string? WeekdayFromDigit(string value)
@@ -815,6 +893,31 @@ public sealed class NativeJwScheduleClient : IJwScheduleClient
     {
         var match = Regex.Match(value ?? string.Empty, @"星期[一二三四五六日天]");
         return match.Success ? match.Value.Replace("星期天", "星期日") : string.Empty;
+    }
+
+    private static string NormalizeTimeRangeText(string value)
+    {
+        var match = Regex.Match(value ?? string.Empty, @"(\d{1,2}:\d{2})\s*[-~]\s*(\d{1,2}:\d{2})");
+        return match.Success
+            ? $"{NormalizeClockText(match.Groups[1].Value)}-{NormalizeClockText(match.Groups[2].Value)}"
+            : (value ?? string.Empty).Trim();
+    }
+
+    private static string NormalizeClockText(string value)
+    {
+        var match = Regex.Match(value ?? string.Empty, @"^(\d{1,2}):(\d{2})$");
+        return match.Success ? $"{int.Parse(match.Groups[1].Value):00}:{match.Groups[2].Value}" : string.Empty;
+    }
+
+    private static int? ParseClock(string value)
+    {
+        var match = Regex.Match(value ?? string.Empty, @"^(\d{1,2}):(\d{2})$");
+        return match.Success ? int.Parse(match.Groups[1].Value) * 60 + int.Parse(match.Groups[2].Value) : null;
+    }
+
+    private static string FormatClock(int totalMinutes)
+    {
+        return $"{totalMinutes / 60:00}:{totalMinutes % 60:00}";
     }
 
     private static int WeekdaySort(string? value)

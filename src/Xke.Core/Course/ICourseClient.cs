@@ -8,14 +8,16 @@ public interface ICourseClient
     string UnavailableReason { get; }
     string UnavailableMessage { get; }
 
-    Task ConnectAsync(string studentId, CancellationToken cancellationToken = default);
+    Task ConnectAsync(string sessionId, string studentId, CancellationToken cancellationToken = default);
 
     Task<CourseRoundsFetchResult> LoadRoundsAsync(
+        string sessionId,
         string studentId,
         bool refresh,
         CancellationToken cancellationToken = default);
 
     Task<CoursePreviewFetchResult> LoadPreviewAsync(
+        string sessionId,
         string studentId,
         string roundId,
         bool refresh,

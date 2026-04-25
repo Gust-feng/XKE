@@ -45,7 +45,7 @@ public sealed class AuthWebHostTests
         Assert.Equal(1, fakeJw.InitializeCalls);
         Assert.NotNull(sessionId);
         Assert.True(loginData.GetProperty("connected").GetBoolean());
-        Assert.Equal("coded", loginData.GetProperty("prelogin_mode").GetString());
+        Assert.Equal("auto", loginData.GetProperty("prelogin_mode").GetString());
         Assert.Equal("20260001", loginData.GetProperty("student").GetProperty("student_id").GetString());
         Assert.Equal("live_fetch", loginData.GetProperty("cached_schedule").GetProperty("data_origin").GetString());
         Assert.Equal("第7周", loginData.GetProperty("cached_schedule").GetProperty("week_label").GetString());
@@ -79,7 +79,7 @@ public sealed class AuthWebHostTests
         var preferencesDoc = await ReadJsonAsync(preferencesResponse);
         Assert.Equal(HttpStatusCode.OK, preferencesResponse.StatusCode);
         Assert.Equal("forest-notes", GetData(preferencesDoc).GetProperty("settings").GetProperty("appearance").GetProperty("theme").GetString());
-        Assert.Equal("capture", GetData(preferencesDoc).GetProperty("settings").GetProperty("auth").GetProperty("prelogin_mode").GetString());
+        Assert.Equal("auto", GetData(preferencesDoc).GetProperty("settings").GetProperty("auth").GetProperty("prelogin_mode").GetString());
 
         var profileResponse = await client.PostAsJsonAsync($"/api/auth/profile?session_id={sessionId}", new
         {
@@ -167,7 +167,7 @@ public sealed class AuthWebHostTests
         Assert.Equal(HttpStatusCode.OK, connectResponse.StatusCode);
         Assert.True(GetData(connectDoc).GetProperty("connected").GetBoolean());
         Assert.Equal(1, fakeJw.ConnectCalls);
-        Assert.Equal("coded", GetData(connectDoc).GetProperty("prelogin_mode").GetString());
+        Assert.Equal("auto", GetData(connectDoc).GetProperty("prelogin_mode").GetString());
         Assert.Equal("local_cache", GetData(connectDoc).GetProperty("cached_schedule").GetProperty("data_origin").GetString());
 
         var badTrustedLogin = await client.PostAsJsonAsync("/api/auth/trusted-login", new

@@ -199,8 +199,8 @@ public static partial class XkeWebHostApplication
             {
                 var sessionId = ResolveSessionId(context);
                 await EnsureSessionAllowedAsync(authService, noticeService, sessionId, context.RequestAborted);
-                var path = authService.GetAvatarPath(sessionId);
-                return Results.File(path, GetAvatarContentType(path));
+                var avatar = authService.GetAvatar(sessionId);
+                return Results.File(avatar.Content, GetAvatarContentType(avatar.FileName));
             }
             catch (BlockedAccessException ex)
             {
@@ -273,13 +273,14 @@ public static partial class XkeWebHostApplication
             }
         });
 
-        auth.MapPost("/logout", (AuthService authService, CourseService courseService, HttpContext context) =>
+        auth.MapPost("/logout", (AuthService authService, CourseService courseService, TraditionalJwSessionRuntimeStore traditionalJwSessions, HttpContext context) =>
         {
             try
             {
                 var sessionId = ResolveSessionId(context);
                 var message = authService.Logout(sessionId);
                 courseService.ClearSession(sessionId);
+                traditionalJwSessions.Remove(sessionId);
                 return Ok(message);
             }
             catch (AuthException ex)

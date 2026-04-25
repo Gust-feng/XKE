@@ -33,20 +33,30 @@ public sealed class AuthStorageTests
     }
 
     [Fact]
-    public void DataRootFactory_DefaultsToRuntimeDirectoryInsideWorkspace()
+    public void DataRootFactory_DefaultsToLocalAppDataXkeDirectory()
     {
         using var workspace = new TemporaryDirectory();
-        var root = XkeDataRootFactory.CreateDefault(workspace.RootPath);
+        var previousDotNet = Environment.GetEnvironmentVariable("XKE_DOTNET_DATA_DIR");
+        try
+        {
+            Environment.SetEnvironmentVariable("XKE_DOTNET_DATA_DIR", null);
+            var root = XkeDataRootFactory.CreateDefault(workspace.RootPath);
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
 
-        Assert.Equal(Path.Combine(workspace.RootPath, ".runtime", "data"), root.RootPath);
-        Assert.DoesNotContain($"{Path.DirectorySeparatorChar}data{Path.DirectorySeparatorChar}", root.RootPath.Replace(".runtime\\data", string.Empty), StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(Path.Combine(localAppData, ".XKE", "data"), root.RootPath);
+            Assert.False(root.RootPath.StartsWith(workspace.RootPath, StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("XKE_DOTNET_DATA_DIR", previousDotNet);
+        }
     }
 
     [Fact]
     public void AuthStores_PersistCredentialsSessionsAndStudentFiles()
     {
         using var workspace = new TemporaryDirectory();
-        var root = XkeDataRootFactory.CreateDefault(workspace.RootPath);
+        var root = CreateTemporaryDataRoot(workspace);
         var credentialStore = root.Credentials();
         var sessionStore = root.Sessions();
         var studentStore = root.ForStudent("20260001");
@@ -71,11 +81,11 @@ public sealed class AuthStorageTests
         studentStore.SavePreferences(new AppSettingsDocument
         {
             Appearance = new AppearanceSettingsDocument { Theme = "forest-notes" },
-            Auth = new AuthSettingsDocument { PreloginMode = "capture" },
+            Auth = new AuthSettingsDocument { PreloginMode = "auto" },
         });
 
         studentStore.SaveAvatar("avatar.png", new byte[] { 1, 2, 3, 4 });
-        var session = sessionStore.Create("20260001", "20260001", "capture");
+        var session = sessionStore.Create("20260001", "20260001", "auto");
 
         var restoredCredential = credentialStore.Load("20260001");
         var restoredProfile = studentStore.LoadProfile();
@@ -89,29 +99,35 @@ public sealed class AuthStorageTests
         Assert.Equal("trusted-token", restoredCredential!.TrustedLoginToken);
         Assert.Equal("测试同学", restoredProfile!.Name);
         Assert.Equal("forest-notes", restoredSettings!.Appearance.Theme);
-        Assert.Equal("capture", restoredSession!.PreloginMode);
+        Assert.Equal("auto", restoredSession!.PreloginMode);
         Assert.NotNull(studentStore.GetAvatarPath());
+        AssertEncryptedFileDoesNotContain(studentStore.ProfilePath, "测试同学");
+        AssertEncryptedFileDoesNotContain(studentStore.PreferencesPath, "forest-notes");
+        Assert.Equal(new byte[] { 1, 2, 3, 4 }, File.ReadAllBytes(studentStore.GetAvatarPath()!));
+        Assert.Equal(new byte[] { 1, 2, 3, 4 }, studentStore.ReadAvatar(studentStore.GetAvatarPath()!));
 
         sessionStore.Remove(session.SessionId);
         Assert.Null(sessionStore.Load(session.SessionId));
     }
 
     [Fact]
-    public void RuntimeDataRoot_UsesDotNetNoticeCacheAndDesktopPaths()
+    public void RuntimeDataRoot_UsesCloudSyncAndDesktopPaths()
     {
         using var workspace = new TemporaryDirectory();
-        var root = XkeDataRootFactory.CreateDefault(workspace.RootPath);
+        var root = CreateTemporaryDataRoot(workspace);
 
-        Assert.Equal(Path.Combine(root.RootPath, ".notice_cache", "v1"), root.NoticeCacheDirectory);
+        Assert.Equal(Path.Combine(root.RootPath, ".cloud"), root.CloudDirectory);
+        Assert.Equal(Path.Combine(root.RootPath, ".cloud", "feed.json"), root.CloudFeedPath);
+        Assert.Equal(Path.Combine(root.RootPath, ".cloud", "feed.meta.json"), root.CloudFeedMetaPath);
         Assert.Equal(Path.Combine(root.RootPath, ".desktop", "desktop_settings.json"), root.DesktopSettingsPath);
-        Assert.Contains($"{Path.DirectorySeparatorChar}.runtime{Path.DirectorySeparatorChar}data{Path.DirectorySeparatorChar}.notice_cache", root.NoticeCacheDirectory, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains($"{Path.DirectorySeparatorChar}.runtime{Path.DirectorySeparatorChar}data{Path.DirectorySeparatorChar}.cloud", root.CloudDirectory, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
     public void DesktopSettingsStore_PersistsNormalizedSettings()
     {
         using var workspace = new TemporaryDirectory();
-        var root = XkeDataRootFactory.CreateDefault(workspace.RootPath);
+        var root = CreateTemporaryDataRoot(workspace);
         var store = root.DesktopSettings();
 
         store.Save(new DesktopSettingsDocument
@@ -127,13 +143,14 @@ public sealed class AuthStorageTests
         Assert.False(restored.SilentStartup);
         Assert.False(restored.CloseToTray);
         Assert.True(File.Exists(root.DesktopSettingsPath));
+        Assert.StartsWith(LocalEncryptedFileStore.EnvelopePrefix, File.ReadAllText(root.DesktopSettingsPath));
     }
 
     [Fact]
     public void DesktopRuntimeStore_PersistsAndClearsRuntimeInstanceUnderDotNetRoot()
     {
         using var workspace = new TemporaryDirectory();
-        var root = XkeDataRootFactory.CreateDefault(workspace.RootPath);
+        var root = CreateTemporaryDataRoot(workspace);
         var store = root.DesktopRuntime();
 
         var savedPath = store.Save(port: 51234, processId: 1234);
@@ -144,6 +161,7 @@ public sealed class AuthStorageTests
         Assert.Equal(51234, restored.Port);
         Assert.True(restored.HasEndpoint);
         Assert.True(File.Exists(store.RuntimeInstancePath));
+        Assert.StartsWith(LocalEncryptedFileStore.EnvelopePrefix, File.ReadAllText(store.RuntimeInstancePath));
 
         store.Clear(expectedProcessId: 9999);
         Assert.True(File.Exists(store.RuntimeInstancePath));
@@ -157,7 +175,7 @@ public sealed class AuthStorageTests
     public void ScheduleStore_PersistsNormalizedAndRawPayloadsUnderDotNetRuntimeRoot()
     {
         using var workspace = new TemporaryDirectory();
-        var root = XkeDataRootFactory.CreateDefault(workspace.RootPath);
+        var root = CreateTemporaryDataRoot(workspace);
         var studentStore = root.ForStudent("2026/0001");
         var scheduleStore = studentStore.Schedules();
         var payload = new Dictionary<string, object?>
@@ -186,6 +204,9 @@ public sealed class AuthStorageTests
                     ["course_name"] = "高等数学",
                     ["weekday"] = "星期一",
                     ["section"] = "第1-2节",
+                    ["time_range"] = "08:00-09:40",
+                    ["teacher"] = "张老师",
+                    ["room"] = "1-101,东楼",
                 },
             },
         };
@@ -206,16 +227,85 @@ public sealed class AuthStorageTests
         Assert.Equal("第7周", inferredWeek);
         Assert.Contains(savedFiles, path => path.EndsWith("mobile_schedule.json", StringComparison.Ordinal));
         Assert.Contains(savedFiles, path => path.EndsWith("mobile_schedule_raw.json", StringComparison.Ordinal));
+        var csvRelativePath = Assert.Single(savedFiles, path => path.EndsWith("mobile_schedule.csv", StringComparison.Ordinal));
+        var csvPath = Path.Combine(workspace.RootPath, csvRelativePath.Replace('/', Path.DirectorySeparatorChar));
+        var csv = File.ReadAllText(csvPath);
+        Assert.Contains("week_label,weekday,section,time_text,time_range,block_time,small_section_1,small_section_2,break_minutes,course_name,teacher,room,weeks,credit", csv);
+        Assert.Contains("第7周,星期一,第1-2节,,08:00-09:40,,,,,高等数学,张老师,\"1-101,东楼\",,", csv);
+        Assert.DoesNotContain("source_key", csv);
+        Assert.DoesNotContain("source_type", csv);
         Assert.All(savedFiles, path => Assert.StartsWith(".runtime/data/students/2026_0001/schedules/", path.Replace('\\', '/')));
         Assert.True(Directory.Exists(Path.Combine(root.RootPath, "students", "2026_0001", "schedules")));
         Assert.False(Directory.Exists(Path.Combine(workspace.RootPath, "data", "students")));
     }
 
     [Fact]
+    public void ScheduleStore_WritesCsvForTraditionalJwSchedule()
+    {
+        using var workspace = new TemporaryDirectory();
+        var root = CreateTemporaryDataRoot(workspace);
+        var studentStore = root.ForStudent("20260001");
+        var scheduleStore = studentStore.Schedules();
+        var payload = new Dictionary<string, object?>
+        {
+            ["source_key"] = "jw_schedule",
+            ["source_type"] = "jw",
+            ["week_label"] = "第8周",
+            ["rows"] = new List<object?>
+            {
+                new Dictionary<string, object?>
+                {
+                    ["course_name"] = "高等数学",
+                    ["weekday"] = "星期一",
+                    ["section"] = "第1-2节",
+                    ["time_range"] = "08:00-09:40",
+                    ["teacher"] = "张老师",
+                    ["room"] = "1-101",
+                },
+            },
+        };
+
+        var savedFiles = scheduleStore.SaveSourceSchedule(payload, [], "jw_schedule", "第8周");
+
+        Assert.Contains(savedFiles, path => path.EndsWith("jw_schedule.json", StringComparison.Ordinal));
+        var csvRelativePath = Assert.Single(savedFiles, path => path.EndsWith("jw_schedule.csv", StringComparison.Ordinal));
+        var csvPath = Path.Combine(workspace.RootPath, csvRelativePath.Replace('/', Path.DirectorySeparatorChar));
+        var csv = File.ReadAllText(csvPath);
+        Assert.Contains("week_label,weekday,section,time_text,time_range,block_time,small_section_1,small_section_2,break_minutes,course_name,teacher,room,weeks,credit", csv);
+        Assert.Contains("第8周,星期一,第1-2节,,08:00-09:40,,,,,高等数学,张老师,1-101,,", csv);
+        Assert.DoesNotContain("source_key", csv);
+        Assert.DoesNotContain("source_type", csv);
+    }
+
+    [Fact]
+    public void ScheduleStore_LoadScheduleForWeekMatchesChineseAndArabicWeekLabels()
+    {
+        using var workspace = new TemporaryDirectory();
+        var root = CreateTemporaryDataRoot(workspace);
+        var studentStore = root.ForStudent("20260001");
+        var scheduleStore = studentStore.Schedules();
+        var payload = new Dictionary<string, object?>
+        {
+            ["source_key"] = "jw_schedule",
+            ["source_type"] = "jw",
+            ["week_label"] = "第八周",
+            ["rows"] = new List<object?>(),
+        };
+
+        var savedFiles = scheduleStore.SaveSourceSchedule(payload, [], "jw_schedule", "第八周");
+
+        Assert.NotNull(scheduleStore.LoadScheduleForWeek("第八周", ["jw_schedule"]));
+        Assert.NotNull(scheduleStore.LoadScheduleForWeek("第8周", ["jw_schedule"]));
+        Assert.NotNull(scheduleStore.LoadScheduleForWeek("8", ["jw_schedule"]));
+        Assert.Contains(savedFiles, path => path.Replace('\\', '/').Contains("/第8周/", StringComparison.Ordinal));
+        Assert.DoesNotContain(savedFiles, path => path.Replace('\\', '/').Contains("/第八周/", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ScheduleStore_DefaultDateProviderUsesLocalDesktopDate()
     {
         using var workspace = new TemporaryDirectory();
-        var root = XkeDataRootFactory.CreateDefault(workspace.RootPath);
+        var root = CreateTemporaryDataRoot(workspace);
         var studentStore = root.ForStudent("20260001");
         var scheduleStore = new XkeScheduleStore(root, studentStore, () => new DateOnly(2026, 4, 27));
         var payload = new Dictionary<string, object?>
@@ -254,8 +344,9 @@ public sealed class AuthStorageTests
             Environment.SetEnvironmentVariable("XKE_DOTNET_DATA_DIR", null);
 
             var root = XkeDataRootFactory.CreateDefault(workspace.RootPath);
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
 
-            Assert.Equal(Path.Combine(workspace.RootPath, ".runtime", "data"), root.RootPath);
+            Assert.Equal(Path.Combine(localAppData, ".XKE", "data"), root.RootPath);
             Assert.False(root.RootPath.StartsWith(legacyRoot.RootPath, StringComparison.OrdinalIgnoreCase));
         }
         finally
@@ -270,7 +361,7 @@ public sealed class AuthStorageTests
     public void NetworkTelemetryAndFeedbackStores_StayInsideDotNetRuntimeRoot()
     {
         using var workspace = new TemporaryDirectory();
-        var root = XkeDataRootFactory.CreateDefault(workspace.RootPath);
+        var root = CreateTemporaryDataRoot(workspace);
         var studentStore = root.ForStudent("20260001");
 
         var credentialPath = studentStore.NetworkCredentials().Save(new StoredNetworkCredentialDocument
@@ -324,13 +415,20 @@ public sealed class AuthStorageTests
         Assert.DoesNotContain("secret-pass", File.ReadAllText(Path.Combine(root.RootPath, "students", "20260001", "info", "network", "telecom.json.dpapi")));
 
         Assert.Equal(".runtime/data/students/20260001/info/network/telecom.json.dpapi", credentialPath.Replace('\\', '/'));
-        Assert.Equal(".runtime/data/.telemetry/spool", spool.Replace('\\', '/'));
+        Assert.Equal(".runtime/data/.cloud/telemetry/spool", spool.Replace('\\', '/'));
         Assert.Equal(".runtime/data/students/20260001/info/app_runtime.json", runtimePath.Replace('\\', '/'));
         Assert.Equal(".runtime/data/students/20260001/info/remote_sensing_snapshot.json", snapshotPath.Replace('\\', '/'));
         Assert.Equal(".runtime/data/students/20260001/info/network_auth_history.json", historyPath.Replace('\\', '/'));
         Assert.Equal(".runtime/data/.feedback/outbox/20260001/fb-1.json", feedbackKey.Replace('\\', '/'));
         Assert.Equal("2026-04-23T12:00:00Z", installation["first_used_at"]);
-        Assert.Equal(".runtime/data/.telemetry/telemetry_aes_key.json", root.RelativePath(keyProfile.SourcePath).Replace('\\', '/'));
+        Assert.Equal(LocalEncryptedFileStore.KeyId, keyProfile.SourcePath);
+        Assert.False(File.Exists(root.TelemetryKeyPath));
+
+        AssertEncryptedFileDoesNotContain(root.TelemetryInstallationPath, "install_uuid");
+        AssertEncryptedFileDoesNotContain(Path.Combine(workspace.RootPath, runtimePath.Replace('/', Path.DirectorySeparatorChar)), "total_runtime_seconds");
+        AssertEncryptedFileDoesNotContain(Path.Combine(workspace.RootPath, snapshotPath.Replace('/', Path.DirectorySeparatorChar)), "reported_at");
+        AssertEncryptedFileDoesNotContain(Path.Combine(workspace.RootPath, historyPath.Replace('/', Path.DirectorySeparatorChar)), "校园账号");
+        AssertEncryptedFileDoesNotContain(Path.Combine(workspace.RootPath, feedbackKey.Replace('/', Path.DirectorySeparatorChar)), "need help");
 
         Assert.False(Directory.Exists(Path.Combine(workspace.RootPath, "data", ".telemetry")));
         Assert.False(Directory.Exists(Path.Combine(workspace.RootPath, "data", ".feedback")));
@@ -340,7 +438,7 @@ public sealed class AuthStorageTests
     public void CourseStore_PersistsNormalizedAndRawPayloadsInsideDotNetRuntimeRoot()
     {
         using var workspace = new TemporaryDirectory();
-        var root = XkeDataRootFactory.CreateDefault(workspace.RootPath);
+        var root = CreateTemporaryDataRoot(workspace);
         var studentStore = root.ForStudent("2026/0001");
         var courseStore = studentStore.Course();
         var rounds = new CourseRoundsPayload(
@@ -395,7 +493,25 @@ public sealed class AuthStorageTests
         Assert.Equal("大学美育", restoredPreview!.Courses[0].Kcmc);
         Assert.True(File.Exists(Path.Combine(root.RootPath, "students", "2026_0001", "course", "rounds_raw.json")));
         Assert.True(File.Exists(Path.Combine(root.RootPath, "students", "2026_0001", "course", "previews", "round_1", "preview_raw.json")));
+        AssertEncryptedFileDoesNotContain(Path.Combine(workspace.RootPath, roundsPath.Replace('/', Path.DirectorySeparatorChar)), "公共选修课第一轮");
+        AssertEncryptedFileDoesNotContain(Path.Combine(workspace.RootPath, previewPath.Replace('/', Path.DirectorySeparatorChar)), "大学美育");
+        AssertEncryptedFileDoesNotContain(Path.Combine(root.RootPath, "students", "2026_0001", "course", "rounds_raw.json"), "fake");
         Assert.False(Directory.Exists(Path.Combine(workspace.RootPath, "data", "students", "2026_0001", "course")));
+    }
+
+    private static XkeDataRoot CreateTemporaryDataRoot(TemporaryDirectory workspace)
+    {
+        return XkeDataRootFactory.CreateDefault(
+            workspace.RootPath,
+            workspace.RootPath,
+            Path.Combine(workspace.RootPath, ".runtime", "data"));
+    }
+
+    private static void AssertEncryptedFileDoesNotContain(string path, string plaintext)
+    {
+        var content = File.ReadAllText(path);
+        Assert.StartsWith(LocalEncryptedFileStore.EnvelopePrefix, content);
+        Assert.DoesNotContain(plaintext, content, StringComparison.Ordinal);
     }
 
     private sealed class TemporaryDirectory : IDisposable

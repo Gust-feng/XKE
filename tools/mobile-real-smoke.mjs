@@ -224,7 +224,7 @@ async function main() {
 
     const login = await fetchJson(`${baseUrl}/api/auth/login`, {
       method: "POST",
-      body: JSON.stringify({ user, password, prelogin_mode: "capture" }),
+      body: JSON.stringify({ user, password, prelogin_mode: "auto" }),
     });
     const loginData = login.data || {};
     const loginRows = Array.isArray(loginData.cached_schedule?.rows)
@@ -249,7 +249,7 @@ async function main() {
 
     const localLogin = await fetchJson(`${baseUrl}/api/auth/login`, {
       method: "POST",
-      body: JSON.stringify({ user, password, prelogin_mode: "capture" }),
+      body: JSON.stringify({ user, password, prelogin_mode: "auto" }),
     });
     const localData = localLogin.data || {};
     assertPayload(localData.session_id, "本地凭据登录未返回 session_id", localData);
@@ -291,7 +291,7 @@ async function main() {
     try {
       const connect = await fetchJson(`${baseUrl}/api/auth/connect?session_id=${encodeURIComponent(localData.session_id)}`, {
         method: "POST",
-        body: JSON.stringify({ prelogin_mode: "capture" }),
+        body: JSON.stringify({ prelogin_mode: "auto" }),
       });
       summary.connect = { ok: true, connected: Boolean(connect.data?.connected) };
     } catch (error) {

@@ -37,7 +37,7 @@ public static class AuthSettingsCatalog
             },
             Auth = new AuthSettingsDocument
             {
-                PreloginMode = "capture",
+                PreloginMode = AppOptions.DefaultPreloginMode,
             },
             Network = new NetworkSettingsDocument
             {
@@ -94,7 +94,7 @@ public static class AuthSettingsCatalog
             },
             Auth = new AuthSettingsDocument
             {
-                PreloginMode = NormalizeOption(raw.Auth?.PreloginMode, AppOptions.PreloginModes, defaults.Auth.PreloginMode),
+                PreloginMode = NormalizePreloginMode(raw.Auth?.PreloginMode),
             },
             Network = new NetworkSettingsDocument
             {
@@ -167,7 +167,7 @@ public static class AuthSettingsCatalog
         {
             auth = new AuthSettingsDocument
             {
-                PreloginMode = NormalizeOption(request.Auth.PreloginMode, AppOptions.PreloginModes, auth.PreloginMode),
+                PreloginMode = NormalizePreloginMode(request.Auth.PreloginMode),
             };
         }
 
@@ -224,7 +224,7 @@ public static class AuthSettingsCatalog
             Ui = normalized.Ui,
             Auth = new AuthSettingsDocument
             {
-                PreloginMode = NormalizeOption(preloginMode, AppOptions.PreloginModes, normalized.Auth.PreloginMode),
+                PreloginMode = NormalizePreloginMode(preloginMode),
             },
         };
     }
@@ -241,6 +241,14 @@ public static class AuthSettingsCatalog
     private static string NormalizeTheme(string? value, string fallback)
     {
         return NormalizeOption(value, AppOptions.ThemeIds, fallback);
+    }
+
+    public static string NormalizePreloginMode(string? value)
+    {
+        var cleaned = (value ?? string.Empty).Trim().ToLowerInvariant();
+        return cleaned is "" or "auto" or "capture" or "coded"
+            ? AppOptions.DefaultPreloginMode
+            : AppOptions.DefaultPreloginMode;
     }
 
     private static string NormalizeOption(string? value, IReadOnlyCollection<string> allowed, string fallback)

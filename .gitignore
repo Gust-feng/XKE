@@ -2,3 +2,6 @@
 .vs/
 **/bin/
 **/obj/
+.playwright-mcp/
+.dotnet_cli/
+开发数据/

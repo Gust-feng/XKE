@@ -5,7 +5,7 @@ namespace Xke.Core.Schedule;
 
 public sealed class JwCaptchaChallengeStore
 {
-    private readonly ConcurrentDictionary<string, JwCaptchaChallenge> _challenges = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, StoredJwCaptchaChallenge> _challenges = new(StringComparer.Ordinal);
 
     public JwCaptchaChallenge Create(
         string sessionId,
@@ -24,11 +24,16 @@ public sealed class JwCaptchaChallengeStore
             ExpiresAt: current.AddSeconds(expiresInSeconds),
             ContinueAsync: exception.ContinueAsync);
 
-        _challenges[challenge.ChallengeId] = challenge;
+        _challenges[challenge.ChallengeId] = new StoredJwCaptchaChallenge(challenge);
         return challenge;
     }
 
-    public JwCaptchaChallenge Consume(string challengeId, string sessionId, DateTimeOffset? now = null)
+    public async Task<T> UseAsync<T>(
+        string challengeId,
+        string sessionId,
+        Func<JwCaptchaChallenge, CancellationToken, Task<T>> action,
+        CancellationToken cancellationToken = default,
+        DateTimeOffset? now = null)
     {
         var cleanedChallengeId = (challengeId ?? string.Empty).Trim();
         if (string.IsNullOrWhiteSpace(cleanedChallengeId))
@@ -37,11 +42,12 @@ public sealed class JwCaptchaChallengeStore
         }
 
         var current = now ?? DateTimeOffset.Now;
-        if (!_challenges.TryGetValue(cleanedChallengeId, out var challenge))
+        if (!_challenges.TryGetValue(cleanedChallengeId, out var stored))
         {
             throw new ScheduleException(404, "验证码 challenge 不存在或已过期，请重新刷新课表");
         }
 
+        var challenge = stored.Challenge;
         if (!string.Equals(challenge.SessionId, (sessionId ?? string.Empty).Trim(), StringComparison.Ordinal))
         {
             throw new ScheduleException(403, "验证码 challenge 与当前会话不匹配");
@@ -53,19 +59,36 @@ public sealed class JwCaptchaChallengeStore
             throw new ScheduleException(410, "验证码已过期，请重新刷新课表");
         }
 
-        if (!_challenges.TryRemove(cleanedChallengeId, out var removed))
+        await stored.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            throw new ScheduleException(409, "验证码 challenge 已被消费，请重新刷新课表");
-        }
+            current = now ?? DateTimeOffset.Now;
+            if (!_challenges.TryGetValue(cleanedChallengeId, out var currentStored) || !ReferenceEquals(currentStored, stored))
+            {
+                throw new ScheduleException(409, "验证码 challenge 已被消费，请重新刷新课表");
+            }
 
-        return removed;
+            if (challenge.ExpiresAt <= current)
+            {
+                _challenges.TryRemove(cleanedChallengeId, out _);
+                throw new ScheduleException(410, "验证码已过期，请重新刷新课表");
+            }
+
+            var result = await action(challenge, cancellationToken).ConfigureAwait(false);
+            _challenges.TryRemove(cleanedChallengeId, out _);
+            return result;
+        }
+        finally
+        {
+            stored.Gate.Release();
+        }
     }
 
     private void Cleanup(DateTimeOffset now)
     {
         foreach (var pair in _challenges)
         {
-            if (pair.Value.ExpiresAt <= now)
+            if (pair.Value.Challenge.ExpiresAt <= now)
             {
                 _challenges.TryRemove(pair.Key, out _);
             }
@@ -82,6 +105,17 @@ public sealed class JwCaptchaChallengeStore
             TermLabel = request.TermLabel,
             AcademicTerm = request.AcademicTerm,
         };
+    }
+
+    private sealed class StoredJwCaptchaChallenge
+    {
+        public StoredJwCaptchaChallenge(JwCaptchaChallenge challenge)
+        {
+            Challenge = challenge;
+        }
+
+        public JwCaptchaChallenge Challenge { get; }
+        public SemaphoreSlim Gate { get; } = new(1, 1);
     }
 }
 

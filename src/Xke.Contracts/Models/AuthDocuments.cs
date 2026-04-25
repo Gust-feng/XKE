@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Xke.Contracts.Enums;
 
 namespace Xke.Contracts.Models;
 
@@ -92,7 +93,7 @@ public sealed class IgnoredWeekendBlocksDocument
 public sealed class AuthSettingsDocument
 {
     [JsonPropertyName("prelogin_mode")]
-    public string PreloginMode { get; init; } = "capture";
+    public string PreloginMode { get; init; } = AppOptions.DefaultPreloginMode;
 }
 
 public sealed class NetworkSettingsDocument
@@ -233,7 +234,7 @@ public sealed class StoredSessionDocument
     public string StudentId { get; init; } = string.Empty;
 
     [JsonPropertyName("prelogin_mode")]
-    public string PreloginMode { get; init; } = "capture";
+    public string PreloginMode { get; init; } = AppOptions.DefaultPreloginMode;
 
     [JsonPropertyName("created_at")]
     public string CreatedAt { get; init; } = string.Empty;

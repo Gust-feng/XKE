@@ -2,8 +2,19 @@ namespace Xke.Core.Schedule;
 
 public class JwScheduleException : Exception
 {
-    public JwScheduleException(string message)
+    public JwScheduleException(string message, int statusCode = 500)
         : base(message)
+    {
+        StatusCode = statusCode;
+    }
+
+    public int StatusCode { get; }
+}
+
+public sealed class TraditionalJwSessionExpiredException : JwScheduleException
+{
+    public TraditionalJwSessionExpiredException(string message)
+        : base(message, statusCode: 401)
     {
     }
 }

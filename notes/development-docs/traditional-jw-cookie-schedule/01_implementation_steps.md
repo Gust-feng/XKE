@@ -86,15 +86,15 @@
 
 - 预登录是必经阶段
 - Cookie 不是登录入口
-- `capture` 缺少 `prelogin_capture.xml` 时必须返回可读错误
-- `coded` 可以生成或刷新运行态预登录录包
+- 用户侧只有 `auto` 自动化预登录；`capture` / `coded` 只作为旧配置别名归一化为 `auto`
+- 自动化预登录失败时必须返回可读 `409` 诊断，不要求用户补充或切换录包
 - 未拿到 JW 域名下 `/jsxsd` 路径登录态 Cookie 时，不允许请求课表
 - Cookie 失效时允许重走完整预登录 + 登录 + JW bootstrap 一次
 
 验收：
 
-- `capture` 缺录包失败可读
-- `coded` 可完成预登录准备
+- `auto` 可完成预登录准备，且不读取或生成 `prelogin_capture.xml`
+- 自动化预登录失败返回明确错误
 - 登录失败不写课表缓存
 - JW bootstrap 失败不请求课表
 - Cookie 失效可触发完整重登一次
@@ -228,7 +228,7 @@ public interface IJwCaptchaSolver
 ```powershell
 $env:user="<TEST_USER>"
 $env:password="<TEST_PASSWORD>"
-$env:prelogin_mode="capture"
+$env:prelogin_mode="auto"
 $env:cookie_rq="<YYYY-MM-DD>"
 ```
 
@@ -243,6 +243,6 @@ $env:cookie_rq="<YYYY-MM-DD>"
 禁止事项：
 
 - 不把真实测试账号写入文档
-- 不提交真实 `prelogin_capture.xml`
+- 不提交历史真实 `prelogin_capture.xml`
 - 不提交真实 Cookie header
 - 不提交真实 HTML 原文

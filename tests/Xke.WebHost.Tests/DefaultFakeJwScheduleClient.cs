@@ -40,7 +40,8 @@ internal sealed class DefaultFakeJwScheduleClient : IJwScheduleClient
         ScheduleRequest request,
         CancellationToken cancellationToken = default,
         string existingToken = "",
-        MobileJwEncryptedCredentialDocument? mobileJw = null)
+        MobileJwEncryptedCredentialDocument? mobileJw = null,
+        string sessionId = "")
     {
         return Task.FromResult(BuildResult(user, sourceKey: "jw_schedule", sourceLabel: "教务系统课表", sourceType: "jw", weekNumber: 8));
     }

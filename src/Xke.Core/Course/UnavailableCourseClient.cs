@@ -9,17 +9,17 @@ public sealed class UnavailableCourseClient : ICourseClient
     public string UnavailableReason => DeferredReason;
     public string UnavailableMessage => DeferredMessage;
 
-    public Task ConnectAsync(string studentId, CancellationToken cancellationToken = default)
+    public Task ConnectAsync(string sessionId, string studentId, CancellationToken cancellationToken = default)
     {
         throw new CourseException(501, UnavailableMessage, UnavailableReason);
     }
 
-    public Task<CourseRoundsFetchResult> LoadRoundsAsync(string studentId, bool refresh, CancellationToken cancellationToken = default)
+    public Task<CourseRoundsFetchResult> LoadRoundsAsync(string sessionId, string studentId, bool refresh, CancellationToken cancellationToken = default)
     {
         throw new CourseException(501, UnavailableMessage, UnavailableReason);
     }
 
-    public Task<CoursePreviewFetchResult> LoadPreviewAsync(string studentId, string roundId, bool refresh, CancellationToken cancellationToken = default)
+    public Task<CoursePreviewFetchResult> LoadPreviewAsync(string sessionId, string studentId, string roundId, bool refresh, CancellationToken cancellationToken = default)
     {
         throw new CourseException(501, UnavailableMessage, UnavailableReason);
     }

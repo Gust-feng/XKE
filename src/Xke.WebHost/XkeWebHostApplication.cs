@@ -5,10 +5,12 @@ using Microsoft.Extensions.FileProviders;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using Xke.Contracts.Api;
+using Xke.Contracts.Enums;
 using Xke.Contracts.Requests;
 using Xke.Contracts.Responses;
 using Xke.Core.Auth;
 using Xke.Core.Auth.Jw;
+using Xke.Core.CloudSync;
 using Xke.Core.Course;
 using Xke.Core.Desktop;
 using Xke.Core.Notice;
@@ -43,11 +45,16 @@ public static partial class XkeWebHostApplication
             explicitDataRoot: hostOptions.AuthDataRootPath));
         builder.Services.AddSingleton<IJwAuthClient>(_ =>
             hostOptions.JwAuthClient ?? new NativeJwAuthClient(new HttpClient()));
+        builder.Services.AddSingleton<TraditionalJwSessionRuntimeStore>();
         builder.Services.AddSingleton<IJwScheduleClient>(_ =>
-            hostOptions.JwScheduleClient ?? new NativeJwScheduleClient(new HttpClient()));
+            hostOptions.JwScheduleClient ?? new NativeJwScheduleClient(
+                new HttpClient(),
+                _.GetRequiredService<TraditionalJwSessionRuntimeStore>(),
+                _.GetRequiredService<XkeDataRoot>()));
         builder.Services.AddSingleton<MobileSessionRuntimeStore>();
         builder.Services.AddSingleton<ICourseClient>(_ =>
-            hostOptions.CourseClient ?? new UnavailableCourseClient());
+            hostOptions.CourseClient ?? new TraditionalJwCourseClient(
+                _.GetRequiredService<TraditionalJwSessionRuntimeStore>()));
         builder.Services.AddSingleton(_ =>
             hostOptions.NetworkHttpMessageHandler is null
                 ? new HttpClient()
@@ -62,6 +69,8 @@ public static partial class XkeWebHostApplication
         });
         builder.Services.AddSingleton<INoticeRemoteSource>(_ =>
             hostOptions.NoticeRemoteSource ?? new HttpNoticeRemoteSource(new HttpClient()));
+        builder.Services.AddSingleton<RemotePolicyService>();
+        builder.Services.AddSingleton<CloudFeedService>();
         builder.Services.AddSingleton<NoticeService>();
         builder.Services.AddSingleton<DesktopSettingsService>();
         builder.Services.AddSingleton<IDesktopWindowController>(_ =>
@@ -219,7 +228,7 @@ public static partial class XkeWebHostApplication
             return Results.Json(new HostConfigResponse(
                 User: string.Empty,
                 Zbid: string.Empty,
-                PreloginMode: "capture",
+                PreloginMode: AppOptions.DefaultPreloginMode,
                 Beta: new HostBetaResponse(WebHostRuntime.BetaEnabled(), WebHostRuntime.BetaMessage()),
                 Development: new HostDevelopmentResponse(
                     Channel: options.RuntimeChannel,
@@ -509,6 +518,107 @@ public static partial class XkeWebHostApplication
     {
         var resolvedStudentId = authService.ResolveSessionStudentId(sessionId);
         await EnsureStudentAllowedAsync(noticeService, resolvedStudentId, "view", cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task EnsureCourseFeatureAllowedAsync(
+        NoticeService noticeService,
+        string studentId,
+        string featureKey,
+        string featureLabel,
+        CancellationToken cancellationToken)
+    {
+        var feed = await noticeService.LoadFeedAsync("beta", string.Empty, "view", studentId, cancellationToken).ConfigureAwait(false);
+        if (!IsRemoteFeatureDisabled(feed, featureKey))
+        {
+            return;
+        }
+
+        throw new CourseException(
+            StatusCodes.Status403Forbidden,
+            $"{featureLabel}已被远程策略禁用",
+            "remote-policy-feature-disabled",
+            new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["feature"] = featureKey,
+                ["message"] = $"{featureLabel}已被远程策略禁用",
+            });
+    }
+
+    private static bool IsRemoteFeatureDisabled(Dictionary<string, object?> feed, string featureKey)
+    {
+        if (TryResolveRawFeatureFlag(feed.GetValueOrDefault("policy"), featureKey, out var rawEnabled))
+        {
+            return !rawEnabled;
+        }
+
+        if (string.Equals(featureKey, "course_grab", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var config = GetObjectDictionary(feed.GetValueOrDefault("config"));
+        var featureFlags = GetObjectDictionary(config.GetValueOrDefault("feature_flags"));
+        return TryReadBoolean(featureFlags, featureKey, out var normalizedEnabled) && !normalizedEnabled;
+    }
+
+    private static bool TryResolveRawFeatureFlag(object? rawPolicy, string featureKey, out bool enabled)
+    {
+        enabled = false;
+        var policy = GetObjectDictionary(rawPolicy);
+        if (TryReadBoolean(GetObjectDictionary(policy.GetValueOrDefault("feature_flags")), featureKey, out enabled))
+        {
+            return true;
+        }
+
+        var versionPolicy = GetObjectDictionary(policy.GetValueOrDefault("version_policy"));
+        if (TryReadBoolean(GetObjectDictionary(versionPolicy.GetValueOrDefault("feature_flags")), featureKey, out enabled))
+        {
+            return true;
+        }
+
+        foreach (var item in GetObjectList(versionPolicy.GetValueOrDefault("versions")))
+        {
+            var version = GetObjectDictionary(item);
+            if (TryReadBoolean(GetObjectDictionary(version.GetValueOrDefault("feature_flags")), featureKey, out enabled))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryReadBoolean(Dictionary<string, object?> values, string key, out bool value)
+    {
+        value = false;
+        if (!values.TryGetValue(key, out var raw))
+        {
+            return false;
+        }
+
+        if (raw is bool boolean)
+        {
+            value = boolean;
+            return true;
+        }
+
+        return bool.TryParse(raw?.ToString(), out value);
+    }
+
+    private static Dictionary<string, object?> GetObjectDictionary(object? value)
+    {
+        return value as Dictionary<string, object?> ?? [];
+    }
+
+    private static IReadOnlyList<object?> GetObjectList(object? value)
+    {
+        return value switch
+        {
+            List<object?> list => list,
+            object[] array => array,
+            IEnumerable<object?> enumerable => enumerable.ToArray(),
+            _ => Array.Empty<object?>(),
+        };
     }
 
     private static string GetAvatarContentType(string path)
