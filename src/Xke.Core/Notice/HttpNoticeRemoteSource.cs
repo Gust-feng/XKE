@@ -1,5 +1,7 @@
 namespace Xke.Core.Notice;
 
+using Xke.Core.CloudSync;
+
 public sealed class HttpNoticeRemoteSource : INoticeRemoteSource
 {
     public const string DefaultBaseUrl = "https://example.invalid/xke-cloud/";
@@ -16,10 +18,12 @@ public sealed class HttpNoticeRemoteSource : INoticeRemoteSource
 
     public static string ResolveBaseUrl(string? configured = null)
     {
+        var privateOptions = PrivateCloudEndpointOptions.Load();
         return FirstNonEmpty(
             configured,
             Environment.GetEnvironmentVariable(BaseUrlEnvironmentVariable),
             Environment.GetEnvironmentVariable("XKE_CLOUD_NOTICE_BASE_URL"),
+            privateOptions.NoticeBaseUrl,
             DefaultBaseUrl).Trim();
     }
 

@@ -25,6 +25,46 @@ public sealed class CloudSyncWebHostTests
     }
 
     [Fact]
+    public void CloudEndpointResolvers_LoadIgnoredPrivateConfig()
+    {
+        using var workspace = new TemporaryDirectory("xke-private-cloud-config");
+        var configPath = Path.Combine(workspace.RootPath, "cloud.local.json");
+        File.WriteAllText(configPath, """
+        {
+          "notice_base_url": "https://notice.example.test/xke-cloud/",
+          "telemetry": {
+            "base_url": "https://telemetry.example.test/xke"
+          }
+        }
+        """);
+        var previousConfig = Environment.GetEnvironmentVariable(PrivateCloudEndpointOptions.ConfigPathEnvironmentVariable);
+        var previousNotice = Environment.GetEnvironmentVariable(HttpNoticeRemoteSource.BaseUrlEnvironmentVariable);
+        var previousCloudNotice = Environment.GetEnvironmentVariable("XKE_CLOUD_NOTICE_BASE_URL");
+        var previousTelemetry = Environment.GetEnvironmentVariable("XKE_TELEMETRY_CLOUD_ENDPOINT");
+        var previousCloudFunction = Environment.GetEnvironmentVariable("XKE_CLOUD_FUNCTION_BASE_URL");
+
+        try
+        {
+            Environment.SetEnvironmentVariable(PrivateCloudEndpointOptions.ConfigPathEnvironmentVariable, configPath);
+            Environment.SetEnvironmentVariable(HttpNoticeRemoteSource.BaseUrlEnvironmentVariable, null);
+            Environment.SetEnvironmentVariable("XKE_CLOUD_NOTICE_BASE_URL", null);
+            Environment.SetEnvironmentVariable("XKE_TELEMETRY_CLOUD_ENDPOINT", null);
+            Environment.SetEnvironmentVariable("XKE_CLOUD_FUNCTION_BASE_URL", null);
+
+            Assert.Equal("https://notice.example.test/xke-cloud/", HttpNoticeRemoteSource.ResolveBaseUrl());
+            Assert.Equal("https://telemetry.example.test/xke", HttpTelemetryTransport.ResolveBaseUrl());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(PrivateCloudEndpointOptions.ConfigPathEnvironmentVariable, previousConfig);
+            Environment.SetEnvironmentVariable(HttpNoticeRemoteSource.BaseUrlEnvironmentVariable, previousNotice);
+            Environment.SetEnvironmentVariable("XKE_CLOUD_NOTICE_BASE_URL", previousCloudNotice);
+            Environment.SetEnvironmentVariable("XKE_TELEMETRY_CLOUD_ENDPOINT", previousTelemetry);
+            Environment.SetEnvironmentVariable("XKE_CLOUD_FUNCTION_BASE_URL", previousCloudFunction);
+        }
+    }
+
+    [Fact]
     public async Task UpdatesFeed_FirstCloudPullWritesUnifiedCloudCache()
     {
         using var webRoot = new TemporaryWebRoot();

@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using Xke.Contracts.Responses;
+using Xke.Core.CloudSync;
 
 namespace Xke.Core.Telemetry;
 
@@ -59,10 +60,12 @@ public sealed class HttpTelemetryTransport : ITelemetryTransport
 
     public static string ResolveBaseUrl(string? configured = null)
     {
+        var privateOptions = PrivateCloudEndpointOptions.Load();
         var value = FirstNonEmpty(
             configured,
             Environment.GetEnvironmentVariable("XKE_TELEMETRY_CLOUD_ENDPOINT"),
             Environment.GetEnvironmentVariable("XKE_CLOUD_FUNCTION_BASE_URL"),
+            privateOptions.TelemetryCloudEndpoint,
             DefaultBaseUrl);
         return value.Trim();
     }
