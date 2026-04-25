@@ -33,6 +33,39 @@ public sealed class AuthStorageTests
     }
 
     [Fact]
+    public void LocalEncryptedFileStore_RoundTripsWithDpapiEnvelope()
+    {
+        using var workspace = new TemporaryDirectory();
+        var filePath = Path.Combine(workspace.RootPath, "local.json");
+        var store = new LocalEncryptedFileStore();
+
+        store.WriteJson(filePath, new Dictionary<string, string>
+        {
+            ["value"] = "secret-value",
+        });
+
+        var restored = store.ReadJson<Dictionary<string, string>>(filePath);
+        var content = File.ReadAllText(filePath);
+
+        Assert.NotNull(restored);
+        Assert.Equal("secret-value", restored!["value"]);
+        Assert.StartsWith(LocalEncryptedFileStore.EnvelopePrefix, content);
+        Assert.DoesNotContain("secret-value", content, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LocalEncryptedFileStore_RejectsLegacyAesEnvelope()
+    {
+        using var workspace = new TemporaryDirectory();
+        var filePath = Path.Combine(workspace.RootPath, "legacy.json");
+        var store = new LocalEncryptedFileStore();
+
+        File.WriteAllText(filePath, "XKEENC1." + Convert.ToBase64String(new byte[32]));
+
+        Assert.Throws<InvalidDataException>(() => store.ReadText(filePath));
+    }
+
+    [Fact]
     public void DataRootFactory_DefaultsToLocalAppDataXkeDirectory()
     {
         using var workspace = new TemporaryDirectory();
@@ -120,7 +153,13 @@ public sealed class AuthStorageTests
         Assert.Equal(Path.Combine(root.RootPath, ".cloud", "feed.json"), root.CloudFeedPath);
         Assert.Equal(Path.Combine(root.RootPath, ".cloud", "feed.meta.json"), root.CloudFeedMetaPath);
         Assert.Equal(Path.Combine(root.RootPath, ".desktop", "desktop_settings.json"), root.DesktopSettingsPath);
+        Assert.Equal(Path.Combine(root.RootPath, ".updates", "packages"), root.UpdatePackagesDirectory);
+        Assert.Equal(Path.Combine(root.RootPath, ".updates", "jobs"), root.UpdateJobsDirectory);
+        Assert.Equal(Path.Combine(root.RootPath, ".updates", "backups"), root.UpdateBackupsDirectory);
+        Assert.Equal(Path.Combine(root.RootPath, ".updates", "install-plan.json"), root.UpdateInstallPlanPath);
         Assert.Contains($"{Path.DirectorySeparatorChar}.runtime{Path.DirectorySeparatorChar}data{Path.DirectorySeparatorChar}.cloud", root.CloudDirectory, StringComparison.OrdinalIgnoreCase);
+        Assert.True(root.IsInsideDataRoot(root.UpdateInstallPlanPath));
+        Assert.True(root.Updates().IsInsideUpdateRoot(root.UpdatePackagesDirectory, allowRoot: false));
     }
 
     [Fact]

@@ -13,6 +13,7 @@ public sealed class XkeTelemetryStore
     };
 
     private readonly XkeDataRoot _root;
+    private readonly LocalEncryptedFileStore _encrypted = new();
 
     public XkeTelemetryStore(XkeDataRoot root)
     {
@@ -47,25 +48,33 @@ public sealed class XkeTelemetryStore
 
     public TelemetryKeyProfile LoadOrCreateKeyProfile(Func<string>? timestampFactory = null)
     {
-        if (!File.Exists(_root.TelemetryKeyPath))
-        {
-            // This AES key only describes the local telemetry profile and never leaves the device in this slice.
-            var payload = new Dictionary<string, object?>
-            {
-                ["algorithm"] = "AES-256-GCM",
-                ["created_at"] = ResolveTimestamp(timestampFactory),
-                ["key_b64"] = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)),
-            };
-            WriteJson(_root.TelemetryKeyPath, payload);
-        }
-
-        return TelemetryKeyProfile.LoadFromDataRoot(_root.RootPath);
+        return TelemetryKeyProfile.CreateClientLocal();
     }
 
     public string EnsureSpoolDirectory()
     {
         Directory.CreateDirectory(_root.TelemetrySpoolDirectory);
         return _root.RelativePath(_root.TelemetrySpoolDirectory);
+    }
+
+    public string SaveSpoolItem(Dictionary<string, object?> payload, string queuedAt)
+    {
+        return _root.CloudSync().SaveTelemetrySpoolItem(payload, queuedAt);
+    }
+
+    public bool DeleteSpoolItem(string relativePath)
+    {
+        return _root.CloudSync().DeleteTelemetrySpoolItem(relativePath);
+    }
+
+    public IReadOnlyList<string> EnumerateSpoolItems(int maxItems)
+    {
+        return _root.CloudSync().EnumerateTelemetrySpoolItems(maxItems);
+    }
+
+    public Dictionary<string, object?> LoadSpoolItem(string relativePath)
+    {
+        return _root.CloudSync().LoadTelemetrySpoolItem(relativePath);
     }
 
     private static string ResolveTimestamp(Func<string>? timestampFactory)
@@ -81,18 +90,12 @@ public sealed class XkeTelemetryStore
             return [];
         }
 
-        using var document = JsonDocument.Parse(File.ReadAllText(path));
+        using var document = JsonDocument.Parse(new LocalEncryptedFileStore().ReadBytes(path));
         return LegacyNoticeJson.ToDictionary(document.RootElement.Clone());
     }
 
-    private static void WriteJson(string path, Dictionary<string, object?> payload)
+    private void WriteJson(string path, Dictionary<string, object?> payload)
     {
-        var directory = Path.GetDirectoryName(path);
-        if (!string.IsNullOrWhiteSpace(directory))
-        {
-            Directory.CreateDirectory(directory);
-        }
-
-        File.WriteAllText(path, JsonSerializer.Serialize(payload, JsonOptions));
+        _encrypted.WriteJson(path, payload);
     }
 }

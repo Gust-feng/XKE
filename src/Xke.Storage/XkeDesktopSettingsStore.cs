@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Xke.Contracts.Models;
+using Xke.Security;
 
 namespace Xke.Storage;
 
@@ -12,6 +13,7 @@ public sealed class XkeDesktopSettingsStore
     };
 
     private readonly XkeDataRoot _root;
+    private readonly LocalEncryptedFileStore _encrypted = new();
 
     public XkeDesktopSettingsStore(XkeDataRoot root)
     {
@@ -29,8 +31,7 @@ public sealed class XkeDesktopSettingsStore
 
         try
         {
-            var json = File.ReadAllText(SettingsPath);
-            var document = JsonSerializer.Deserialize<DesktopSettingsDocument>(json, JsonOptions);
+            var document = _encrypted.ReadJson<DesktopSettingsDocument>(SettingsPath);
             return Normalize(document);
         }
         catch
@@ -41,9 +42,8 @@ public sealed class XkeDesktopSettingsStore
 
     public string Save(DesktopSettingsDocument settings)
     {
-        Directory.CreateDirectory(_root.DesktopDirectory);
         var normalized = Normalize(settings);
-        File.WriteAllText(SettingsPath, JsonSerializer.Serialize(normalized, JsonOptions));
+        _encrypted.WriteJson(SettingsPath, normalized);
         return _root.RelativePath(SettingsPath);
     }
 

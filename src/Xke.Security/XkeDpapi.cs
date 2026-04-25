@@ -6,7 +6,8 @@ namespace Xke.Security;
 public static class XkeDpapi
 {
     private const int CryptprotectUiForbidden = 0x01;
-    private static readonly byte[] Entropy = Encoding.UTF8.GetBytes("XKE|protected-json|v1|auth");
+    private const string DefaultPurpose = "auth";
+    private const string EntropyPrefix = "XKE|protected-json|v1|";
 
     [StructLayout(LayoutKind.Sequential)]
     private struct DataBlob
@@ -40,20 +41,20 @@ public static class XkeDpapi
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern IntPtr LocalFree(IntPtr hMem);
 
-    public static byte[] Protect(byte[] plaintext)
+    public static byte[] Protect(byte[] plaintext, string? purpose = null)
     {
-        return Transform(plaintext, protect: true);
+        return Transform(plaintext, protect: true, purpose);
     }
 
-    public static byte[] Unprotect(byte[] ciphertext)
+    public static byte[] Unprotect(byte[] ciphertext, string? purpose = null)
     {
-        return Transform(ciphertext, protect: false);
+        return Transform(ciphertext, protect: false, purpose);
     }
 
-    private static byte[] Transform(byte[] input, bool protect)
+    private static byte[] Transform(byte[] input, bool protect, string? purpose)
     {
         var inputBlob = CreateBlob(input);
-        var entropyBlob = CreateBlob(Entropy);
+        var entropyBlob = CreateBlob(BuildEntropy(purpose));
         DataBlob outputBlob;
 
         try
@@ -111,5 +112,13 @@ public static class XkeDpapi
         {
             Marshal.FreeHGlobal(blob.pbData);
         }
+    }
+
+    private static byte[] BuildEntropy(string? purpose)
+    {
+        var normalizedPurpose = string.IsNullOrWhiteSpace(purpose)
+            ? DefaultPurpose
+            : purpose.Trim();
+        return Encoding.UTF8.GetBytes($"{EntropyPrefix}{normalizedPurpose}");
     }
 }

@@ -7,12 +7,26 @@ public static class XkeDataRootFactory
         var configured = explicitDataRoot
             ?? Environment.GetEnvironmentVariable("XKE_DOTNET_DATA_DIR");
 
-        // Active .NET runtime state must never fall back to Python legacy data
-        // roots. LegacyDataRootFactory is reference-only for compatibility reads.
         var root = string.IsNullOrWhiteSpace(configured)
-            ? Path.Combine(Path.GetFullPath(appRoot), ".runtime", "data")
+            ? ResolveLocalAppDataRoot()
             : configured.Trim();
 
         return new XkeDataRoot(root, workspaceRoot ?? appRoot);
+    }
+
+    private static string ResolveLocalAppDataRoot()
+    {
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        if (string.IsNullOrWhiteSpace(localAppData))
+        {
+            localAppData = (Environment.GetEnvironmentVariable("LOCALAPPDATA") ?? string.Empty).Trim();
+        }
+
+        if (string.IsNullOrWhiteSpace(localAppData))
+        {
+            throw new InvalidOperationException("LOCALAPPDATA is unavailable; set XKE_DOTNET_DATA_DIR explicitly.");
+        }
+
+        return Path.Combine(localAppData, ".XKE", "data");
     }
 }

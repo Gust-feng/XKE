@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Xke.Contracts.Responses;
+using Xke.Security;
 
 namespace Xke.Storage;
 
@@ -13,6 +14,7 @@ public sealed class XkeCourseStore
 
     private readonly XkeDataRoot _root;
     private readonly XkeStudentStore _studentStore;
+    private readonly LocalEncryptedFileStore _encrypted = new();
 
     public XkeCourseStore(XkeDataRoot root, XkeStudentStore studentStore)
     {
@@ -82,19 +84,18 @@ public sealed class XkeCourseStore
         return Path.Combine(ResolvePreviewRoundDirectory(roundId), "preview_raw.json");
     }
 
-    private static T? ReadJson<T>(string path)
+    private T? ReadJson<T>(string path)
     {
         if (!File.Exists(path))
         {
             return default;
         }
 
-        return JsonSerializer.Deserialize<T>(File.ReadAllText(path), JsonOptions);
+        return _encrypted.ReadJson<T>(path);
     }
 
-    private static void WriteJson<T>(string path, T value)
+    private void WriteJson<T>(string path, T value)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(path) ?? ".");
-        File.WriteAllText(path, JsonSerializer.Serialize(value, JsonOptions));
+        _encrypted.WriteJson(path, value);
     }
 }

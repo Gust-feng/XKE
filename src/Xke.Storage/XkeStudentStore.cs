@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Xke.Contracts.Models;
+using Xke.Security;
 
 namespace Xke.Storage;
 
@@ -12,6 +13,7 @@ public sealed class XkeStudentStore
     };
 
     private readonly XkeDataRoot _root;
+    private readonly LocalEncryptedFileStore _encrypted = new();
 
     public XkeStudentStore(XkeDataRoot root, string studentId)
     {
@@ -108,6 +110,11 @@ public sealed class XkeStudentStore
         return _root.RelativePath(avatarPath);
     }
 
+    public byte[] ReadAvatar(string avatarPath)
+    {
+        return File.ReadAllBytes(avatarPath);
+    }
+
     public string RelativeDirectory()
     {
         EnsureDirectory();
@@ -177,30 +184,29 @@ public sealed class XkeStudentStore
         Directory.CreateDirectory(InfoDirectory);
     }
 
-    private static T? ReadJson<T>(string path)
+    private T? ReadJson<T>(string path)
     {
         if (!File.Exists(path))
         {
             return default;
         }
 
-        var json = File.ReadAllText(path);
-        return JsonSerializer.Deserialize<T>(json, JsonOptions);
+        return _encrypted.ReadJson<T>(path);
     }
 
-    private static Dictionary<string, object?> ReadJsonDictionary(string path)
+    private Dictionary<string, object?> ReadJsonDictionary(string path)
     {
         if (!File.Exists(path))
         {
             return [];
         }
 
-        using var document = JsonDocument.Parse(File.ReadAllText(path));
+        using var document = JsonDocument.Parse(_encrypted.ReadBytes(path));
         return LegacyNoticeJson.ToDictionary(document.RootElement.Clone());
     }
 
-    private static void WriteJson<T>(string path, T value)
+    private void WriteJson<T>(string path, T value)
     {
-        File.WriteAllText(path, JsonSerializer.Serialize(value, JsonOptions));
+        _encrypted.WriteJson(path, value);
     }
 }

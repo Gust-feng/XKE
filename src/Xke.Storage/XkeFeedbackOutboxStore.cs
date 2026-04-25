@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Xke.Security;
 
 namespace Xke.Storage;
 
@@ -11,6 +12,7 @@ public sealed class XkeFeedbackOutboxStore
     };
 
     private readonly XkeDataRoot _root;
+    private readonly LocalEncryptedFileStore _encrypted = new();
 
     public XkeFeedbackOutboxStore(XkeDataRoot root)
     {
@@ -19,15 +21,9 @@ public sealed class XkeFeedbackOutboxStore
 
     public string Save(string studentId, string feedbackId, Dictionary<string, object?> payload)
     {
-        // Feedback stays local-only in this slice, so the outbox is a plain repo-local queue under .runtime/data.
+        // Feedback remains local-only in this slice; persisted content is encrypted at rest.
         var path = GetPath(studentId, feedbackId);
-        var directory = Path.GetDirectoryName(path);
-        if (!string.IsNullOrWhiteSpace(directory))
-        {
-            Directory.CreateDirectory(directory);
-        }
-
-        File.WriteAllText(path, JsonSerializer.Serialize(payload, JsonOptions));
+        _encrypted.WriteJson(path, payload);
         return _root.RelativePath(path);
     }
 

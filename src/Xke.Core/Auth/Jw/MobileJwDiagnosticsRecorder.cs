@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Xke.Security;
 using Xke.Storage;
 
 namespace Xke.Core.Auth.Jw;
@@ -6,6 +7,7 @@ namespace Xke.Core.Auth.Jw;
 internal static class MobileJwDiagnosticsRecorder
 {
     private static readonly object Gate = new();
+    private static readonly LocalEncryptedFileStore EncryptedFiles = new();
 
     public static void RecordResponse(string step, HttpResponseMessage response, string body)
     {
@@ -20,7 +22,7 @@ internal static class MobileJwDiagnosticsRecorder
         var extension = LooksLikeJson(body) ? ".json" : ".txt";
         var fileName = $"{DateTimeOffset.Now:yyyyMMdd-HHmmssfff}_{XkeDataRoot.SanitizePathSegment(step)}{extension}";
         var rawPath = Path.Combine(root, "raw", fileName);
-        File.WriteAllText(rawPath, body ?? string.Empty);
+        EncryptedFiles.WriteText(rawPath, body ?? string.Empty);
 
         // Raw remote payload capture is opt-in and only used by the real mobile validation tool.
         AppendEntry(root, new Dictionary<string, object?>(StringComparer.Ordinal)
@@ -61,7 +63,10 @@ internal static class MobileJwDiagnosticsRecorder
         var line = JsonSerializer.Serialize(payload);
         lock (Gate)
         {
-            File.AppendAllText(indexPath, line + Environment.NewLine);
+            var current = File.Exists(indexPath)
+                ? EncryptedFiles.ReadText(indexPath)
+                : string.Empty;
+            EncryptedFiles.WriteText(indexPath, current + line + Environment.NewLine);
         }
     }
 

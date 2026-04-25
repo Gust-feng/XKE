@@ -10,9 +10,20 @@ public sealed class TelemetryKeyProfile
     public string Fingerprint { get; init; } = string.Empty;
     public string SourcePath { get; init; } = string.Empty;
 
+    public static TelemetryKeyProfile CreateClientLocal()
+    {
+        return new TelemetryKeyProfile
+        {
+            Algorithm = LocalEncryptedFileStore.Algorithm,
+            KeyBytes = [],
+            Fingerprint = LocalEncryptedFileStore.KeyFingerprint,
+            SourcePath = LocalEncryptedFileStore.KeyId,
+        };
+    }
+
     public static TelemetryKeyProfile LoadFromDataRoot(string dataRootPath)
     {
-        var path = Path.Combine(dataRootPath, ".telemetry", "telemetry_aes_key.json");
+        var path = Path.Combine(dataRootPath, ".cloud", "telemetry", "telemetry_aes_key.json");
         if (!File.Exists(path))
         {
             throw new FileNotFoundException("Telemetry AES key not found.", path);

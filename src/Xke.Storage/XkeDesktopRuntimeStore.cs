@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using Xke.Security;
 
 namespace Xke.Storage;
 
@@ -12,6 +13,7 @@ public sealed class XkeDesktopRuntimeStore
     };
 
     private readonly XkeDataRoot _root;
+    private readonly LocalEncryptedFileStore _encrypted = new();
 
     public XkeDesktopRuntimeStore(XkeDataRoot root)
     {
@@ -29,7 +31,7 @@ public sealed class XkeDesktopRuntimeStore
 
         try
         {
-            var payload = JsonSerializer.Deserialize<DesktopRuntimeInstance>(File.ReadAllText(RuntimeInstancePath), JsonOptions);
+            var payload = _encrypted.ReadJson<DesktopRuntimeInstance>(RuntimeInstancePath);
             return payload ?? DesktopRuntimeInstance.Empty;
         }
         catch
@@ -40,7 +42,6 @@ public sealed class XkeDesktopRuntimeStore
 
     public string Save(int port, int? processId = null)
     {
-        Directory.CreateDirectory(_root.DesktopDirectory);
         // Persist the loopback endpoint so a second DesktopHost process can activate the first one.
         var payload = new DesktopRuntimeInstance
         {
@@ -48,7 +49,7 @@ public sealed class XkeDesktopRuntimeStore
             Port = port,
             UpdatedAt = DateTimeOffset.Now.ToString("O"),
         };
-        File.WriteAllText(RuntimeInstancePath, JsonSerializer.Serialize(payload, JsonOptions));
+        _encrypted.WriteJson(RuntimeInstancePath, payload);
         return _root.RelativePath(RuntimeInstancePath);
     }
 
