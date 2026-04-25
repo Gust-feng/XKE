@@ -5,6 +5,8 @@ using Xke.Core.Desktop;
 using Xke.Core.Network;
 using Xke.Core.Notice;
 using Xke.Core.Schedule;
+using Xke.Core.Telemetry;
+using Xke.Core.Update;
 using Xke.WebHost;
 
 namespace Xke.WebHost.Tests;
@@ -90,7 +92,11 @@ internal static class WebHostTestServer
         string noticeSigningPublicKeyPem = "",
         HttpMessageHandler? networkHttpMessageHandler = null,
         INetworkCommandExecutor? networkCommandExecutor = null,
-        IDesktopWindowController? desktopWindowController = null)
+        ITelemetryTransport? telemetryTransport = null,
+        IDesktopWindowController? desktopWindowController = null,
+        IDesktopStartupRegistrar? desktopStartupRegistrar = null,
+        IUpdatePackageDownloader? updatePackageDownloader = null,
+        IUpdateVersionProvider? updateVersionProvider = null)
     {
         return await StartAsync(
             webRoot.RootPath,
@@ -103,7 +109,11 @@ internal static class WebHostTestServer
             noticeSigningPublicKeyPem,
             networkHttpMessageHandler,
             networkCommandExecutor,
-            desktopWindowController);
+            telemetryTransport,
+            desktopWindowController,
+            desktopStartupRegistrar,
+            updatePackageDownloader,
+            updateVersionProvider);
     }
 
     public static async Task<StartedWebHost> StartAsync(
@@ -117,7 +127,11 @@ internal static class WebHostTestServer
         string noticeSigningPublicKeyPem = "",
         HttpMessageHandler? networkHttpMessageHandler = null,
         INetworkCommandExecutor? networkCommandExecutor = null,
-        IDesktopWindowController? desktopWindowController = null)
+        ITelemetryTransport? telemetryTransport = null,
+        IDesktopWindowController? desktopWindowController = null,
+        IDesktopStartupRegistrar? desktopStartupRegistrar = null,
+        IUpdatePackageDownloader? updatePackageDownloader = null,
+        IUpdateVersionProvider? updateVersionProvider = null)
     {
         var service = new XkeWebHostService(new XkeWebHostOptions
         {
@@ -130,9 +144,13 @@ internal static class WebHostTestServer
             CourseClient = courseClient,
             NoticeRemoteSource = noticeRemoteSource ?? new MissingNoticeRemoteSource(),
             NoticeSigningPublicKeyPem = noticeSigningPublicKeyPem,
+            TelemetryTransport = telemetryTransport ?? new LocalOnlyTelemetryTransport(),
             NetworkHttpMessageHandler = networkHttpMessageHandler,
             NetworkCommandExecutor = networkCommandExecutor,
             DesktopWindowController = desktopWindowController,
+            DesktopStartupRegistrar = desktopStartupRegistrar,
+            UpdatePackageDownloader = updatePackageDownloader,
+            UpdateVersionProvider = updateVersionProvider,
             Urls = new[] { "http://127.0.0.1:0" },
         });
         return new StartedWebHost(service, await service.StartAsync());

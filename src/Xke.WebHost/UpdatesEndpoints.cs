@@ -34,8 +34,10 @@ public static partial class XkeWebHostApplication
 
                 var trigger = ResolveQueryValue(context, "trigger", "view");
                 var feed = await noticeService.LoadFeedAsync(channel, version, trigger, studentId, context.RequestAborted);
+                var sanitizedFeed = SanitizeFrontendRemotePayload(feed) as IReadOnlyDictionary<string, object?>
+                                    ?? new Dictionary<string, object?>();
                 var payload = new UpdatesFeedPayload(
-                    Feed: feed,
+                    Feed: sanitizedFeed,
                     StudentId: studentId);
                 return Ok("更新与公告已加载", payload);
             }

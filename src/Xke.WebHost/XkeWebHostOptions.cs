@@ -6,6 +6,8 @@ using Xke.Core.Desktop;
 using Xke.Core.Network;
 using Xke.Core.Notice;
 using Xke.Core.Schedule;
+using Xke.Core.Telemetry;
+using Xke.Core.Update;
 
 public sealed class XkeWebHostOptions
 {
@@ -19,7 +21,12 @@ public sealed class XkeWebHostOptions
     public ICourseClient? CourseClient { get; init; }
     public INoticeRemoteSource? NoticeRemoteSource { get; init; }
     public string? NoticeSigningPublicKeyPem { get; init; }
+    public ITelemetryTransport? TelemetryTransport { get; init; }
+    public string? TelemetryCloudEndpoint { get; init; }
     public HttpMessageHandler? NetworkHttpMessageHandler { get; init; }
     public INetworkCommandExecutor? NetworkCommandExecutor { get; init; }
     public IDesktopWindowController? DesktopWindowController { get; init; }
+    public IDesktopStartupRegistrar? DesktopStartupRegistrar { get; init; }
+    public IUpdatePackageDownloader? UpdatePackageDownloader { get; init; }
+    public IUpdateVersionProvider? UpdateVersionProvider { get; init; }
 }

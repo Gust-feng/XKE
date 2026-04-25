@@ -1,5 +1,6 @@
 param(
-    [switch]$SkipSyntaxCheck
+    [switch]$SkipSyntaxCheck,
+    [switch]$SkipInstall
 )
 
 $ErrorActionPreference = "Stop"
@@ -40,7 +41,8 @@ function Invoke-Checked {
 }
 
 if (-not (Test-Path $webRoot)) {
-    throw "Web root not found: $webRoot"
+    Write-Warning "Web root not found: $webRoot. Frontend smoke is skipped because web/ is local-only in this checkout."
+    return
 }
 
 $node = Resolve-ToolPath -Names @("node.exe", "node") -FallbackPath "C:\Program Files\nodejs\node.exe"

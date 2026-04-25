@@ -2,7 +2,8 @@ namespace Xke.Core.Notice;
 
 public sealed class HttpNoticeRemoteSource : INoticeRemoteSource
 {
-    public const string DefaultBaseUrl = "https://xke-notice-1327163070.cos.ap-guangzhou.myqcloud.com/";
+    public const string DefaultBaseUrl = "https://example.invalid/xke-cloud/";
+    public const string BaseUrlEnvironmentVariable = "XKE_NOTICE_BASE_URL";
 
     private readonly HttpClient _httpClient;
     private readonly Uri _baseUri;
@@ -10,7 +11,16 @@ public sealed class HttpNoticeRemoteSource : INoticeRemoteSource
     public HttpNoticeRemoteSource(HttpClient httpClient, string? baseUrl = null)
     {
         _httpClient = httpClient;
-        _baseUri = new Uri(string.IsNullOrWhiteSpace(baseUrl) ? DefaultBaseUrl : baseUrl.Trim(), UriKind.Absolute);
+        _baseUri = new Uri(ResolveBaseUrl(baseUrl), UriKind.Absolute);
+    }
+
+    public static string ResolveBaseUrl(string? configured = null)
+    {
+        return FirstNonEmpty(
+            configured,
+            Environment.GetEnvironmentVariable(BaseUrlEnvironmentVariable),
+            Environment.GetEnvironmentVariable("XKE_CLOUD_NOTICE_BASE_URL"),
+            DefaultBaseUrl).Trim();
     }
 
     public async Task<NoticeRemoteContentResult> GetBytesAsync(string relativePath, CancellationToken cancellationToken = default)
@@ -33,5 +43,10 @@ public sealed class HttpNoticeRemoteSource : INoticeRemoteSource
         {
             return new NoticeRemoteContentResult(false, Array.Empty<byte>(), ex.Message);
         }
+    }
+
+    private static string FirstNonEmpty(params string?[] values)
+    {
+        return values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
     }
 }

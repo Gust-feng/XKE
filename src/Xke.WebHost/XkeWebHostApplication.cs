@@ -19,6 +19,7 @@ using Xke.Core.Schedule;
 using Xke.Core.Network;
 using Xke.Core.Telemetry;
 using Xke.Core.Feedback;
+using Xke.Core.Update;
 using Xke.Storage;
 
 namespace Xke.WebHost;
@@ -72,6 +73,8 @@ public static partial class XkeWebHostApplication
         builder.Services.AddSingleton<RemotePolicyService>();
         builder.Services.AddSingleton<CloudFeedService>();
         builder.Services.AddSingleton<NoticeService>();
+        builder.Services.AddSingleton<IDesktopStartupRegistrar>(_ =>
+            hostOptions.DesktopStartupRegistrar ?? new NoopDesktopStartupRegistrar());
         builder.Services.AddSingleton<DesktopSettingsService>();
         builder.Services.AddSingleton<IDesktopWindowController>(_ =>
             hostOptions.DesktopWindowController ?? new NoopDesktopWindowController());
@@ -81,10 +84,17 @@ public static partial class XkeWebHostApplication
         builder.Services.AddSingleton<IJwCaptchaSolver, ManualCaptchaSolver>();
         builder.Services.AddSingleton<ScheduleService>();
         builder.Services.AddSingleton<NetworkService>();
-        builder.Services.AddSingleton<ITelemetryTransport, LocalOnlyTelemetryTransport>();
+        builder.Services.AddSingleton<ITelemetryTransport>(_ =>
+            hostOptions.TelemetryTransport
+            ?? new HttpTelemetryTransport(new HttpClient(), hostOptions.TelemetryCloudEndpoint));
         builder.Services.AddSingleton<TelemetryService>();
         builder.Services.AddSingleton<IFeedbackTransport, LocalFeedbackOutboxTransport>();
         builder.Services.AddSingleton<FeedbackService>();
+        builder.Services.AddSingleton<IUpdatePackageDownloader>(_ =>
+            hostOptions.UpdatePackageDownloader ?? new HttpUpdatePackageDownloader(new HttpClient()));
+        builder.Services.AddSingleton<IUpdateVersionProvider>(_ =>
+            hostOptions.UpdateVersionProvider ?? new AssemblyUpdateVersionProvider());
+        builder.Services.AddSingleton<UpdateService>();
 
         builder.Services.AddCors(cors =>
         {
@@ -144,6 +154,7 @@ public static partial class XkeWebHostApplication
         if (context.Request.Path.StartsWithSegments(SessionConstants.ApiBasePath)
             && context.Request.Path != "/api/config"
             && context.Request.Path != "/api/health"
+            && !context.Request.Path.StartsWithSegments("/api/update", StringComparison.OrdinalIgnoreCase)
             && WebHostRuntime.IsBetaExpired())
         {
             ApplyNoCacheHeaders(context.Response);
@@ -224,6 +235,8 @@ public static partial class XkeWebHostApplication
             var feed = await noticeService.LoadFeedAsync(channel, version, "startup", cancellationToken: context.RequestAborted);
             var warnings = ResolveWarnings(feed.GetValueOrDefault("warnings"));
             var config = feed.GetValueOrDefault("config") as Dictionary<string, object?> ?? new Dictionary<string, object?>();
+            var sanitizedConfig = SanitizeFrontendRemotePayload(config) as IReadOnlyDictionary<string, object?>
+                                  ?? new Dictionary<string, object?>();
 
             return Results.Json(new HostConfigResponse(
                 User: string.Empty,
@@ -239,10 +252,11 @@ public static partial class XkeWebHostApplication
                 Remote: new HostRemoteResponse(
                     Source: feed.GetValueOrDefault("source")?.ToString() ?? string.Empty,
                     Warnings: warnings,
-                    Config: config)));
+                    Config: sanitizedConfig)));
         });
 
         MapUpdatesRoutes(app);
+        MapUpdateRoutes(app);
         MapDesktopRoutes(app);
         MapAuthRoutes(app);
         MapCourseRoutes(app);
@@ -282,6 +296,7 @@ public static partial class XkeWebHostApplication
             var indexPath = Path.Combine(paths.WebRootPath, "index.html");
             if (File.Exists(indexPath))
             {
+                context.Response.ContentType = "text/html; charset=utf-8";
                 await context.Response.SendFileAsync(indexPath);
                 return;
             }
@@ -619,6 +634,58 @@ public static partial class XkeWebHostApplication
             IEnumerable<object?> enumerable => enumerable.ToArray(),
             _ => Array.Empty<object?>(),
         };
+    }
+
+    private static object? SanitizeFrontendRemotePayload(object? value)
+    {
+        if (value is Dictionary<string, object?> dictionary)
+        {
+            var result = new Dictionary<string, object?>(StringComparer.Ordinal);
+            foreach (var (key, item) in dictionary)
+            {
+                if (IsHiddenUpdateField(key))
+                {
+                    continue;
+                }
+
+                result[key] = SanitizeFrontendRemotePayload(item);
+            }
+
+            return result;
+        }
+
+        if (value is IReadOnlyDictionary<string, object?> readOnlyDictionary)
+        {
+            var result = new Dictionary<string, object?>(StringComparer.Ordinal);
+            foreach (var (key, item) in readOnlyDictionary)
+            {
+                if (IsHiddenUpdateField(key))
+                {
+                    continue;
+                }
+
+                result[key] = SanitizeFrontendRemotePayload(item);
+            }
+
+            return result;
+        }
+
+        if (value is List<object?> list)
+        {
+            return list.Select(SanitizeFrontendRemotePayload).ToList();
+        }
+
+        if (value is object[] array)
+        {
+            return array.Select(SanitizeFrontendRemotePayload).ToArray();
+        }
+
+        return value;
+    }
+
+    private static bool IsHiddenUpdateField(string key)
+    {
+        return key is "download_url" or "package_sha256" or "package_size" or "package_type" or "release_notes_url";
     }
 
     private static string GetAvatarContentType(string path)

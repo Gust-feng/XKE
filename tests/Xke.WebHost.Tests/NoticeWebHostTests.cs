@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Xke.Contracts.Models;
+using Xke.Core.Desktop;
 using Xke.Security;
 using Xke.Storage;
 using Xke.WebHost;
@@ -29,7 +30,7 @@ public sealed class NoticeWebHostTests
         var client = host.Client;
 
         var config = await client.GetFromJsonAsync<JsonElement>("/api/config?version=1.2.3&channel=beta");
-        Assert.Equal("local-cache", config.GetProperty("remote").GetProperty("source").GetString());
+        Assert.Equal("cloud", config.GetProperty("remote").GetProperty("source").GetString());
         Assert.Equal("1.2.3", config.GetProperty("remote").GetProperty("config").GetProperty("latest_version").GetString());
         Assert.True(config.GetProperty("remote").GetProperty("config").GetProperty("feature_flags").GetProperty("schedule_view").GetBoolean());
 
@@ -37,7 +38,7 @@ public sealed class NoticeWebHostTests
         var anonymousFeed = await ReadJsonAsync(anonymousFeedResponse);
         Assert.Equal(HttpStatusCode.OK, anonymousFeedResponse.StatusCode);
         Assert.Equal("20260001", GetData(anonymousFeed).GetProperty("student_id").GetString());
-        Assert.Equal("local-cache", GetData(anonymousFeed).GetProperty("feed").GetProperty("source").GetString());
+        Assert.Equal("cloud", GetData(anonymousFeed).GetProperty("feed").GetProperty("source").GetString());
         Assert.Equal(2, GetData(anonymousFeed).GetProperty("feed").GetProperty("items").GetArrayLength());
         Assert.Equal(1, GetData(anonymousFeed).GetProperty("feed").GetProperty("reminder_items").GetArrayLength());
 
@@ -110,7 +111,7 @@ public sealed class NoticeWebHostTests
     }
 
     [Fact]
-    public async Task ConfigFallsBackToReadonlyWhenRemoteSignatureInvalid()
+    public async Task ConfigLoadsRemoteFeedWithoutTrustingIndexSignature()
     {
         using var webRoot = new TemporaryWebRoot();
         using var dataRoot = new TemporaryDirectory("xke-notice-invalid-signature");
@@ -127,9 +128,93 @@ public sealed class NoticeWebHostTests
         var config = await client.GetFromJsonAsync<JsonElement>("/api/config?version=1.2.3&channel=beta");
         var remote = config.GetProperty("remote");
 
-        Assert.Equal("cos-fallback", remote.GetProperty("source").GetString());
-        Assert.NotEmpty(remote.GetProperty("warnings").EnumerateArray());
-        Assert.Equal("readonly", remote.GetProperty("config").GetProperty("app_control").GetProperty("state").GetString());
+        Assert.Equal("cloud", remote.GetProperty("source").GetString());
+        Assert.Equal("1.2.3", remote.GetProperty("config").GetProperty("latest_version").GetString());
+        Assert.Equal("normal", remote.GetProperty("config").GetProperty("app_control").GetProperty("state").GetString());
+    }
+
+    [Fact]
+    public async Task ConfigLoadsRemoteFeedWithoutBlockingOnPayloadHash()
+    {
+        using var webRoot = new TemporaryWebRoot();
+        using var dataRoot = new TemporaryDirectory("xke-notice-invalid-hash");
+        var fixture = CreateNoticeFixture(invalidUpdateInfoHash: true);
+
+        await using var host = await WebHostTestServer.StartAsync(
+            webRoot,
+            dataRoot,
+            hostMode: "test-notice",
+            noticeRemoteSource: fixture.Source,
+            noticeSigningPublicKeyPem: fixture.PublicKeyPem);
+        var client = host.Client;
+
+        var config = await client.GetFromJsonAsync<JsonElement>("/api/config?version=1.2.3&channel=beta");
+        var remote = config.GetProperty("remote");
+
+        Assert.Equal("cloud", remote.GetProperty("source").GetString());
+        Assert.Equal("1.2.3", remote.GetProperty("config").GetProperty("latest_version").GetString());
+        Assert.Equal("normal", remote.GetProperty("config").GetProperty("app_control").GetProperty("state").GetString());
+    }
+
+    [Fact]
+    public async Task UpdatesFeedReturnsTrustedLocalCacheWhenRemoteUnavailableAfterInitialSync()
+    {
+        using var webRoot = new TemporaryWebRoot();
+        using var dataRoot = new TemporaryDirectory("xke-notice-last-good-cache");
+        var fixture = CreateNoticeFixture();
+
+        await using (var firstHost = await WebHostTestServer.StartAsync(
+            webRoot,
+            dataRoot,
+            hostMode: "test-notice",
+            noticeRemoteSource: fixture.Source,
+            noticeSigningPublicKeyPem: fixture.PublicKeyPem))
+        {
+            var initialResponse = await firstHost.Client.GetAsync("/api/updates/feed?student_id=20260001&version=1.2.3&channel=beta&trigger=manual");
+            Assert.Equal(HttpStatusCode.OK, initialResponse.StatusCode);
+        }
+
+        await using var secondHost = await WebHostTestServer.StartAsync(
+            webRoot,
+            dataRoot,
+            hostMode: "test-notice",
+            noticeRemoteSource: new MissingNoticeRemoteSource(),
+            noticeSigningPublicKeyPem: fixture.PublicKeyPem);
+
+        var cachedResponse = await secondHost.Client.GetAsync("/api/updates/feed?student_id=20260001&version=1.2.3&channel=beta&trigger=manual");
+        var cachedFeed = await ReadJsonAsync(cachedResponse);
+        var feed = GetData(cachedFeed).GetProperty("feed");
+
+        Assert.Equal(HttpStatusCode.OK, cachedResponse.StatusCode);
+        Assert.Equal("local-cache", feed.GetProperty("source").GetString());
+        Assert.Equal(2, feed.GetProperty("items").GetArrayLength());
+        Assert.Contains(feed.GetProperty("warnings").EnumerateArray(), item => item.GetString()?.Contains("云端入口读取失败", StringComparison.Ordinal) == true);
+    }
+
+    [Fact]
+    public async Task UpdatesFeedWritesNoticeCacheInsideRuntimeDataRoot()
+    {
+        using var webRoot = new TemporaryWebRoot();
+        using var dataRoot = new TemporaryDirectory("xke-notice-cache-location");
+        var fixture = CreateNoticeFixture();
+
+        await using var host = await WebHostTestServer.StartAsync(
+            webRoot,
+            dataRoot,
+            hostMode: "test-notice",
+            noticeRemoteSource: fixture.Source,
+            noticeSigningPublicKeyPem: fixture.PublicKeyPem);
+
+        var response = await host.Client.GetAsync("/api/updates/feed?student_id=20260001&version=1.2.3&channel=beta&trigger=manual");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var dataRootModel = new XkeDataRoot(dataRoot.RootPath, dataRoot.RootPath);
+
+        Assert.StartsWith(dataRoot.RootPath, dataRootModel.CloudDirectory, StringComparison.OrdinalIgnoreCase);
+        Assert.True(File.Exists(dataRootModel.CloudFeedPath));
+        Assert.True(File.Exists(dataRootModel.CloudFeedMetaPath));
+        Assert.Contains($"{Path.DirectorySeparatorChar}.cloud", dataRootModel.CloudDirectory, StringComparison.OrdinalIgnoreCase);
+        Assert.False(Directory.Exists(Path.Combine(dataRoot.RootPath, "notice")));
     }
 
     [Fact]
@@ -137,6 +222,7 @@ public sealed class NoticeWebHostTests
     {
         using var webRoot = new TemporaryWebRoot();
         using var dataRoot = new TemporaryDirectory("xke-desktop-settings");
+        var startupRegistrar = new FakeDesktopStartupRegistrar();
 
         async Task<XkeWebHostService> CreateServiceAsync()
         {
@@ -147,6 +233,7 @@ public sealed class NoticeWebHostTests
                 WebRootPath = webRoot.RootPath,
                 AuthDataRootPath = dataRoot.RootPath,
                 NoticeRemoteSource = new MissingNoticeRemoteSource(),
+                DesktopStartupRegistrar = startupRegistrar,
                 Urls = new[] { "http://127.0.0.1:0" },
             });
             await service.StartAsync();
@@ -159,6 +246,19 @@ public sealed class NoticeWebHostTests
             var initial = await firstClient.GetFromJsonAsync<JsonElement>("/api/desktop/settings");
             Assert.False(initial.GetProperty("data").GetProperty("settings").GetProperty("launch_at_startup").GetBoolean());
             Assert.True(initial.GetProperty("data").GetProperty("settings").GetProperty("close_to_tray").GetBoolean());
+            Assert.False(initial.GetProperty("data").GetProperty("startup_registered").GetBoolean());
+
+            var startupResponse = await firstClient.PostAsJsonAsync("/api/desktop/settings", new
+            {
+                launch_at_startup = true,
+                silent_startup = true,
+            });
+            var startupSaved = await ReadJsonAsync(startupResponse);
+            Assert.Equal(HttpStatusCode.OK, startupResponse.StatusCode);
+            Assert.True(GetData(startupSaved).GetProperty("settings").GetProperty("launch_at_startup").GetBoolean());
+            Assert.True(GetData(startupSaved).GetProperty("settings").GetProperty("silent_startup").GetBoolean());
+            Assert.True(GetData(startupSaved).GetProperty("startup_registered").GetBoolean());
+            Assert.Equal(1, startupRegistrar.RegisterCalls);
 
             var saveResponse = await firstClient.PostAsJsonAsync("/api/desktop/settings", new
             {
@@ -168,8 +268,11 @@ public sealed class NoticeWebHostTests
             });
             var saved = await ReadJsonAsync(saveResponse);
             Assert.Equal(HttpStatusCode.OK, saveResponse.StatusCode);
+            Assert.False(GetData(saved).GetProperty("settings").GetProperty("launch_at_startup").GetBoolean());
             Assert.False(GetData(saved).GetProperty("settings").GetProperty("silent_startup").GetBoolean());
             Assert.False(GetData(saved).GetProperty("settings").GetProperty("close_to_tray").GetBoolean());
+            Assert.False(GetData(saved).GetProperty("startup_registered").GetBoolean());
+            Assert.Equal(1, startupRegistrar.UnregisterCalls);
         }
 
         await firstService.StopAsync();
@@ -181,7 +284,38 @@ public sealed class NoticeWebHostTests
         Assert.False(restored.GetProperty("data").GetProperty("settings").GetProperty("launch_at_startup").GetBoolean());
         Assert.False(restored.GetProperty("data").GetProperty("settings").GetProperty("silent_startup").GetBoolean());
         Assert.False(restored.GetProperty("data").GetProperty("settings").GetProperty("close_to_tray").GetBoolean());
-        Assert.True(restored.GetProperty("data").GetProperty("startup_registered").ValueKind == JsonValueKind.Null);
+        Assert.False(restored.GetProperty("data").GetProperty("startup_registered").GetBoolean());
+    }
+
+    [Fact]
+    public async Task DesktopSettings_StartupRegistrationFailureDoesNotPersistFalseSuccess()
+    {
+        using var webRoot = new TemporaryWebRoot();
+        using var dataRoot = new TemporaryDirectory("xke-desktop-settings-failure");
+        var startupRegistrar = new FakeDesktopStartupRegistrar
+        {
+            ThrowOnRegister = true,
+        };
+
+        await using var host = await WebHostTestServer.StartAsync(
+            webRoot,
+            dataRoot,
+            hostMode: "test-desktop",
+            desktopStartupRegistrar: startupRegistrar);
+        var client = host.Client;
+
+        var saveResponse = await client.PostAsJsonAsync("/api/desktop/settings", new
+        {
+            launch_at_startup = true,
+            silent_startup = true,
+        });
+        var saved = await ReadJsonAsync(saveResponse);
+        Assert.Equal(HttpStatusCode.InternalServerError, saveResponse.StatusCode);
+        Assert.Contains("模拟注册失败", saved.RootElement.GetProperty("detail").GetString());
+
+        var restored = await client.GetFromJsonAsync<JsonElement>("/api/desktop/settings");
+        Assert.False(restored.GetProperty("data").GetProperty("settings").GetProperty("launch_at_startup").GetBoolean());
+        Assert.False(restored.GetProperty("data").GetProperty("settings").GetProperty("silent_startup").GetBoolean());
     }
 
     private static JsonElement GetData(JsonDocument document)
@@ -195,7 +329,38 @@ public sealed class NoticeWebHostTests
         return JsonDocument.Parse(text);
     }
 
-    private static NoticeFixture CreateNoticeFixture(string blockedStudentId = "", bool invalidSignature = false)
+    private sealed class FakeDesktopStartupRegistrar : IDesktopStartupRegistrar
+    {
+        public bool Registered { get; private set; }
+        public bool ThrowOnRegister { get; init; }
+        public int RegisterCalls { get; private set; }
+        public int UnregisterCalls { get; private set; }
+
+        public bool? GetRegistrationState()
+        {
+            return Registered;
+        }
+
+        public void SetRegistrationState(bool enabled)
+        {
+            if (enabled)
+            {
+                RegisterCalls++;
+                if (ThrowOnRegister)
+                {
+                    throw new InvalidOperationException("模拟注册失败");
+                }
+            }
+            else
+            {
+                UnregisterCalls++;
+            }
+
+            Registered = enabled;
+        }
+    }
+
+    private static NoticeFixture CreateNoticeFixture(string blockedStudentId = "", bool invalidSignature = false, bool invalidUpdateInfoHash = false)
     {
         const string updatedAt = "2026-04-23T12:00:00Z";
         const string bundlePath = "notice/bundles/operations.json";
@@ -366,7 +531,9 @@ public sealed class NoticeWebHostTests
             {
                 ["path"] = "config/update_info.json",
                 ["updated_at"] = updatedAt,
-                ["sha256"] = NoticeHash.Sha256Hex(NoticeCanonicalJson.Serialize(updateInfo)),
+                ["sha256"] = invalidUpdateInfoHash
+                    ? new string('0', 64)
+                    : NoticeHash.Sha256Hex(NoticeCanonicalJson.Serialize(updateInfo)),
             },
             ["access_policy"] = new Dictionary<string, object?>
             {
@@ -374,6 +541,26 @@ public sealed class NoticeWebHostTests
                 ["updated_at"] = updatedAt,
                 ["sha256"] = NoticeHash.Sha256Hex(NoticeCanonicalJson.Serialize(accessPolicy)),
             },
+        };
+
+        var cloudFeed = new Dictionary<string, object?>
+        {
+            ["schema_version"] = "1",
+            ["updated_at"] = updatedAt,
+            ["announcement"] = new Dictionary<string, object?>
+            {
+                ["title"] = "XKE 控制面",
+                ["subtitle"] = "脱敏公告",
+                ["notice_text"] = "当前为测试控制面配置",
+                ["items"] = bundle["items"],
+            },
+            ["policy"] = new Dictionary<string, object?>
+            {
+                ["version_policy"] = versionPolicy,
+                ["access_policy"] = accessPolicy,
+                ["telemetry_enabled"] = false,
+            },
+            ["update_info"] = updateInfo,
         };
 
         using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP521);
@@ -384,6 +571,7 @@ public sealed class NoticeWebHostTests
 
         var files = new Dictionary<string, byte[]>(StringComparer.Ordinal)
         {
+            ["cloud-feed.json"] = SerializeJson(cloudFeed),
             ["index.json"] = SerializeJson(index),
             ["index.sig"] = Encoding.UTF8.GetBytes(signature),
             ["notice/directory.json"] = SerializeJson(noticeDirectory),

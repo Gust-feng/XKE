@@ -9,6 +9,8 @@ namespace Xke.Core.Telemetry;
 
 public sealed class TelemetryService
 {
+    private const int MaxSpoolRetryPerReport = 8;
+
     private readonly XkeDataRoot _dataRoot;
     private readonly ITelemetryTransport _transport;
 
@@ -37,12 +39,10 @@ public sealed class TelemetryService
 
         var snapshot = BuildSnapshot(context, request, runtime, installation, now);
         var snapshotPath = context.StudentStore.SaveRemoteSensingSnapshot(snapshot);
-        // Current slice is local-only: the transport records a skipped/local result
-        // and must not contact cloud services until the cloud upload slice replaces it.
-        var cloud = await _transport.ReportAsync(
-            snapshot,
-            request.CloudUploadEnabled ? request.CloudSkipReason : (string.IsNullOrWhiteSpace(request.CloudSkipReason) ? "remote-disabled" : request.CloudSkipReason),
-            cancellationToken).ConfigureAwait(false);
+        var spoolPayload = BuildTelemetrySpoolPayload(snapshot, now);
+        var spoolPath = _dataRoot.Telemetry().SaveSpoolItem(spoolPayload, now);
+        var cloud = await ResolveCloudResultAsync(request, spoolPayload, spoolPath, cancellationToken)
+            .ConfigureAwait(false);
 
         installation["last_reported_at"] = now;
         _dataRoot.Telemetry().SaveInstallationProfile(installation);
@@ -57,8 +57,131 @@ public sealed class TelemetryService
                 Encryption: new TelemetryEncryptionSummary(
                     Algorithm: keyProfile.Algorithm,
                     Fingerprint: keyProfile.Fingerprint,
-                    KeyPath: _dataRoot.RelativePath(keyProfile.SourcePath)),
+                    KeyPath: ResolveKeyPath(keyProfile.SourcePath)),
                 SnapshotPath: snapshotPath));
+    }
+
+    private async Task<TelemetryCloudResult> ResolveCloudResultAsync(
+        TelemetryReportRequest request,
+        Dictionary<string, object?> spoolPayload,
+        string spoolPath,
+        CancellationToken cancellationToken)
+    {
+        if (!request.CloudUploadEnabled)
+        {
+            return new TelemetryCloudResult(
+                Ok: true,
+                Queued: true,
+                Skipped: true,
+                Reason: string.IsNullOrWhiteSpace(request.CloudSkipReason)
+                    ? "cloud-upload-disabled"
+                    : Truncate(request.CloudSkipReason, 64));
+        }
+
+        TelemetryCloudResult result;
+        try
+        {
+            result = await _transport.ReportAsync(spoolPayload, request.CloudSkipReason, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            return new TelemetryCloudResult(
+                Ok: false,
+                Queued: true,
+                Skipped: false,
+                Reason: "cloud-unavailable");
+        }
+
+        if (ShouldRemoveSpoolItem(result))
+        {
+            _dataRoot.Telemetry().DeleteSpoolItem(spoolPath);
+            await FlushPendingSpoolAsync(spoolPath, cancellationToken).ConfigureAwait(false);
+        }
+
+        return result;
+    }
+
+    private async Task FlushPendingSpoolAsync(string currentSpoolPath, CancellationToken cancellationToken)
+    {
+        foreach (var spoolPath in _dataRoot.Telemetry().EnumerateSpoolItems(MaxSpoolRetryPerReport))
+        {
+            if (string.Equals(spoolPath, currentSpoolPath, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var payload = _dataRoot.Telemetry().LoadSpoolItem(spoolPath);
+            if (payload.Count == 0)
+            {
+                continue;
+            }
+
+            TelemetryCloudResult result;
+            try
+            {
+                result = await _transport.ReportAsync(payload, "queued-retry", cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                return;
+            }
+
+            if (!ShouldRemoveSpoolItem(result))
+            {
+                return;
+            }
+
+            _dataRoot.Telemetry().DeleteSpoolItem(spoolPath);
+        }
+    }
+
+    private static bool ShouldRemoveSpoolItem(TelemetryCloudResult result)
+    {
+        return result.Ok
+               && !result.Queued
+               && (result.Skipped || string.Equals(result.Reason, "uploaded", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static Dictionary<string, object?> BuildTelemetrySpoolPayload(Dictionary<string, object?> snapshot, string queuedAt)
+    {
+        return new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["schema_version"] = "1",
+            ["kind"] = "telemetry_snapshot",
+            ["queued_at"] = queuedAt,
+            ["payload"] = new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["schema_version"] = snapshot.GetValueOrDefault("schema_version"),
+                ["reported_at"] = snapshot.GetValueOrDefault("reported_at"),
+                ["reason"] = snapshot.GetValueOrDefault("reason"),
+                ["student_id"] = snapshot.GetValueOrDefault("student_id"),
+                ["student_id_hash"] = snapshot.GetValueOrDefault("student_id_hash"),
+                ["install_uuid"] = snapshot.GetValueOrDefault("install_uuid"),
+                ["active_tab"] = snapshot.GetValueOrDefault("active_tab"),
+                ["module_hint"] = snapshot.GetValueOrDefault("module_hint"),
+                ["build"] = snapshot.GetValueOrDefault("build"),
+                ["feature_usage_deltas"] = snapshot.GetValueOrDefault("feature_usage_deltas"),
+                ["runtime"] = snapshot.GetValueOrDefault("runtime"),
+            },
+        };
+    }
+
+    private string ResolveKeyPath(string sourcePath)
+    {
+        var value = (sourcePath ?? string.Empty).Trim();
+        return value.StartsWith("client://", StringComparison.Ordinal)
+            ? value
+            : _dataRoot.RelativePath(value);
     }
 
     public (string Message, Dictionary<string, object?> Payload) GetOverview(string sessionId)

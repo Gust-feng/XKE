@@ -22,6 +22,11 @@ public partial class App : System.Windows.Application
         var resolvedPaths = XkePathResolver.Resolve();
         var dotNetRoot = ResolveDotNetWorkspaceRoot(resolvedPaths.AppBaseDirectory);
         _dataRoot = XkeDataRootFactory.CreateDefault(dotNetRoot, dotNetRoot);
+        var startupRegistrar = new WindowsDesktopStartupRegistrar();
+        var desktopSettings = _dataRoot.DesktopSettings().Load();
+        var shouldStartHidden = IsStartupLaunch(e.Args)
+                                && desktopSettings.LaunchAtStartup
+                                && desktopSettings.SilentStartup;
 
         if (await TryActivateRunningInstanceAsync(_dataRoot).ConfigureAwait(true))
         {
@@ -36,12 +41,24 @@ public partial class App : System.Windows.Application
             RuntimeChannel = "dotnet8-desktop",
             Urls = new[] { "http://127.0.0.1:0" },
             DesktopWindowController = new DeferredDesktopWindowController(() => window),
+            DesktopStartupRegistrar = startupRegistrar,
         });
 
         window = new MainWindow(_webHostService, _dataRoot);
         MainWindow = window;
+        if (shouldStartHidden)
+        {
+            window.ShowActivated = false;
+            window.ShowInTaskbar = false;
+            window.WindowState = System.Windows.WindowState.Minimized;
+        }
+
         window.Show();
-        await window.InitializeAsync().ConfigureAwait(true);
+        await window.InitializeAsync(loadWebView: !shouldStartHidden).ConfigureAwait(true);
+        if (shouldStartHidden)
+        {
+            window.EnterSilentStartupMode();
+        }
 
         if (_webHostService.LaunchResult?.BaseUrl is { } baseUrl)
         {
@@ -112,6 +129,11 @@ public partial class App : System.Windows.Application
     private static int ResolvePort(string baseUrl)
     {
         return Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri) ? uri.Port : 0;
+    }
+
+    private static bool IsStartupLaunch(IEnumerable<string> args)
+    {
+        return args.Any(arg => string.Equals(arg, WindowsDesktopStartupRegistrar.StartupArgument, StringComparison.OrdinalIgnoreCase));
     }
 
     private static string ResolveDotNetWorkspaceRoot(string startDirectory)

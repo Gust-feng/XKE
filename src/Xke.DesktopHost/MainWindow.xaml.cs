@@ -21,6 +21,7 @@ public partial class MainWindow : Window, IDesktopWindowController
     private readonly XkeDataRoot _dataRoot;
     private XkeWebHostLaunchResult? _launchResult;
     private Forms.NotifyIcon? _trayIcon;
+    private Task? _webViewLoadTask;
     private bool _allowClose;
 
     public MainWindow(XkeWebHostService webHostService, XkeDataRoot dataRoot)
@@ -30,9 +31,9 @@ public partial class MainWindow : Window, IDesktopWindowController
         InitializeComponent();
     }
 
-    public async Task InitializeAsync()
+    public async Task InitializeAsync(bool loadWebView = true)
     {
-        await StartHostAsync(forceRestart: false).ConfigureAwait(true);
+        await StartHostAsync(forceRestart: false, loadWebView: loadWebView).ConfigureAwait(true);
     }
 
     DesktopActivatePayload IDesktopWindowController.Activate()
@@ -44,6 +45,7 @@ public partial class MainWindow : Window, IDesktopWindowController
     {
         DesktopActivatePayload ActivateCore()
         {
+            ShowInTaskbar = true;
             Show();
             if (WindowState == WindowState.Minimized)
             {
@@ -54,6 +56,7 @@ public partial class MainWindow : Window, IDesktopWindowController
             Topmost = true;
             Topmost = false;
             Focus();
+            EnsureWebViewLoaded();
             PublishWindowState();
             return new DesktopActivatePayload(
                 Activated: true,
@@ -64,7 +67,15 @@ public partial class MainWindow : Window, IDesktopWindowController
         return Dispatcher.CheckAccess() ? ActivateCore() : Dispatcher.Invoke(ActivateCore);
     }
 
-    private async Task StartHostAsync(bool forceRestart)
+    public void EnterSilentStartupMode()
+    {
+        EnsureTrayIcon();
+        ShowInTaskbar = false;
+        Hide();
+        PublishWindowState();
+    }
+
+    private async Task StartHostAsync(bool forceRestart, bool loadWebView = true)
     {
         RetryButton.IsEnabled = false;
         OpenBrowserButton.IsEnabled = false;
@@ -96,7 +107,14 @@ public partial class MainWindow : Window, IDesktopWindowController
             {
                 var health = await ReadHostHealthAsync(_launchResult.BaseUrl).ConfigureAwait(true);
                 DetailText.Text = BuildHostDiagnosticsText(health);
-                await LoadWebViewAsync(_launchResult.BaseUrl, health?.FrontendBuild).ConfigureAwait(true);
+                if (loadWebView)
+                {
+                    await LoadWebViewAsync(_launchResult.BaseUrl, health?.FrontendBuild).ConfigureAwait(true);
+                }
+                else
+                {
+                    DetailText.Text = "Host 已启动，静默启动期间暂不加载 WebView2，打开窗口后会继续初始化前端。";
+                }
             }
         }
         catch (Exception ex)
@@ -111,6 +129,38 @@ public partial class MainWindow : Window, IDesktopWindowController
         finally
         {
             RetryButton.IsEnabled = true;
+        }
+    }
+
+    private void EnsureWebViewLoaded()
+    {
+        if (_launchResult is null
+            || !_launchResult.WebRootFound
+            || Browser.CoreWebView2 is not null
+            || _webViewLoadTask is not null)
+        {
+            return;
+        }
+
+        _webViewLoadTask = LoadWebViewForCurrentHostAsync();
+    }
+
+    private async Task LoadWebViewForCurrentHostAsync()
+    {
+        if (_launchResult is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var health = await ReadHostHealthAsync(_launchResult.BaseUrl).ConfigureAwait(true);
+            DetailText.Text = BuildHostDiagnosticsText(health);
+            await LoadWebViewAsync(_launchResult.BaseUrl, health?.FrontendBuild).ConfigureAwait(true);
+        }
+        finally
+        {
+            _webViewLoadTask = null;
         }
     }
 
@@ -229,7 +279,8 @@ public partial class MainWindow : Window, IDesktopWindowController
                 toggle_maximize_window: () => invoke('toggle_maximize_window', []),
                 close_window: () => invoke('close_window', []),
                 get_window_state: () => invoke('get_window_state', []),
-                start_window_drag: () => invoke('start_window_drag', [])
+                start_window_drag: () => invoke('start_window_drag', []),
+                start_update_install: (planPath) => invoke('start_update_install', [planPath])
               };
               window.dispatchEvent(new Event('pywebviewready'));
             })();
@@ -273,6 +324,7 @@ public partial class MainWindow : Window, IDesktopWindowController
             "close_window" => CloseFromBridge(),
             "get_window_state" => BuildWindowState(),
             "start_window_drag" => false,
+            "start_update_install" => StartUpdateInstall(args.ElementAtOrDefault(0)),
             _ => throw new InvalidOperationException($"Unsupported desktop bridge method: {method}"),
         };
     }
@@ -327,6 +379,33 @@ public partial class MainWindow : Window, IDesktopWindowController
         return true;
     }
 
+    private Dictionary<string, object?> StartUpdateInstall(string? planPath)
+    {
+        var resolvedPlanPath = Path.GetFullPath(planPath ?? string.Empty);
+        if (string.IsNullOrWhiteSpace(planPath) || !File.Exists(resolvedPlanPath))
+        {
+            throw new InvalidOperationException("安装计划不存在，请重新准备更新");
+        }
+
+        var currentExe = Environment.ProcessPath ?? Process.GetCurrentProcess().MainModule?.FileName ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(currentExe) || !File.Exists(currentExe))
+        {
+            throw new InvalidOperationException("无法定位当前主程序");
+        }
+
+        var runner = PrepareUpdaterRunner();
+        Process.Start(BuildUpdaterStartInfo(runner, resolvedPlanPath, currentExe));
+
+        _allowClose = true;
+        _dataRoot.DesktopRuntime().Clear(Environment.ProcessId);
+        Dispatcher.BeginInvoke(() => System.Windows.Application.Current.Shutdown());
+        return new Dictionary<string, object?>
+        {
+            ["ok"] = true,
+            ["runner"] = runner.ExecutablePath,
+        };
+    }
+
     private Dictionary<string, object?> BuildWindowState()
     {
         return new Dictionary<string, object?>
@@ -354,6 +433,111 @@ public partial class MainWindow : Window, IDesktopWindowController
             state = BuildWindowState(),
         });
         Browser.CoreWebView2.PostWebMessageAsJson(payload);
+    }
+
+    private UpdaterRunner PrepareUpdaterRunner()
+    {
+        var source = ResolveUpdaterSource()
+                     ?? throw new InvalidOperationException("未找到 Xke.Updater，请确认发布包包含更新器");
+        var runnerDirectory = _dataRoot.Updates().ResolveRunnerDirectory(Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(runnerDirectory);
+
+        foreach (var file in Directory.EnumerateFiles(source.DirectoryPath, "*", SearchOption.TopDirectoryOnly))
+        {
+            var fileName = Path.GetFileName(file);
+            if (ShouldCopyUpdaterRuntimeFile(fileName))
+            {
+                File.Copy(file, Path.Combine(runnerDirectory, fileName), overwrite: true);
+            }
+        }
+
+        var runnerExecutable = Path.Combine(runnerDirectory, source.FileName);
+        if (!File.Exists(runnerExecutable))
+        {
+            throw new InvalidOperationException("更新器运行副本创建失败");
+        }
+
+        return new UpdaterRunner(runnerDirectory, runnerExecutable, source.IsDll);
+    }
+
+    private UpdaterSource? ResolveUpdaterSource()
+    {
+        foreach (var candidate in ResolveUpdaterCandidates(AppContext.BaseDirectory))
+        {
+            if (File.Exists(candidate))
+            {
+                return new UpdaterSource(
+                    DirectoryPath: Path.GetDirectoryName(candidate)!,
+                    FileName: Path.GetFileName(candidate),
+                    IsDll: candidate.EndsWith(".dll", StringComparison.OrdinalIgnoreCase));
+            }
+        }
+
+        return null;
+    }
+
+    private IEnumerable<string> ResolveUpdaterCandidates(string appDirectory)
+    {
+        yield return Path.Combine(appDirectory, "Xke.Updater.exe");
+        yield return Path.Combine(appDirectory, "Xke.Updater.dll");
+
+        if (string.IsNullOrWhiteSpace(_dataRoot.WorkspaceRoot))
+        {
+            yield break;
+        }
+
+        foreach (var configuration in new[] { "Debug", "Release" })
+        {
+            var output = Path.Combine(
+                _dataRoot.WorkspaceRoot,
+                "src",
+                "Xke.Updater",
+                "bin",
+                configuration,
+                "net8.0-windows");
+            yield return Path.Combine(output, "Xke.Updater.exe");
+            yield return Path.Combine(output, "Xke.Updater.dll");
+        }
+    }
+
+    private static bool ShouldCopyUpdaterRuntimeFile(string fileName)
+    {
+        return fileName.StartsWith("Xke.", StringComparison.OrdinalIgnoreCase)
+               || fileName.EndsWith(".runtimeconfig.json", StringComparison.OrdinalIgnoreCase)
+               || fileName.EndsWith(".deps.json", StringComparison.OrdinalIgnoreCase)
+               || fileName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static ProcessStartInfo BuildUpdaterStartInfo(UpdaterRunner runner, string planPath, string currentExe)
+    {
+        var startInfo = runner.IsDll
+            ? new ProcessStartInfo
+            {
+                FileName = "dotnet",
+                WorkingDirectory = runner.DirectoryPath,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            }
+            : new ProcessStartInfo
+            {
+                FileName = runner.ExecutablePath,
+                WorkingDirectory = runner.DirectoryPath,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+
+        if (runner.IsDll)
+        {
+            startInfo.ArgumentList.Add(runner.ExecutablePath);
+        }
+
+        startInfo.ArgumentList.Add("--pid");
+        startInfo.ArgumentList.Add(Environment.ProcessId.ToString());
+        startInfo.ArgumentList.Add("--plan");
+        startInfo.ArgumentList.Add(planPath);
+        startInfo.ArgumentList.Add("--exe");
+        startInfo.ArgumentList.Add(currentExe);
+        return startInfo;
     }
 
     private void Browser_NavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
@@ -416,6 +600,7 @@ public partial class MainWindow : Window, IDesktopWindowController
         // Keep the local WebHost alive when the user chose tray-close semantics.
         e.Cancel = true;
         EnsureTrayIcon();
+        ShowInTaskbar = false;
         Hide();
         Notify(AppDisplayName, "软件仍在运行，可从托盘重新打开。");
         PublishWindowState();
@@ -496,4 +681,8 @@ public partial class MainWindow : Window, IDesktopWindowController
         _trayIcon.Dispose();
         _trayIcon = null;
     }
+
+    private sealed record UpdaterSource(string DirectoryPath, string FileName, bool IsDll);
+
+    private sealed record UpdaterRunner(string DirectoryPath, string ExecutablePath, bool IsDll);
 }

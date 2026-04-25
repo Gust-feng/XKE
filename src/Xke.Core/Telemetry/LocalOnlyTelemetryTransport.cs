@@ -9,11 +9,11 @@ public sealed class LocalOnlyTelemetryTransport : ITelemetryTransport
         string skipReason,
         CancellationToken cancellationToken = default)
     {
-        var reason = string.IsNullOrWhiteSpace(skipReason) ? "local-only" : skipReason.Trim();
+        var reason = string.IsNullOrWhiteSpace(skipReason) ? "spooled-local-only" : skipReason.Trim();
         return Task.FromResult(new TelemetryCloudResult(
             Ok: true,
-            Queued: false,
-            Skipped: true,
+            Queued: true,
+            Skipped: false,
             Reason: reason));
     }
 }

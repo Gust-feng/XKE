@@ -32,9 +32,14 @@ public sealed class XkeWebHostService : IAsyncDisposable
             CourseClient = _options.CourseClient,
             NoticeRemoteSource = _options.NoticeRemoteSource,
             NoticeSigningPublicKeyPem = _options.NoticeSigningPublicKeyPem,
+            TelemetryTransport = _options.TelemetryTransport,
+            TelemetryCloudEndpoint = _options.TelemetryCloudEndpoint,
             NetworkHttpMessageHandler = _options.NetworkHttpMessageHandler,
             NetworkCommandExecutor = _options.NetworkCommandExecutor,
             DesktopWindowController = _options.DesktopWindowController,
+            DesktopStartupRegistrar = _options.DesktopStartupRegistrar,
+            UpdatePackageDownloader = _options.UpdatePackageDownloader,
+            UpdateVersionProvider = _options.UpdateVersionProvider,
             Urls = _options.Urls.Count > 0 ? _options.Urls : new[] { "http://127.0.0.1:0" },
         };
 
