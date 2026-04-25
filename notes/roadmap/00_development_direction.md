@@ -13,11 +13,13 @@
 - 后置链路：`教务系统（传统 JW）` + OCR + 抢课 + Cookie 刷新。
   - 目标：保持 Course 面板内独立占位和 deferred 语义，不影响当前主线。
 - 前端策略：本阶段保留现有 API envelope 与字段兼容，不新增前端架构拆分。
+- 桌面更新策略：一键自动更新进入准备切片，优先做用户触发的下载、校验、独立 updater 替换和重启；不做后台静默强更。
 
 ## 二、现状状态（今日已固定）
 
 - 已稳定：
   - `DesktopHost`、`Auth`（移动教务）、`Notice`、`Schedule`、`Network`、`Telemetry`、`Feedback`、`Course`框架边界。
+  - `Notice` 正在向 `CloudSync` 收敛：公告、远程策略、更新信息绑定为单包拉取，遥感首版只进入本地 spool。
 - 关键行为约束：
   - 首次初始化必须完整拿到身份与非空课表才算成功。
   - 已有本地凭据只做本地校验，不触发远端重置式登录。
@@ -33,6 +35,7 @@
 ## 四、下一阶段迭代（建议按这个顺序）
 
 1. 后端结构收敛第一层（P0）
+   - 完成 `CloudSync` 单包拉取、`.cloud` 缓存、远程策略全局拦截和遥感本地 spool。
    - 完成 `AuthService` 首登异常回滚闭环，防止半初始化残留。
    - 完善本地时钟注入和 `ScheduleStore` 周次边界测试。
    - 固化 `active root` 与 legacy 兼容层只读/引用边界。
@@ -42,6 +45,7 @@
 3. 生产化工程化（P2）
    - `XkeWebHostApplication` 分离服务注册、session/context、blocked policy、error envelope。
    - 统一 deferred 边界注释，清理误导性占位支路。
+   - 建立一键自动更新第一阶段：扩展 `update_info`、新增 `.updates` 存储、`Xke.Core.Update`、`/api/update/*` 和 `Xke.Updater`。
 4. 收尾与复核（P2）
    - 更新 notes 一致性清单、保留活动入口与归档材料划分。
    - 继续通过真实移动教务 smoke 进行格式回归。

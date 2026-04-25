@@ -5,12 +5,16 @@
 ## 活跃文档（按优先级阅读）
 
 1. [development-docs/README.md](../development-docs/README.md)
-2. [traditional-jw-cookie-schedule/README.md](../development-docs/traditional-jw-cookie-schedule/README.md)
-3. [00_current_focus.md](../development-docs/traditional-jw-cookie-schedule/00_current_focus.md)
-4. [02_task_board.md](../development-docs/traditional-jw-cookie-schedule/02_task_board.md)
-5. [00_development_direction.md](../roadmap/00_development_direction.md)
-6. [00_current_issues.md](../review-issues/00_current_issues.md)
-7. [01_接入资料索引.md](../sensitive-index/教务系统/01_接入资料索引.md)
+2. [cloud-sync/README.md](../development-docs/cloud-sync/README.md)
+3. [cloud-sync/00_current_focus.md](../development-docs/cloud-sync/00_current_focus.md)
+4. [auto-update/README.md](../development-docs/auto-update/README.md)
+5. [auto-update/00_current_focus.md](../development-docs/auto-update/00_current_focus.md)
+6. [traditional-jw-cookie-schedule/README.md](../development-docs/traditional-jw-cookie-schedule/README.md)
+7. [00_current_focus.md](../development-docs/traditional-jw-cookie-schedule/00_current_focus.md)
+8. [02_task_board.md](../development-docs/traditional-jw-cookie-schedule/02_task_board.md)
+9. [00_development_direction.md](../roadmap/00_development_direction.md)
+10. [00_current_issues.md](../review-issues/00_current_issues.md)
+11. [01_接入资料索引.md](../sensitive-index/教务系统/01_接入资料索引.md)
 
 ## 本目录文件
 
@@ -24,7 +28,7 @@
 - `development-docs/`：按“开发文档 / 开发项目 / 具体内容”组织的可执行开发文档，入口见 `development-docs/README.md`。
 - `roadmap/`：后续开发方向、阶段总结。
 - `review-issues/`：当前问题手册、重构审查清单。
-- `future-plans/`：Course 验证码、OCR、真实抢课等 future-only 计划。
+- `future-plans/`：Course 验证码、OCR、真实抢课、WinUI 3 原生 UI 等 future-only 计划。
 - `core-index/`：运行时、API、领域、前端复用和文档入口索引。
 - `api-parity/`：契约冻结、legacy 兼容、notice 兼容和 WebHost 迁移记录。
 - `module-boundaries/`：后端模块职责与依赖方向草图。

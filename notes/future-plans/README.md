@@ -5,6 +5,7 @@
 ## 文件
 
 - [00_traditional_jw_manual_login.md](./00_traditional_jw_manual_login.md)：Course 验证码、OCR 和真实抢课 future-only 边界。
+- [01_winui3_native_ui.md](./01_winui3_native_ui.md)：后续 WinUI 3 原生桌面 UI、托盘通知和应用原生提醒迁移预案。
 
 ## 规则
 

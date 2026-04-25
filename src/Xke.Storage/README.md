@@ -1,9 +1,9 @@
 # Xke.Storage
 
 当前阶段目标：
-- 固定 `.NET` runtime data root：`XKE.DotNet8/.runtime/data`
+- 固定 `.NET` runtime data root：默认 `%LOCALAPPDATA%/.XKE/data`，测试和开发可用 `XKE_DOTNET_DATA_DIR` 覆盖
 - 提供学生、认证、课表、notice、desktop、network、telemetry、feedback、course 的持久化入口
-- 用 DPAPI 保护本机敏感数据，同时保留必要的 legacy 只读兼容辅助层
+- 用 DPAPI 保护凭据/session，用客户端内置密钥加密主要运行数据；头像和课表缓存保持普通文件，同时保留必要的 legacy 只读兼容辅助层
 
 当前已落地：
 - `XkeDataRoot`

@@ -22,7 +22,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\run-desktop.ps1
 - `fixtures/`：脱敏样本
 - `tools/`：开发、smoke、审计脚本
 - `notes/`：设计记录、审查问题、路线图、敏感资料索引
-- `.runtime/`：本地运行数据，默认不应提交
+- `.runtime/`：开发/测试覆盖数据目录，默认不应提交
 
 ## 关键文档
 
@@ -35,8 +35,9 @@ powershell -ExecutionPolicy Bypass -File .\tools\run-desktop.ps1
 
 ## 数据边界
 
-- 默认数据根：`.runtime/data`
+- 默认数据根：`%LOCALAPPDATA%\.XKE\data`
 - 可用 `XKE_DOTNET_DATA_DIR` 覆盖数据根
+- AppData 运行数据默认加密落盘；头像和课表缓存保持普通文件，便于查看与调试
 - 不提交真实账号、密码、token、cookie、`.env`、原始录包或真实运行数据
 - 真实开发验证资料只保留在本机运行目录或受限资料原路径
 
