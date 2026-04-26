@@ -84,6 +84,11 @@ public sealed class UpdateWebHostTests
     {
         using var webRoot = new TemporaryWebRoot();
         using var dataRoot = new TemporaryDirectory("xke-update-prepare");
+        using var appRoot = new TemporaryDirectory("xke-update-prepare-app");
+        var appDirectory = Path.Combine(appRoot.RootPath, "app");
+        var appExecutable = Path.Combine(appDirectory, "Xke.DesktopHost.exe");
+        Directory.CreateDirectory(appDirectory);
+        File.WriteAllText(appExecutable, "old-main");
         var package = BuildZipPackage(("Xke.DesktopHost.exe", "new"));
 
         await using var host = await WebHostTestServer.StartAsync(
@@ -92,7 +97,8 @@ public sealed class UpdateWebHostTests
             hostMode: "desktop-webview-test",
             noticeRemoteSource: new StaticNoticeRemoteSource(BuildCloudFeed(package)),
             updatePackageDownloader: new CapturingUpdatePackageDownloader(package),
-            updateVersionProvider: new FixedUpdateVersionProvider("1.0.0"));
+            updateVersionProvider: new FixedUpdateVersionProvider("1.0.0"),
+            mainExecutablePath: appExecutable);
 
         var beforeDownload = await host.Client.PostAsJsonAsync("/api/update/prepare-install", new { });
         Assert.Equal(HttpStatusCode.BadRequest, beforeDownload.StatusCode);
@@ -113,6 +119,80 @@ public sealed class UpdateWebHostTests
         Assert.True(File.Exists(root.UpdateInstallPlanPath));
         Assert.Equal(jobId, plan.JobId);
         Assert.Equal("prepared", plan.Status);
+        Assert.Equal(Path.GetFullPath(appDirectory), plan.InstallDirectory);
+        Assert.Equal(Path.GetFullPath(appExecutable), plan.AppExecutablePath);
+    }
+
+    [Fact]
+    public async Task PrepareInstall_FailsWhenMainExecutablePathIsMissing()
+    {
+        using var webRoot = new TemporaryWebRoot();
+        using var dataRoot = new TemporaryDirectory("xke-update-prepare-missing-exe");
+        using var appRoot = new TemporaryDirectory("xke-update-prepare-missing-app");
+        var missingExecutable = Path.Combine(appRoot.RootPath, "app", "Xke.DesktopHost.exe");
+        var package = BuildZipPackage(("Xke.DesktopHost.exe", "new"));
+
+        await using var host = await WebHostTestServer.StartAsync(
+            webRoot,
+            dataRoot,
+            hostMode: "desktop-webview-test",
+            noticeRemoteSource: new StaticNoticeRemoteSource(BuildCloudFeed(package)),
+            updatePackageDownloader: new CapturingUpdatePackageDownloader(package),
+            updateVersionProvider: new FixedUpdateVersionProvider("1.0.0"),
+            mainExecutablePath: missingExecutable);
+
+        var downloadResponse = await host.Client.PostAsJsonAsync("/api/update/download", new { });
+        var downloadDocument = await WebHostTestJson.ReadJsonAsync(downloadResponse);
+        var jobId = WebHostTestJson.GetData(downloadDocument).GetProperty("job_id").GetString()!;
+        await WaitForJobAsync(host.Client, jobId);
+
+        var prepare = await host.Client.PostAsJsonAsync("/api/update/prepare-install", new { });
+        var prepareText = await prepare.Content.ReadAsStringAsync();
+        var root = new XkeDataRoot(dataRoot.RootPath, dataRoot.RootPath);
+
+        Assert.Equal(HttpStatusCode.BadRequest, prepare.StatusCode);
+        Assert.Contains("主程序路径不存在", prepareText, StringComparison.Ordinal);
+        Assert.False(File.Exists(root.UpdateInstallPlanPath));
+    }
+
+    [Fact]
+    public async Task UpdateJobs_ReportDownloadProgressForPolling()
+    {
+        using var webRoot = new TemporaryWebRoot();
+        using var dataRoot = new TemporaryDirectory("xke-update-progress");
+        var package = BuildZipPackage(
+            ("Xke.DesktopHost.exe", "new"),
+            ("payload.txt", new string('x', 8192)));
+        var downloader = new PausingUpdatePackageDownloader(package);
+
+        await using var host = await WebHostTestServer.StartAsync(
+            webRoot,
+            dataRoot,
+            noticeRemoteSource: new StaticNoticeRemoteSource(BuildCloudFeed(package)),
+            updatePackageDownloader: downloader,
+            updateVersionProvider: new FixedUpdateVersionProvider("1.0.0"));
+
+        var downloadResponse = await host.Client.PostAsJsonAsync("/api/update/download", new { });
+        var downloadDocument = await WebHostTestJson.ReadJsonAsync(downloadResponse);
+        var jobId = WebHostTestJson.GetData(downloadDocument).GetProperty("job_id").GetString()!;
+        await WaitWithTimeoutAsync(downloader.ProgressReported, TimeSpan.FromSeconds(3));
+
+        var progressResponse = await host.Client.GetAsync($"/api/update/jobs/{jobId}");
+        var progressDocument = await WebHostTestJson.ReadJsonAsync(progressResponse);
+        var progress = WebHostTestJson.GetData(progressDocument);
+        var bytesReceived = progress.GetProperty("bytes_received").GetInt64();
+        var totalBytes = progress.GetProperty("total_bytes").GetInt64();
+        var progressPercent = progress.GetProperty("progress_percent").GetDouble();
+
+        Assert.Equal(HttpStatusCode.OK, progressResponse.StatusCode);
+        Assert.Equal("downloading", progress.GetProperty("status").GetString());
+        Assert.True(bytesReceived > 0, progress.ToString());
+        Assert.Equal(package.Length, totalBytes);
+        Assert.InRange(progressPercent, 0.01d, 99.99d);
+
+        downloader.AllowFinish();
+        var completed = await WaitForJobAsync(host.Client, jobId);
+        Assert.Equal("verified", completed.GetProperty("status").GetString());
     }
 
     [Fact]
@@ -215,6 +295,17 @@ public sealed class UpdateWebHostTests
         throw new TimeoutException("更新任务未完成");
     }
 
+    private static async Task WaitWithTimeoutAsync(Task task, TimeSpan timeout)
+    {
+        var completed = await Task.WhenAny(task, Task.Delay(timeout));
+        if (completed != task)
+        {
+            throw new TimeoutException("等待更新任务进度超时");
+        }
+
+        await task;
+    }
+
     private static Dictionary<string, byte[]> BuildCloudFeed(byte[] package)
     {
         var feed = new Dictionary<string, object?>(StringComparer.Ordinal)
@@ -304,6 +395,40 @@ public sealed class UpdateWebHostTests
             RequestedUri = packageUri;
             Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
             await reportProgress(0, _content.Length, cancellationToken);
+            await File.WriteAllBytesAsync(destinationPath, _content, cancellationToken);
+            await reportProgress(_content.Length, _content.Length, cancellationToken);
+        }
+    }
+
+    private sealed class PausingUpdatePackageDownloader : IUpdatePackageDownloader
+    {
+        private readonly byte[] _content;
+        private readonly TaskCompletionSource<bool> _progressReported = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _allowFinish = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public PausingUpdatePackageDownloader(byte[] content)
+        {
+            _content = content;
+        }
+
+        public Task ProgressReported => _progressReported.Task;
+
+        public void AllowFinish()
+        {
+            _allowFinish.TrySetResult(true);
+        }
+
+        public async Task DownloadAsync(
+            Uri packageUri,
+            string destinationPath,
+            Func<long, long?, CancellationToken, Task> reportProgress,
+            CancellationToken cancellationToken = default)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
+            await reportProgress(0, _content.Length, cancellationToken);
+            await reportProgress(Math.Max(1, _content.Length / 2), _content.Length, cancellationToken);
+            _progressReported.TrySetResult(true);
+            await _allowFinish.Task.WaitAsync(cancellationToken);
             await File.WriteAllBytesAsync(destinationPath, _content, cancellationToken);
             await reportProgress(_content.Length, _content.Length, cancellationToken);
         }

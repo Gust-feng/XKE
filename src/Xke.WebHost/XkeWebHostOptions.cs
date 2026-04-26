@@ -29,4 +29,5 @@ public sealed class XkeWebHostOptions
     public IDesktopStartupRegistrar? DesktopStartupRegistrar { get; init; }
     public IUpdatePackageDownloader? UpdatePackageDownloader { get; init; }
     public IUpdateVersionProvider? UpdateVersionProvider { get; init; }
+    public string? MainExecutablePath { get; init; }
 }

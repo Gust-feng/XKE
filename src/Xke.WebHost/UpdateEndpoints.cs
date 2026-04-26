@@ -63,7 +63,7 @@ public static partial class XkeWebHostApplication
             {
                 var payload = await updateService.PrepareInstallAsync(
                     IsDesktopInstallSupported(options),
-                    Environment.ProcessPath ?? AppContext.BaseDirectory,
+                    ResolveMainExecutablePath(options),
                     context.RequestAborted).ConfigureAwait(false);
                 return Ok(payload.Prepared ? "安装计划已准备" : payload.Message, payload);
             }
@@ -82,5 +82,12 @@ public static partial class XkeWebHostApplication
     {
         return string.Equals(options.HostMode, "desktop-webview", StringComparison.OrdinalIgnoreCase)
                || options.HostMode.Contains("desktop", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string ResolveMainExecutablePath(XkeWebHostOptions options)
+    {
+        return !string.IsNullOrWhiteSpace(options.MainExecutablePath)
+            ? options.MainExecutablePath
+            : Environment.ProcessPath ?? AppContext.BaseDirectory;
     }
 }

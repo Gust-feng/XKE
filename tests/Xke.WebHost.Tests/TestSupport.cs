@@ -96,7 +96,8 @@ internal static class WebHostTestServer
         IDesktopWindowController? desktopWindowController = null,
         IDesktopStartupRegistrar? desktopStartupRegistrar = null,
         IUpdatePackageDownloader? updatePackageDownloader = null,
-        IUpdateVersionProvider? updateVersionProvider = null)
+        IUpdateVersionProvider? updateVersionProvider = null,
+        string? mainExecutablePath = null)
     {
         return await StartAsync(
             webRoot.RootPath,
@@ -113,7 +114,8 @@ internal static class WebHostTestServer
             desktopWindowController,
             desktopStartupRegistrar,
             updatePackageDownloader,
-            updateVersionProvider);
+            updateVersionProvider,
+            mainExecutablePath);
     }
 
     public static async Task<StartedWebHost> StartAsync(
@@ -131,7 +133,8 @@ internal static class WebHostTestServer
         IDesktopWindowController? desktopWindowController = null,
         IDesktopStartupRegistrar? desktopStartupRegistrar = null,
         IUpdatePackageDownloader? updatePackageDownloader = null,
-        IUpdateVersionProvider? updateVersionProvider = null)
+        IUpdateVersionProvider? updateVersionProvider = null,
+        string? mainExecutablePath = null)
     {
         var service = new XkeWebHostService(new XkeWebHostOptions
         {
@@ -151,6 +154,7 @@ internal static class WebHostTestServer
             DesktopStartupRegistrar = desktopStartupRegistrar,
             UpdatePackageDownloader = updatePackageDownloader,
             UpdateVersionProvider = updateVersionProvider,
+            MainExecutablePath = mainExecutablePath,
             Urls = new[] { "http://127.0.0.1:0" },
         });
         return new StartedWebHost(service, await service.StartAsync());

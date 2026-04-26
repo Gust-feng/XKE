@@ -40,6 +40,7 @@ public sealed class XkeWebHostService : IAsyncDisposable
             DesktopStartupRegistrar = _options.DesktopStartupRegistrar,
             UpdatePackageDownloader = _options.UpdatePackageDownloader,
             UpdateVersionProvider = _options.UpdateVersionProvider,
+            MainExecutablePath = _options.MainExecutablePath,
             Urls = _options.Urls.Count > 0 ? _options.Urls : new[] { "http://127.0.0.1:0" },
         };
 

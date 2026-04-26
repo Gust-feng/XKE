@@ -42,6 +42,7 @@ public partial class App : System.Windows.Application
             Urls = new[] { "http://127.0.0.1:0" },
             DesktopWindowController = new DeferredDesktopWindowController(() => window),
             DesktopStartupRegistrar = startupRegistrar,
+            MainExecutablePath = Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "Xke.DesktopHost.exe"),
         });
 
         window = new MainWindow(_webHostService, _dataRoot);
