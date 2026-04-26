@@ -5,6 +5,9 @@ namespace Xke.Storage;
 
 public sealed class XkeUpdateStore
 {
+    private const int JobFileAccessAttempts = 5;
+    private static readonly TimeSpan JobFileAccessRetryDelay = TimeSpan.FromMilliseconds(20);
+
     private readonly XkeDataRoot _root;
     private readonly LocalEncryptedFileStore _encrypted = new();
 
@@ -94,7 +97,8 @@ public sealed class XkeUpdateStore
 
         try
         {
-            return _encrypted.ReadJson<XkeUpdateJobDocument>(path) ?? new XkeUpdateJobDocument();
+            return RetryJobFileAccess(() =>
+                _encrypted.ReadJson<XkeUpdateJobDocument>(path) ?? new XkeUpdateJobDocument());
         }
         catch
         {
@@ -116,7 +120,11 @@ public sealed class XkeUpdateStore
         }
 
         var path = ResolveJobPath(job.JobId);
-        _encrypted.WriteJson(path, job);
+        RetryJobFileAccess(() =>
+        {
+            _encrypted.WriteJson(path, job);
+            return true;
+        });
         return _root.RelativePath(path);
     }
 
@@ -132,7 +140,7 @@ public sealed class XkeUpdateStore
             {
                 try
                 {
-                    return _encrypted.ReadJson<XkeUpdateJobDocument>(path);
+                    return RetryJobFileAccess(() => _encrypted.ReadJson<XkeUpdateJobDocument>(path));
                 }
                 catch
                 {
@@ -227,5 +235,25 @@ public sealed class XkeUpdateStore
         {
             throw new InvalidOperationException("安装计划路径无效");
         }
+    }
+
+    private static T RetryJobFileAccess<T>(Func<T> action)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return action();
+            }
+            catch (Exception ex) when (IsTransientFileAccess(ex) && attempt < JobFileAccessAttempts)
+            {
+                Thread.Sleep(JobFileAccessRetryDelay);
+            }
+        }
+    }
+
+    private static bool IsTransientFileAccess(Exception ex)
+    {
+        return ex is IOException or UnauthorizedAccessException;
     }
 }
