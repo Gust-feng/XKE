@@ -6,7 +6,7 @@
 
 ## Pending
 
-- 后续发布流水线需要把 `Xke.Updater` 和完整 ZIP 包一起纳入正式产物。
+- 后续发布流水线仍需要生成完整 ZIP 包、计算 hash 并上传到正式 HTTPS 发布目录。
 - 第二阶段再考虑包签名、差分包、管理员提权或 WinUI 3 原生更新界面。
 
 ## Done
@@ -23,6 +23,7 @@
 - 扩展 DesktopHost 桥接方法 `start_update_install`。
 - 在 Web 前端关于页增加两步更新入口，移除下载地址展示。
 - 新增 `tools/update-smoke.ps1` 和临时包验收测试。
+- 修复桌面打包入口，发布 `Xke.DesktopHost` 时同步发布并校验 `Xke.Updater` 产物。
 
 ## Blockers / Decisions
 

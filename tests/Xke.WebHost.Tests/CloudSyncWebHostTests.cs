@@ -14,6 +14,13 @@ using Xunit;
 
 namespace Xke.WebHost.Tests;
 
+[CollectionDefinition(CloudSyncWebHostTestsCollection.Name, DisableParallelization = true)]
+public sealed class CloudSyncWebHostTestsCollection
+{
+    public const string Name = "CloudSync web host shared process state";
+}
+
+[Collection(CloudSyncWebHostTestsCollection.Name)]
 public sealed class CloudSyncWebHostTests
 {
     [Fact]
@@ -56,6 +63,58 @@ public sealed class CloudSyncWebHostTests
         }
         finally
         {
+            Environment.SetEnvironmentVariable(PrivateCloudEndpointOptions.ConfigPathEnvironmentVariable, previousConfig);
+            Environment.SetEnvironmentVariable(HttpNoticeRemoteSource.BaseUrlEnvironmentVariable, previousNotice);
+            Environment.SetEnvironmentVariable("XKE_CLOUD_NOTICE_BASE_URL", previousCloudNotice);
+            Environment.SetEnvironmentVariable("XKE_TELEMETRY_CLOUD_ENDPOINT", previousTelemetry);
+            Environment.SetEnvironmentVariable("XKE_CLOUD_FUNCTION_BASE_URL", previousCloudFunction);
+        }
+    }
+
+    [Fact]
+    public void CloudEndpointResolvers_LoadInjectedRuntimeConfig()
+    {
+        var runtimeConfigPath = Path.Combine(AppContext.BaseDirectory, PrivateCloudEndpointOptions.RuntimeConfigFileName);
+        var previousRuntimeConfig = File.Exists(runtimeConfigPath)
+            ? File.ReadAllText(runtimeConfigPath)
+            : null;
+        var previousConfig = Environment.GetEnvironmentVariable(PrivateCloudEndpointOptions.ConfigPathEnvironmentVariable);
+        var previousNotice = Environment.GetEnvironmentVariable(HttpNoticeRemoteSource.BaseUrlEnvironmentVariable);
+        var previousCloudNotice = Environment.GetEnvironmentVariable("XKE_CLOUD_NOTICE_BASE_URL");
+        var previousTelemetry = Environment.GetEnvironmentVariable("XKE_TELEMETRY_CLOUD_ENDPOINT");
+        var previousCloudFunction = Environment.GetEnvironmentVariable("XKE_CLOUD_FUNCTION_BASE_URL");
+
+        try
+        {
+            Environment.SetEnvironmentVariable(PrivateCloudEndpointOptions.ConfigPathEnvironmentVariable, null);
+            Environment.SetEnvironmentVariable(HttpNoticeRemoteSource.BaseUrlEnvironmentVariable, null);
+            Environment.SetEnvironmentVariable("XKE_CLOUD_NOTICE_BASE_URL", null);
+            Environment.SetEnvironmentVariable("XKE_TELEMETRY_CLOUD_ENDPOINT", null);
+            Environment.SetEnvironmentVariable("XKE_CLOUD_FUNCTION_BASE_URL", null);
+            File.WriteAllText(runtimeConfigPath, """
+            {
+              "schema_version": 1,
+              "remote": {
+                "n": "https://runtime-notice.example.test/",
+                "t": "https://runtime-report.example.test"
+              }
+            }
+            """);
+
+            Assert.Equal("https://runtime-notice.example.test/", HttpNoticeRemoteSource.ResolveBaseUrl());
+            Assert.Equal("https://runtime-report.example.test", HttpTelemetryTransport.ResolveBaseUrl());
+        }
+        finally
+        {
+            if (previousRuntimeConfig is null)
+            {
+                File.Delete(runtimeConfigPath);
+            }
+            else
+            {
+                File.WriteAllText(runtimeConfigPath, previousRuntimeConfig);
+            }
+
             Environment.SetEnvironmentVariable(PrivateCloudEndpointOptions.ConfigPathEnvironmentVariable, previousConfig);
             Environment.SetEnvironmentVariable(HttpNoticeRemoteSource.BaseUrlEnvironmentVariable, previousNotice);
             Environment.SetEnvironmentVariable("XKE_CLOUD_NOTICE_BASE_URL", previousCloudNotice);

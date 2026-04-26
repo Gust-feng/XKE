@@ -4,5 +4,7 @@
 **/obj/
 .playwright-mcp/
 .dotnet_cli/
+artifacts/
+xke.runtime.json
 开发数据/
 notes/development-docs/cloud-sync

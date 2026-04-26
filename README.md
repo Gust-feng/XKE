@@ -47,3 +47,13 @@ powershell -ExecutionPolicy Bypass -File .\tools\run-desktop.ps1
 powershell -ExecutionPolicy Bypass -File .\tools\schedule-smoke.ps1
 powershell -ExecutionPolicy Bypass -File .\tools\frontend-smoke.ps1
 ```
+
+## 私有打包
+
+真实云端点只放在本机 `开发数据/dotnet8-cloud.local.json`，公开仓库不提交。打包桌面版时使用：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\package-desktop.ps1
+```
+
+脚本会发布桌面宿主，并把私有端点注入发布目录的 `xke.runtime.json`。

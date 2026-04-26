@@ -5,6 +5,7 @@ namespace Xke.Core.CloudSync;
 public sealed class PrivateCloudEndpointOptions
 {
     public const string ConfigPathEnvironmentVariable = "XKE_PRIVATE_CLOUD_CONFIG";
+    public const string RuntimeConfigFileName = "xke.runtime.json";
 
     private static readonly string[] AutoConfigRelativePaths =
     [
@@ -31,6 +32,8 @@ public sealed class PrivateCloudEndpointOptions
             return new PrivateCloudEndpointOptions
             {
                 NoticeBaseUrl = FirstNonEmpty(
+                    ReadNestedString(root, "remote", "n"),
+                    ReadNestedString(root, "remote", "notice"),
                     ReadString(root, "notice_base_url"),
                     ReadString(root, "cloud_notice_base_url"),
                     ReadString(root, "cos_base_url"),
@@ -38,6 +41,8 @@ public sealed class PrivateCloudEndpointOptions
                     ReadNestedString(root, "notice", "base_url"),
                     ReadNestedString(root, "notice", "cos_base_url")),
                 TelemetryCloudEndpoint = FirstNonEmpty(
+                    ReadNestedString(root, "remote", "t"),
+                    ReadNestedString(root, "remote", "report"),
                     ReadString(root, "telemetry_cloud_endpoint"),
                     ReadString(root, "telemetry_base_url"),
                     ReadString(root, "cloud_function_base_url"),
@@ -58,6 +63,12 @@ public sealed class PrivateCloudEndpointOptions
         if (!string.IsNullOrWhiteSpace(explicitPath))
         {
             return Path.GetFullPath(explicitPath.Trim());
+        }
+
+        var runtimeConfigPath = Path.Combine(AppContext.BaseDirectory, RuntimeConfigFileName);
+        if (File.Exists(runtimeConfigPath))
+        {
+            return runtimeConfigPath;
         }
 
         var workspaceRoot = ResolveWorkspaceRoot(AppContext.BaseDirectory);

@@ -1,9 +1,82 @@
 # XKE.DotNet8 阶段总结报告
 
-> 更新时间：2026-04-24  
+> 更新时间：2026-04-26  
 > 范围：`Z:/XKE/XKE.DotNet8/`
 
 > 口径更新：移动教务为主数据源，教务系统（验证码/Cookie/抢课）为后置切片；本说明仅针对当前可交付主线。详见 [01_review_findings.md](../review-issues/01_review_findings.md)。
+
+## 0. 2026-04-26 补充总结
+
+截至 2026-04-26，当前主线已经从“本地可信状态桌面应用”推进到“CloudSync / 一键更新 / 私有打包”准备阶段。整体方向保持不变：公开仓库保留可审计的中性代码和占位默认值，本地开发与正式打包通过 ignored 私有配置和发布期注入恢复真实云端能力。
+
+### 已完成
+
+- 本地敏感运行态从仓库固定 AES key 收敛到 DPAPI。
+  - `LocalEncryptedFileStore` 改为 Windows 当前用户 DPAPI 保护。
+  - 新 envelope 为 `XKEDPAPI1.`，旧 `XKEENC1.` 固定密钥数据不再兼容。
+  - `ProtectedJsonFileStore` 原有 credential/session `.json.dpapi` 行为保持不变。
+- CloudSync 主线已经建立。
+  - 公告、远程策略、更新信息统一从 `cloud-feed.json` 拉取。
+  - 公告 Markdown 正文按 `content_path` 单独拉取并缓存。
+  - `.cloud/feed.json`、正文缓存和遥感 spool 成为新的运行态边界。
+  - 遥感默认开启，先写本地 spool，再尝试上传云函数；失败保留队列。
+- 一键自动更新第一阶段已经进入实现基线。
+  - `update_info` 扩展为可执行更新元数据。
+  - 新增 `.updates` 存储、更新领域服务、WebHost 更新端点、`Xke.Updater` 独立进程、DesktopHost 桥接和前端最小入口。
+  - 更新仍按用户主动触发执行，不做后台静默强更。
+- 文档和边界已重新收敛。
+  - notes 已按 `development-docs`、`roadmap`、`review-issues`、`sensitive-index` 等目录职责整理。
+  - 新增 `AGENTS.md`，明确后续开发必须先读 notes，且真实云端点不能提交到 GitHub。
+- 私有云端点恢复为“本地可用、公开仓库不可见”的形态。
+  - 真实 COS / 云函数地址放在 ignored 的 `开发数据/dotnet8-cloud.local.json`。
+  - 公开代码使用 `example.invalid` 和可替换解析逻辑。
+  - 运行时优先读取发布目录 `xke.runtime.json`，本地开发再读取 ignored 私有配置。
+  - 已增加打包注入工具：`tools/inject-private-cloud-config.ps1` 与 `tools/package-desktop.ps1`。
+
+### 当前暂存区状态
+
+当前暂存区主要是“私有打包注入”这一批：
+
+- `.gitignore`：忽略发布产物和 `xke.runtime.json`。
+- `AGENTS.md`：新增项目级协作、notes、敏感数据和私有打包规则。
+- `README.md`：补充私有打包命令入口。
+- `PrivateCloudEndpointOptions`：支持发布目录 `xke.runtime.json`，并支持中性短字段 `remote.n` / `remote.t`。
+- `CloudSyncWebHostTests`：补充注入 runtime config 的解析测试。
+- `tools/inject-private-cloud-config.ps1`：从 ignored 私有配置生成发布目录运行时配置。
+- `tools/package-desktop.ps1`：发布 DesktopHost 并自动注入私有端点。
+
+### 已验证
+
+- DPAPI 存储相关测试已通过：`tests/Xke.SecurityStorage.Tests/Xke.SecurityStorage.Tests.csproj --no-restore`。
+- 私有端点解析相关测试已通过：`tests/Xke.WebHost.Tests/Xke.WebHost.Tests.csproj --no-restore --filter CloudEndpointResolvers`。
+- 已用本机 ignored 私有配置验证公告 feed 可拉取且公告条目非空。
+- 本轮未重新宣称全 solution 最新通过；历史上 `UpdateWebHostTests.PrepareInstall_OnlySucceedsAfterVerifiedPackage` 曾出现无关残留失败，后续发布前必须现跑确认。
+
+### 后续需要做
+
+1. 完成私有打包注入批次收尾。
+   - 复核当前暂存区。
+   - 在 PowerShell 环境恢复后实际运行 `tools/package-desktop.ps1`。
+   - 用发布目录中的 `xke.runtime.json` 验证 DesktopHost 能拉取公告并正常遥感上报。
+2. 补齐发布流程。
+   - 正式生成 `XKE-<version>-win-x64.zip`。
+   - 计算并写入 `package_sha256`、`package_size`、`release_notes_url`。
+   - 上传发布包和 release notes 后更新私有 cloud feed。
+   - 跑 `tools/update-smoke.ps1` 或等价更新链路验收。
+3. 复跑门禁。
+   - 先跑与当前批次相关的 WebHost / Update / Storage 测试。
+   - 再跑 `dotnet test XKE.DotNet8.sln --no-restore`。
+   - 若仍只有已知 update 测试残留失败，单独记录，不混入私有端点修复。
+4. 继续处理既有结构债。
+   - `AuthService` 首登异常回滚边界。
+   - `ScheduleStore` 当前周本地日期推断。
+   - `XkeWebHostApplication` 服务注册、session/context、blocked policy、error envelope 的结构拆分。
+   - 建立 `Xke.Core.Tests`，把 normalize/parser/decision 纯逻辑从 WebHost 集成测试中逐步迁出。
+5. 保持后置边界不漂移。
+   - 传统教务验证码、OCR、Cookie 课表和真实抢课继续留在 Course / future-only 边界。
+   - 云端点可以进入打包产物，但不能进入 GitHub 仓库；写权限、密钥、鉴权继续只放服务端或云端环境。
+
+> 以下章节保留 2026-04-24 阶段报告的历史基线；若与本节冲突，以 2026-04-26 补充总结和当前 `development-docs` 为准。
 
 ## 1. 当前阶段结论
 
