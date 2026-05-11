@@ -166,6 +166,15 @@ public sealed class UpdateInstaller
             return entries[0];
         }
 
+        var portablePackageRoots = entries
+            .Where(Directory.Exists)
+            .Where(entry => File.Exists(Path.Combine(entry, "Xke.DesktopHost.exe")))
+            .ToArray();
+        if (portablePackageRoots.Length == 1)
+        {
+            return portablePackageRoots[0];
+        }
+
         return stageRoot;
     }
 

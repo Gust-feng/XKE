@@ -22,11 +22,13 @@ public sealed class RemotePolicyService
         var forceUpgrade = matchedVersionPolicy.GetValueOrDefault("force_upgrade") is true
                            || normalizedUpdateInfo.GetValueOrDefault("force_upgrade") is true;
 
-        if (matchedVersionPolicy.GetValueOrDefault("enabled") is false
-            && string.IsNullOrWhiteSpace(Text(appControl.GetValueOrDefault("state"))))
+        if (matchedVersionPolicy.GetValueOrDefault("enabled") is false)
         {
             appControl["state"] = "blocked";
-            appControl["reason"] = "version-disabled";
+            if (string.IsNullOrWhiteSpace(Text(appControl.GetValueOrDefault("reason"))))
+            {
+                appControl["reason"] = "version-disabled";
+            }
         }
 
         return new Dictionary<string, object?>(StringComparer.Ordinal)
@@ -73,6 +75,11 @@ public sealed class RemotePolicyService
         if (string.Equals(Text(appControl.GetValueOrDefault("state")), "blocked", StringComparison.OrdinalIgnoreCase))
         {
             var reason = Text(appControl.GetValueOrDefault("reason"));
+            if (IsVersionUpdateRestriction(reason))
+            {
+                return BuildAccessDecision(false, studentHash, string.Empty, string.Empty, defaultMessage);
+            }
+
             return BuildAccessDecision(true, studentHash, defaultMessage, string.IsNullOrWhiteSpace(reason) ? "app-control-blocked" : reason, defaultMessage);
         }
 
@@ -218,6 +225,12 @@ public sealed class RemotePolicyService
             ["student_id_hash"] = studentHash,
             ["reason"] = reason,
         };
+    }
+
+    private static bool IsVersionUpdateRestriction(string reason)
+    {
+        return string.Equals(reason, "version-disabled", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(reason, "version-too-low", StringComparison.OrdinalIgnoreCase);
     }
 
     private static Dictionary<string, object?> GetDictionary(Dictionary<string, object?> parent, string key)

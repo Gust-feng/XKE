@@ -1000,9 +1000,13 @@ public static class NoticeCompatibility
 
         var lifecycle = NormalizeLifecycle(GetDictionary(matchedVersionPolicy.GetValueOrDefault("lifecycle")));
         var appControl = NormalizeAppControl(GetDictionary(matchedVersionPolicy.GetValueOrDefault("app_control")));
-        if (matchedVersionPolicy.GetValueOrDefault("enabled") is false && string.IsNullOrWhiteSpace(appControl.GetValueOrDefault("state")?.ToString()))
+        if (matchedVersionPolicy.GetValueOrDefault("enabled") is false)
         {
             appControl["state"] = "blocked";
+            if (string.IsNullOrWhiteSpace(appControl.GetValueOrDefault("reason")?.ToString()))
+            {
+                appControl["reason"] = "version-disabled";
+            }
         }
 
         var statusNotice = NormalizeStatusNotice(

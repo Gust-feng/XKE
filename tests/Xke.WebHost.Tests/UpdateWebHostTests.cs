@@ -80,6 +80,60 @@ public sealed class UpdateWebHostTests
     }
 
     [Fact]
+    public async Task UpdateStatus_IgnoresVerifiedJobWhenCurrentVersionIsLatest()
+    {
+        using var webRoot = new TemporaryWebRoot();
+        using var dataRoot = new TemporaryDirectory("xke-update-current-version");
+        using var appRoot = new TemporaryDirectory("xke-update-current-version-app");
+        var appDirectory = Path.Combine(appRoot.RootPath, "app");
+        var appExecutable = Path.Combine(appDirectory, "Xke.DesktopHost.exe");
+        Directory.CreateDirectory(appDirectory);
+        File.WriteAllText(appExecutable, "current-main");
+        var package = BuildZipPackage(("Xke.DesktopHost.exe", "new"));
+        var remote = new StaticNoticeRemoteSource(BuildCloudFeed(package));
+
+        await using (var oldHost = await WebHostTestServer.StartAsync(
+                         webRoot,
+                         dataRoot,
+                         noticeRemoteSource: remote,
+                         updatePackageDownloader: new CapturingUpdatePackageDownloader(package),
+                         updateVersionProvider: new FixedUpdateVersionProvider("1.0.0")))
+        {
+            var downloadResponse = await oldHost.Client.PostAsJsonAsync("/api/update/download", new { });
+            var downloadDocument = await WebHostTestJson.ReadJsonAsync(downloadResponse);
+            var jobId = WebHostTestJson.GetData(downloadDocument).GetProperty("job_id").GetString()!;
+            var job = await WaitForJobAsync(oldHost.Client, jobId);
+            Assert.Equal("verified", job.GetProperty("status").GetString());
+        }
+
+        await using var currentHost = await WebHostTestServer.StartAsync(
+            webRoot,
+            dataRoot,
+            hostMode: "desktop-webview-test",
+            noticeRemoteSource: remote,
+            updatePackageDownloader: new CapturingUpdatePackageDownloader(package),
+            updateVersionProvider: new FixedUpdateVersionProvider("1.2.3"),
+            mainExecutablePath: appExecutable);
+
+        var statusResponse = await currentHost.Client.GetAsync("/api/update/status");
+        var statusDocument = await WebHostTestJson.ReadJsonAsync(statusResponse);
+        var status = WebHostTestJson.GetData(statusDocument);
+
+        Assert.Equal(HttpStatusCode.OK, statusResponse.StatusCode);
+        Assert.False(status.GetProperty("is_update_available").GetBoolean());
+        Assert.False(status.GetProperty("package_downloaded").GetBoolean());
+        Assert.False(status.GetProperty("can_install").GetBoolean());
+        Assert.Equal(string.Empty, status.GetProperty("download_status").GetString());
+        Assert.Equal(string.Empty, status.GetProperty("download_job_id").GetString());
+        Assert.Contains("最新", status.GetProperty("message").GetString(), StringComparison.Ordinal);
+
+        var prepare = await currentHost.Client.PostAsJsonAsync("/api/update/prepare-install", new { });
+        var prepareText = await prepare.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.BadRequest, prepare.StatusCode);
+        Assert.Contains("不需要安装更新", prepareText, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task PrepareInstall_OnlySucceedsAfterVerifiedPackage()
     {
         using var webRoot = new TemporaryWebRoot();
@@ -249,6 +303,53 @@ public sealed class UpdateWebHostTests
         Assert.Equal("keep", File.ReadAllText(Path.Combine(installDir, ".desktop", "webview-data", "state")));
         Assert.False(File.Exists(Path.Combine(installDir, ".runtime", "data", "should-not-copy.txt")));
         Assert.Equal("installed", restoredPlan.Status);
+    }
+
+    [Fact]
+    public async Task UpdateInstaller_InstallsPortablePackageFolderWithoutNesting()
+    {
+        using var workspace = new TemporaryDirectory("xke-update-install-portable");
+        var installDir = Path.Combine(workspace.RootPath, "XKE·软大课务");
+        var dataDir = Path.Combine(workspace.RootPath, ".runtime", "data");
+        Directory.CreateDirectory(installDir);
+        File.WriteAllText(Path.Combine(installDir, "Xke.DesktopHost.exe"), "old-main");
+
+        var package = BuildZipPackage(
+            ("XKE·软大课务.exe", "launcher"),
+            ("XKE·软大课务/Xke.DesktopHost.exe", "new-main"),
+            ("XKE·软大课务/new.txt", "new"));
+        var root = XkeDataRootFactory.CreateDefault(workspace.RootPath, workspace.RootPath, dataDir);
+        Directory.CreateDirectory(root.UpdatePackagesDirectory);
+        var packagePath = root.Updates().ResolvePackagePath("xke-1.2.3-portable.zip");
+        await File.WriteAllBytesAsync(packagePath, package);
+        var plan = new XkeUpdateInstallPlanDocument
+        {
+            JobId = "job-portable",
+            LatestVersion = "1.2.3",
+            PackagePath = packagePath,
+            PackageSha256 = Sha256Hex(package),
+            PackageSize = package.Length,
+            InstallDirectory = installDir,
+            AppExecutablePath = Path.Combine(installDir, "Xke.DesktopHost.exe"),
+            BackupDirectory = root.Updates().ResolveBackupDirectory("job-portable"),
+            Status = "prepared",
+            CreatedAt = DateTimeOffset.Now.ToString("O"),
+            UpdatedAt = DateTimeOffset.Now.ToString("O"),
+        };
+        root.Updates().SaveInstallPlan(plan);
+
+        var result = await new UpdateInstaller().InstallAsync(new UpdateInstallerOptions(
+            ParentProcessId: 0,
+            PlanPath: root.UpdateInstallPlanPath,
+            MainExecutablePath: plan.AppExecutablePath,
+            RestartAfterInstall: false,
+            WaitTimeout: TimeSpan.FromMilliseconds(1)));
+
+        Assert.True(result.Ok);
+        Assert.Equal("new-main", File.ReadAllText(Path.Combine(installDir, "Xke.DesktopHost.exe")));
+        Assert.True(File.Exists(Path.Combine(installDir, "new.txt")));
+        Assert.False(File.Exists(Path.Combine(installDir, "XKE·软大课务", "Xke.DesktopHost.exe")));
+        Assert.False(File.Exists(Path.Combine(installDir, "XKE·软大课务.exe")));
     }
 
     [Theory]

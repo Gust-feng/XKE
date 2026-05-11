@@ -56,8 +56,11 @@ public sealed class UpdateService
     {
         var manifest = await LoadManifestAsync(trigger, cancellationToken).ConfigureAwait(false);
         var store = _dataRoot.Updates();
-        var verifiedJob = store.FindLatestVerifiedJob(manifest.LatestVersion);
-        var latestJob = verifiedJob ?? store.FindLatestJob(manifest.LatestVersion);
+        var updateAvailable = IsUpdateAvailable(manifest);
+        var forceUpgrade = IsForceUpgrade(manifest);
+        var shouldExposeUpdateJob = updateAvailable || forceUpgrade;
+        var verifiedJob = shouldExposeUpdateJob ? store.FindLatestVerifiedJob(manifest.LatestVersion) : null;
+        var latestJob = shouldExposeUpdateJob ? verifiedJob ?? store.FindLatestJob(manifest.LatestVersion) : null;
         var plan = store.LoadInstallPlan();
         var installStatus = string.IsNullOrWhiteSpace(plan.Status) ? string.Empty : plan.Status;
         var planMatches = !string.IsNullOrWhiteSpace(plan.JobId)
@@ -73,8 +76,8 @@ public sealed class UpdateService
             CurrentVersion: _versionProvider.CurrentVersion,
             LatestVersion: manifest.LatestVersion,
             MinSupportedVersion: manifest.MinSupportedVersion,
-            IsUpdateAvailable: IsUpdateAvailable(manifest),
-            ForceUpgrade: IsForceUpgrade(manifest),
+            IsUpdateAvailable: updateAvailable,
+            ForceUpgrade: forceUpgrade,
             PackageType: manifest.PackageType,
             PackageDownloaded: verifiedJob is not null,
             CanInstall: canInstall,
@@ -160,6 +163,11 @@ public sealed class UpdateService
         }
 
         var manifest = await LoadManifestAsync("manual/update", cancellationToken).ConfigureAwait(false);
+        if (!IsUpdateAvailable(manifest) && !IsForceUpgrade(manifest))
+        {
+            throw new InvalidOperationException("当前版本不需要安装更新");
+        }
+
         var store = _dataRoot.Updates();
         var job = store.FindLatestVerifiedJob(manifest.LatestVersion)
                   ?? throw new InvalidOperationException("更新包尚未下载或校验未通过");
