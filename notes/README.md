@@ -7,7 +7,7 @@
 | 目录 | 内容 | 作用 | 更新时机 |
 | --- | --- | --- | --- |
 | [doc-entry](./doc-entry/00_overview.md) | 文档入口、维护记录 | 给后续开发者和 AI 明确阅读顺序、术语、文档治理规则 | 每次新增、移动、归档文档时更新 |
-| [development-docs](./development-docs/README.md) | 开发文档 / 开发项目 / 具体内容 | 承载可执行开发项目文档，当前项目为 CloudSync 云端同步、一键自动更新与传统教务 Cookie 课表接入 | 每次开始、完成或调整开发项目时更新 |
+| [development-docs](./development-docs/README.md) | 开发文档 / 开发项目 / 具体内容 | 承载可执行开发项目文档，当前项目为 CloudSync 云端同步、反馈云上传、一键自动更新与传统教务 Cookie 课表接入 | 每次开始、完成或调整开发项目时更新 |
 | [roadmap](./roadmap/00_development_direction.md) | 后续开发方向、阶段总结 | 决定当前主线、已完成切片、下一阶段优先级 | 每次切片完成、主线调整、验收口径变化时更新 |
 | [review-issues](./review-issues/00_current_issues.md) | 当前问题手册、审查结论 | 记录仍需修复的问题、暂缓事项、审查排序 | 每次代码审查、问题关闭、优先级变化时更新 |
 | [future-plans](./future-plans/00_traditional_jw_manual_login.md) | 后置功能计划 | 保存 Course 验证码、OCR、真实抢课、WinUI 3 原生桌面 UI 等 future-only 边界 | 只在后置边界变化或准备重启该切片时更新 |
@@ -30,15 +30,17 @@
 2. [development-docs/README.md](./development-docs/README.md)
 3. [development-docs/cloud-sync/README.md](./development-docs/cloud-sync/README.md)
 4. [development-docs/cloud-sync/00_current_focus.md](./development-docs/cloud-sync/00_current_focus.md)
-5. [development-docs/auto-update/README.md](./development-docs/auto-update/README.md)
-6. [development-docs/auto-update/00_current_focus.md](./development-docs/auto-update/00_current_focus.md)
-7. [development-docs/traditional-jw-cookie-schedule/README.md](./development-docs/traditional-jw-cookie-schedule/README.md)
-8. [development-docs/traditional-jw-cookie-schedule/00_current_focus.md](./development-docs/traditional-jw-cookie-schedule/00_current_focus.md)
-9. [roadmap/00_development_direction.md](./roadmap/00_development_direction.md)
-10. [review-issues/00_current_issues.md](./review-issues/00_current_issues.md)
-11. [review-issues/01_review_findings.md](./review-issues/01_review_findings.md)
-12. [sensitive-index/教务系统/01_接入资料索引.md](./sensitive-index/教务系统/01_接入资料索引.md)
-13. [future-plans/01_winui3_native_ui.md](./future-plans/01_winui3_native_ui.md)
+5. [development-docs/feedback-cloud/README.md](./development-docs/feedback-cloud/README.md)
+6. [development-docs/feedback-cloud/00_current_focus.md](./development-docs/feedback-cloud/00_current_focus.md)
+7. [development-docs/auto-update/README.md](./development-docs/auto-update/README.md)
+8. [development-docs/auto-update/00_current_focus.md](./development-docs/auto-update/00_current_focus.md)
+9. [development-docs/traditional-jw-cookie-schedule/README.md](./development-docs/traditional-jw-cookie-schedule/README.md)
+10. [development-docs/traditional-jw-cookie-schedule/00_current_focus.md](./development-docs/traditional-jw-cookie-schedule/00_current_focus.md)
+11. [roadmap/00_development_direction.md](./roadmap/00_development_direction.md)
+12. [review-issues/00_current_issues.md](./review-issues/00_current_issues.md)
+13. [review-issues/01_review_findings.md](./review-issues/01_review_findings.md)
+14. [sensitive-index/教务系统/01_接入资料索引.md](./sensitive-index/教务系统/01_接入资料索引.md)
+15. [future-plans/01_winui3_native_ui.md](./future-plans/01_winui3_native_ui.md)
 
 ## 术语边界
 

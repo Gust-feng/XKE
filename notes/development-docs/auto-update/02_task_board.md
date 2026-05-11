@@ -6,7 +6,7 @@
 
 ## Pending
 
-- 后续发布流水线仍需要生成完整 ZIP 包、计算 hash 并上传到正式 HTTPS 发布目录。
+- 后续发布流水线仍需要生成 envelope ZIP 包、计算 hash 并上传到正式 HTTPS 发布目录。
 - 第二阶段再考虑包签名、差分包、管理员提权或 WinUI 3 原生更新界面。
 
 ## Done
@@ -24,9 +24,11 @@
 - 在 Web 前端关于页增加两步更新入口，移除下载地址展示。
 - 新增 `tools/update-smoke.ps1` 和临时包验收测试。
 - 修复桌面打包入口，发布 `Xke.DesktopHost` 时同步发布并校验 `Xke.Updater` 产物。
+- 固化正式包结构：ZIP 根目录为 `XKE·软大课务.exe` 根启动器 + `XKE·软大课务/` 程序文件夹；禁止以 `.lnk` 或 `.cmd` 作为主入口。
+- `Xke.Updater` 识别 envelope ZIP，安装时只使用内部程序文件夹，避免把更新包装成嵌套目录。
 
 ## Blockers / Decisions
 
 - 需要确定正式安装目录是否为用户可写目录。第一阶段默认不支持需要管理员权限的 `Program Files`。
-- 需要确定发布包格式。第一阶段建议完整 ZIP 包。
+- 发布包格式已确定为完整 ZIP envelope：外层启动器 exe + 同名程序文件夹。
 - 需要确定包下载地址。建议使用私有部署侧维护的公开 HTTPS 静态下载目录，路径形如 `releases/<version>/`。

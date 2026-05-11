@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="XKE·软大课务">
+  <defs>
+    <filter id="plate-shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="18" stdDeviation="24" flood-color="#0F1720" flood-opacity="0.14"/>
+    </filter>
+  </defs>
+  <rect width="512" height="512" fill="none"/>
+  <rect x="72" y="72" width="368" height="368" rx="96" fill="#FFFFFF" filter="url(#plate-shadow)"/>
+  <rect x="72.75" y="72.75" width="366.5" height="366.5" rx="95" fill="none" stroke="#0E1012" stroke-opacity="0.055" stroke-width="1.5"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M151 147L361 365" stroke="#0B0D0F" stroke-width="18.5"/>
+    <path d="M361 147L151 365" stroke="#0B0D0F" stroke-width="18.5"/>
+    <path d="M151 147L361 365" stroke="#FFFFFF" stroke-width="8.8"/>
+    <path d="M361 147L151 365" stroke="#FFFFFF" stroke-width="8.8"/>
+  </g>
+  <path d="M256 216L296 256L256 296L216 256Z" fill="#FFFFFF"/>
+  <path d="M256 225L287 256L256 287L225 256Z" fill="none" stroke="#0B0D0F" stroke-width="1.55" stroke-opacity="0.16" stroke-linejoin="round"/>
+</svg>

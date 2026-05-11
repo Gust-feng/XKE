@@ -16,6 +16,7 @@ development-docs/
 | 项目 | 入口 | 当前阶段 |
 | --- | --- | --- |
 | CloudSync 云端同步 | [cloud-sync/README.md](./cloud-sync/README.md) | 阶段 1：单包拉取与本地 spool |
+| 反馈云上传 | [feedback-cloud/README.md](./feedback-cloud/README.md) | 阶段 1：云端优先 + 本地加密兜底 |
 | 一键自动更新 | [auto-update/README.md](./auto-update/README.md) | 阶段 0：切片准备 |
 | 传统教务 Cookie 课表 | [traditional-jw-cookie-schedule/README.md](./traditional-jw-cookie-schedule/README.md) | 阶段 1：离线解析 |
 
@@ -32,6 +33,10 @@ development-docs/
 - [cloud-sync/00_current_focus.md](./cloud-sync/00_current_focus.md)
 - [cloud-sync/01_implementation_steps.md](./cloud-sync/01_implementation_steps.md)
 - [cloud-sync/02_task_board.md](./cloud-sync/02_task_board.md)
+- [feedback-cloud/README.md](./feedback-cloud/README.md)
+- [feedback-cloud/00_current_focus.md](./feedback-cloud/00_current_focus.md)
+- [feedback-cloud/01_implementation_steps.md](./feedback-cloud/01_implementation_steps.md)
+- [feedback-cloud/02_task_board.md](./feedback-cloud/02_task_board.md)
 - [auto-update/README.md](./auto-update/README.md)
 - [auto-update/00_current_focus.md](./auto-update/00_current_focus.md)
 - [auto-update/01_implementation_steps.md](./auto-update/01_implementation_steps.md)

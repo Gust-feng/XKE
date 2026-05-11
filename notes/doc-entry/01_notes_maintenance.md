@@ -52,3 +52,9 @@
 - 在 `../future-plans/01_winui3_native_ui.md` 补充应用原生提醒边界。
 - 明确当前课程提醒触发仍依赖 Web 前端运行，`Xke.DesktopHost` 只提供托盘气泡发送通道。
 - 后续迁移目标是由 `DesktopHost/Core` 承担提醒设置读取、课表候选计算、定时触发、去重和发送记录；托盘和开机静默启动场景不能依赖 WebView 加载。
+
+## 2026-04-26 反馈云上传开发项目
+
+- 新增 `../development-docs/feedback-cloud/`，记录反馈云函数整理、客户端 transport、私有端点注入和本地兜底边界。
+- 真实云函数地址、COS 配置和原始 ZIP 只保留在 ignored 的 `开发数据/` 下。
+- 当前完成范围是提交时云端优先上传，失败写入本地加密 outbox；后台补传仍为后续项目。

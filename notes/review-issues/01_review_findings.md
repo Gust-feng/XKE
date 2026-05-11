@@ -40,12 +40,12 @@
 
 ## 3. P2 问题
 
-### P2-1：反馈 outbox 明文保存敏感内容
+### P2-1：反馈云上传补传策略仍未完成
 
-- 位置：`src/Xke.Storage/XkeFeedbackOutboxStore.cs:20-31`
-- 当前裁决：暂缓。
-- 原因：Feedback 本轮仍是 local-only，本机环境按相对可信处理；不引入 DPAPI outbox 或清理队列复杂度。
-- 后续建议：云上传切片启动前，再统一设计 outbox 加密、重试、保留和清理策略。
+- 位置：`src/Xke.Core/Feedback/HttpFeedbackTransport.cs`
+- 当前状态：反馈 outbox 已使用本地加密文件保存；默认 transport 会优先上传云函数，失败后写入本地加密 outbox。
+- 剩余风险：本轮没有后台常驻补传器；如果云端短时不可用，反馈会保留在本地，需要后续切片决定是否扫描 outbox 并补传。
+- 后续建议：如需要“最终一定到云端”，再设计 outbox 枚举、重试节流、成功删除和用户隐私保留周期。
 
 ### P2-2：当前周使用 UTC 日期
 
@@ -75,7 +75,7 @@
 - `XkeWebHostApplication` 已经用 partial endpoint 文件拆开，但服务注册、通用错误处理、session 解析、blocked policy 仍集中在同一个静态入口里。
 - `Xke.Contracts` 同时承载 HTTP DTO 和本地持久化 document。短期减少映射成本，但长期会让 API 契约和存储 schema 互相牵制。
 - `NetworkService`、`AuthService`、`NoticeCompatibility`、`NativeJwScheduleClient` 文件偏大，后续新增功能前应先拆稳定边界，避免继续形成新巨石。
-- local-only 的 Telemetry/Feedback 边界是当前切片的刻意选择，云上传和隐私增强后续单独推进。
+- Telemetry/Feedback 已进入云上传链路；后台补传、管理侧查询权限和更细隐私保留周期后续单独推进。
 - 前端本轮不做结构优化，只要求后端保留现有 envelope 和字段兼容，方便后续前端整体重构。
 
 ## 5. 对 18 号报告的合并裁决
@@ -120,12 +120,12 @@ dotnet build src/Xke.LegacyCompat/Xke.LegacyCompat.csproj --nologo
 4. 扩展后端测试支持层，减少 WebHost 测试启动样板重复。
 5. 启动 WebHost 注册、错误处理、session/context 加载、blocked policy 的长期结构拆分。
 6. 建立 `Xke.Core.Tests`，把 normalize/parser/decision 纯逻辑逐步迁出 WebHost 集成测试。
-7. Network 认证历史脱敏、Feedback outbox DPAPI、运营商凭据清空语义作为后续隐私/设置增强切片处理。
+7. Network 认证历史脱敏、Feedback 后台补传、运营商凭据清空语义作为后续隐私/设置增强切片处理。
 
 ## 8. 收束方向图（用于后续开发排队）
 
 ### 8.1 当前主线（不改变现有 API）
-- 首先保证数据主链路稳定：Auth 首登/本地恢复、Schedule 初始化与恢复、Notice 兼容、Desktop settings、Network/Telemetry/Feedback 本地闭环。
+- 首先保证数据主链路稳定：Auth 首登/本地恢复、Schedule 初始化与恢复、Notice 兼容、Desktop settings、Network/Telemetry/Feedback 本地与云端兜底闭环。
 - 优化后端结构：集中排查活跃链路边界、测试重复、错误面和 session/blocked 边界，不新增前端字段。
 - 将文档、测试、注释全部按照“移动教务主线 + 教务系统后置”统一标注。
 

@@ -15,7 +15,7 @@
 
 - 避免 `WebHost` 和前端主控制器继续膨胀成新的巨石。
 - 避免旧登录器思维回流，破坏“本地可信状态”主线。
-- 避免传统教务验证码、Course 抢课、云上传这些后置能力提前污染当前已交付切片。
+- 避免传统教务验证码、Course 抢课、后台补传和云端管理能力提前污染当前已交付切片。
 - 当前阶段前端暂不拆分，重点放在后端长期结构和兼容边界。
 - 隐私落盘增强暂缓，默认用户电脑处于相对可信环境。
 
@@ -131,16 +131,18 @@
 - `/api/course/connect` 返回 deferred/unavailable。
 - Cookie 课表刷新后置。
 
-### P2-2：Telemetry/Feedback 云上传仍是 local-only
+### P2-2：Telemetry/Feedback 云上传后续补传仍需单独设计
 
-当前 local-only 是刻意边界，不是缺陷。
+当前状态：
 
-后续如果接云上传，需要单独切片处理：
+- Telemetry 已走本地 spool + 云端上传，失败保留队列。
+- Feedback 已走云端优先上传，失败写入本地加密 outbox。
 
-- 传输加密。
-- 重放队列。
-- 云端失败重试。
-- 配置密钥管理。
+仍未覆盖：
+
+- Feedback 后台常驻补传。
+- 云函数管理侧查询/导出权限设计。
+- 如果反馈云函数启用 token，客户端不能内置管理 token，需另开方案。
 
 ### P2-3：根仓库材料仍需隔离
 
@@ -160,4 +162,4 @@
 - 只在已交付切片维护强类型契约。
 - 不读写 Python legacy runtime 数据。
 - 不提交真实账号、密码、token、`.env`、生产遥测或未脱敏响应。
-- 注释只写在边界和副作用处：DPAPI、系统命令、local-only、blocked policy、deferred 能力。
+- 注释只写在边界和副作用处：DPAPI、系统命令、云端失败兜底、blocked policy、deferred 能力。

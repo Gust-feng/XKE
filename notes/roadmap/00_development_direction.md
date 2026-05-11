@@ -19,7 +19,8 @@
 
 - 已稳定：
   - `DesktopHost`、`Auth`（移动教务）、`Notice`、`Schedule`、`Network`、`Telemetry`、`Feedback`、`Course`框架边界。
-  - `Notice` 正在向 `CloudSync` 收敛：公告、远程策略、更新信息绑定为单包拉取，遥感首版只进入本地 spool。
+  - `Notice` 正在向 `CloudSync` 收敛：公告、远程策略、更新信息绑定为单包拉取，遥感走本地 spool + 云端上传。
+  - `Feedback` 已从纯本地 outbox 扩展为云端优先上传，失败时写入本地加密 outbox。
 - 关键行为约束：
   - 首次初始化必须完整拿到身份与非空课表才算成功。
   - 已有本地凭据只做本地校验，不触发远端重置式登录。
@@ -36,6 +37,7 @@
 
 1. 后端结构收敛第一层（P0）
    - 完成 `CloudSync` 单包拉取、`.cloud` 缓存、远程策略全局拦截和遥感本地 spool。
+   - 完成 `Feedback` 云端优先上传与本地加密兜底。
    - 完成 `AuthService` 首登异常回滚闭环，防止半初始化残留。
    - 完善本地时钟注入和 `ScheduleStore` 周次边界测试。
    - 固化 `active root` 与 legacy 兼容层只读/引用边界。

@@ -2,10 +2,23 @@
 
 ## 0. 发布与元数据准备
 
-- 打包完整程序为 `XKE-<version>-win-x64.zip`。
+- 打包完整程序为 ZIP；正式用户包和云端更新包都采用固定 envelope：
+
+```text
+<package>.zip
+├─ XKE·软大课务.exe
+└─ XKE·软大课务/
+   ├─ Xke.DesktopHost.exe
+   ├─ Xke.Updater.exe
+   ├─ xke.runtime.json
+   └─ web/
+```
+
+- 外层 `XKE·软大课务.exe` 是根启动器，不是 Windows `.lnk` 快捷方式；它必须使用相对路径启动 `./XKE·软大课务/Xke.DesktopHost.exe`。
+- 发布包不得再使用 `.lnk` 或 `.cmd` 作为主启动入口。
 - 计算 ZIP 的 SHA256。
 - 上传到公开 HTTPS 静态下载地址：
-  - `releases/<version>/XKE-<version>-win-x64.zip`
+  - `releases/<version>/<package>.zip`
   - `releases/<version>/release-notes.md`
 - 更新 `cloud-feed.json.update_info`。
 - 客户端继续通过 CloudSync 拉取 `cloud-feed.json`。
@@ -92,6 +105,7 @@ POST /api/update/prepare-install
   - 校验安装目录和包路径都在允许边界
   - 备份旧程序文件
   - 解压新包到临时目录
+  - 如果 ZIP 是 `XKE·软大课务.exe` + `XKE·软大课务/` envelope，只把 `XKE·软大课务/` 作为真正 payload
   - 替换安装目录中的程序文件
   - 启动新的 `Xke.DesktopHost.exe`
   - 成功后标记安装完成
@@ -124,6 +138,7 @@ POST /api/update/prepare-install
 - Updater 测试：
   - 使用临时目录模拟安装目录
   - 替换成功
+  - envelope 包不会安装成嵌套目录
   - 替换失败回滚
 - Smoke：
   - 新增 `tools/update-smoke.ps1`
