@@ -39,7 +39,6 @@ public partial class App : System.Windows.Application
         {
             HostMode = "desktop-webview",
             RuntimeChannel = "dotnet8-desktop",
-            Urls = new[] { "http://127.0.0.1:0" },
             DesktopWindowController = new DeferredDesktopWindowController(() => window),
             DesktopStartupRegistrar = startupRegistrar,
             MainExecutablePath = Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "Xke.DesktopHost.exe"),

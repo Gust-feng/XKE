@@ -10,6 +10,7 @@ using Xke.Contracts.Responses;
 using Xke.Core.Desktop;
 using Xke.Storage;
 using Xke.WebHost;
+using Drawing = global::System.Drawing;
 using Forms = global::System.Windows.Forms;
 
 namespace Xke.DesktopHost;
@@ -21,6 +22,7 @@ public partial class MainWindow : Window, IDesktopWindowController
     private readonly XkeDataRoot _dataRoot;
     private XkeWebHostLaunchResult? _launchResult;
     private Forms.NotifyIcon? _trayIcon;
+    private Drawing.Icon? _trayIconImage;
     private Task? _webViewLoadTask;
     private bool _allowClose;
 
@@ -80,10 +82,9 @@ public partial class MainWindow : Window, IDesktopWindowController
         RetryButton.IsEnabled = false;
         OpenBrowserButton.IsEnabled = false;
         CopyAddressButton.IsEnabled = false;
-        StatusText.Text = forceRestart ? "正在重启..." : "正在启动...";
-        BaseUrlText.Text = "-";
-        Browser.Visibility = Visibility.Collapsed;
-        FallbackPanel.Visibility = Visibility.Visible;
+        ShowLoadingState(forceRestart
+            ? "正在重新载入桌面界面，请稍候。"
+            : "首次打开时会初始化本地服务，请稍候。");
 
         try
         {
@@ -93,38 +94,33 @@ public partial class MainWindow : Window, IDesktopWindowController
             }
 
             _launchResult = await _webHostService.StartAsync().ConfigureAwait(true);
-            StatusText.Text = _launchResult.WebRootFound ? "运行中" : "运行中（缺少 web 根目录）";
-            BaseUrlText.Text = _launchResult.BaseUrl;
-            WebRootText.Text = _launchResult.WebRootPath ?? "未找到 web/index.html";
-            DetailText.Text = _launchResult.WebRootFound
-                ? "Host 已启动，正在初始化 WebView2..."
-                : "Host 已启动，但还没有找到可用的 web 根目录。请确认仓库根目录下存在 web/index.html。";
-
-            OpenBrowserButton.IsEnabled = true;
-            CopyAddressButton.IsEnabled = true;
-
-            if (_launchResult.WebRootFound)
+            if (!_launchResult.WebRootFound)
             {
-                var health = await ReadHostHealthAsync(_launchResult.BaseUrl).ConfigureAwait(true);
-                DetailText.Text = BuildHostDiagnosticsText(health);
-                if (loadWebView)
-                {
-                    await LoadWebViewAsync(_launchResult.BaseUrl, health?.FrontendBuild).ConfigureAwait(true);
-                }
-                else
-                {
-                    DetailText.Text = "Host 已启动，静默启动期间暂不加载 WebView2，打开窗口后会继续初始化前端。";
-                }
+                ShowErrorState(
+                    "未找到前端资源",
+                    "当前发布内容缺少 web/index.html，无法打开内嵌界面。",
+                    allowBrowserActions: false);
+                return;
+            }
+
+            var health = await ReadHostHealthAsync(_launchResult.BaseUrl).ConfigureAwait(true);
+            if (loadWebView)
+            {
+                ShowLoadingState(BuildLoadingMessage(health));
+                await LoadWebViewAsync(_launchResult.BaseUrl, health?.FrontendBuild).ConfigureAwait(true);
+            }
+            else
+            {
+                HideStartupPanels();
             }
         }
         catch (Exception ex)
         {
             _launchResult = null;
-            StatusText.Text = "启动失败";
-            WebRootText.Text = "-";
-            DetailText.Text = ex.Message;
-            Browser.Visibility = Visibility.Collapsed;
-            FallbackPanel.Visibility = Visibility.Visible;
+            ShowErrorState(
+                forceRestart ? "重新加载失败" : "界面打开失败",
+                ex.Message,
+                allowBrowserActions: false);
         }
         finally
         {
@@ -155,7 +151,7 @@ public partial class MainWindow : Window, IDesktopWindowController
         try
         {
             var health = await ReadHostHealthAsync(_launchResult.BaseUrl).ConfigureAwait(true);
-            DetailText.Text = BuildHostDiagnosticsText(health);
+            ShowLoadingState(BuildLoadingMessage(health));
             await LoadWebViewAsync(_launchResult.BaseUrl, health?.FrontendBuild).ConfigureAwait(true);
         }
         finally
@@ -179,10 +175,10 @@ public partial class MainWindow : Window, IDesktopWindowController
         }
         catch (Exception ex)
         {
-            StatusText.Text = "WebView2 初始化失败";
-            DetailText.Text = $"WebView2 不可用：{ex.Message}。可以使用系统浏览器打开当前地址。";
-            Browser.Visibility = Visibility.Collapsed;
-            FallbackPanel.Visibility = Visibility.Visible;
+            ShowErrorState(
+                "内嵌界面初始化失败",
+                $"WebView2 不可用：{ex.Message}",
+                allowBrowserActions: _launchResult is not null);
         }
     }
 
@@ -203,18 +199,16 @@ public partial class MainWindow : Window, IDesktopWindowController
         }
     }
 
-    private static string BuildHostDiagnosticsText(HostHealthResponse? health)
+    private static string BuildLoadingMessage(HostHealthResponse? health)
     {
         if (health is null)
         {
-            return "Host 已启动，未能读取前端诊断信息，仍将尝试初始化 WebView2。";
+            return "正在初始化内嵌界面，请稍候。";
         }
 
-        var appHash = health.StaticAssetHashes is not null
-                      && health.StaticAssetHashes.TryGetValue("assets/app.js", out var hash)
-            ? hash[..Math.Min(hash.Length, 12)]
-            : "unknown";
-        return $"Host 已启动，正在初始化 WebView2... 前端构建 {health.FrontendBuild}，app.js {appHash}";
+        return string.IsNullOrWhiteSpace(health.FrontendBuild)
+            ? "本地服务已启动，正在打开桌面界面。"
+            : "界面资源已就绪，正在打开桌面端。";
     }
 
     private static Uri BuildVersionedStartupUri(string baseUrl, string? frontendBuild)
@@ -223,6 +217,33 @@ public partial class MainWindow : Window, IDesktopWindowController
         var root = baseUrl.TrimEnd('/') + "/";
         var separator = root.Contains('?', StringComparison.Ordinal) ? "&" : "?";
         return new Uri($"{root}{separator}xke_build={Uri.EscapeDataString(build)}&xke_ts={DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}");
+    }
+
+    private void ShowLoadingState(string message)
+    {
+        LoadingMessageText.Text = string.IsNullOrWhiteSpace(message)
+            ? "正在加载界面，请稍候。"
+            : message;
+        LoadingOverlay.Visibility = Visibility.Visible;
+        ErrorPanel.Visibility = Visibility.Collapsed;
+    }
+
+    private void ShowErrorState(string title, string detail, bool allowBrowserActions)
+    {
+        ErrorTitleText.Text = string.IsNullOrWhiteSpace(title) ? "界面加载失败" : title;
+        ErrorDetailText.Text = string.IsNullOrWhiteSpace(detail)
+            ? "请重试，或暂时用浏览器打开本地界面。"
+            : detail;
+        LoadingOverlay.Visibility = Visibility.Collapsed;
+        ErrorPanel.Visibility = Visibility.Visible;
+        OpenBrowserButton.IsEnabled = allowBrowserActions && _launchResult is not null;
+        CopyAddressButton.IsEnabled = allowBrowserActions && _launchResult is not null;
+    }
+
+    private void HideStartupPanels()
+    {
+        LoadingOverlay.Visibility = Visibility.Collapsed;
+        ErrorPanel.Visibility = Visibility.Collapsed;
     }
 
     private async Task InjectDesktopBridgeAsync()
@@ -544,17 +565,14 @@ public partial class MainWindow : Window, IDesktopWindowController
     {
         if (!e.IsSuccess)
         {
-            StatusText.Text = "前端加载失败";
-            DetailText.Text = $"WebView2 导航失败：{e.WebErrorStatus}";
-            Browser.Visibility = Visibility.Collapsed;
-            FallbackPanel.Visibility = Visibility.Visible;
+            ShowErrorState(
+                "内嵌界面加载失败",
+                $"WebView2 导航失败：{e.WebErrorStatus}",
+                allowBrowserActions: _launchResult is not null);
             return;
         }
 
-        StatusText.Text = "运行中";
-        DetailText.Text = "WebView2 前端已加载。";
-        Browser.Visibility = Visibility.Visible;
-        FallbackPanel.Visibility = Visibility.Collapsed;
+        HideStartupPanels();
         PublishWindowState();
     }
 
@@ -570,16 +588,31 @@ public partial class MainWindow : Window, IDesktopWindowController
             return;
         }
 
+        _trayIconImage = LoadTrayIcon();
         _trayIcon = new Forms.NotifyIcon
         {
             Text = AppDisplayName,
-            Icon = System.Drawing.SystemIcons.Application,
+            Icon = _trayIconImage,
             Visible = true,
             ContextMenuStrip = new Forms.ContextMenuStrip(),
         };
-        _trayIcon.ContextMenuStrip.Items.Add("打开 XKE", null, (_, _) => ActivateDesktopWindow());
+        _trayIcon.ContextMenuStrip.Items.Add($"打开 {AppDisplayName}", null, (_, _) => ActivateDesktopWindow());
         _trayIcon.ContextMenuStrip.Items.Add("退出", null, (_, _) => ExitApplication());
         _trayIcon.DoubleClick += (_, _) => ActivateDesktopWindow();
+    }
+
+    private static Drawing.Icon LoadTrayIcon()
+    {
+        var streamInfo = System.Windows.Application.GetResourceStream(
+            new Uri("pack://application:,,,/Assets/app.ico", UriKind.Absolute));
+        if (streamInfo?.Stream is null)
+        {
+            return (Drawing.Icon)Drawing.SystemIcons.Application.Clone();
+        }
+
+        using var stream = streamInfo.Stream;
+        using var icon = new Drawing.Icon(stream);
+        return (Drawing.Icon)icon.Clone();
     }
 
     private void ExitApplication()
@@ -643,7 +676,10 @@ public partial class MainWindow : Window, IDesktopWindowController
         }
         catch (Exception ex)
         {
-            DetailText.Text = $"打开浏览器失败：{ex.Message}";
+            ShowErrorState(
+                "浏览器打开失败",
+                $"无法在系统浏览器中打开本地界面：{ex.Message}",
+                allowBrowserActions: _launchResult is not null);
         }
     }
 
@@ -655,7 +691,7 @@ public partial class MainWindow : Window, IDesktopWindowController
         }
 
         System.Windows.Clipboard.SetText(_launchResult.BaseUrl);
-        DetailText.Text = "已复制本地地址。";
+        ErrorDetailText.Text = "已复制本地地址，可粘贴到系统浏览器打开。";
     }
 
     protected override async void OnClosed(EventArgs e)
@@ -680,6 +716,8 @@ public partial class MainWindow : Window, IDesktopWindowController
         _trayIcon.Visible = false;
         _trayIcon.Dispose();
         _trayIcon = null;
+        _trayIconImage?.Dispose();
+        _trayIconImage = null;
     }
 
     private sealed record UpdaterSource(string DirectoryPath, string FileName, bool IsDll);

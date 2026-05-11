@@ -4,6 +4,7 @@
 **/obj/
 .playwright-mcp/
 .dotnet_cli/
+.dotnet-home/
 artifacts/
 xke.runtime.json
 开发数据/

@@ -3,76 +3,88 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         Title="XKE·软大课务"
+        Icon="Assets/app.ico"
         Height="720"
         Width="1180"
         MinHeight="640"
         MinWidth="980"
+        Background="#FFF6F3EC"
         Closing="Window_Closing"
         StateChanged="Window_StateChanged"
         IsVisibleChanged="Window_IsVisibleChanged">
-    <Grid>
+    <Grid Background="#FFF6F3EC">
         <wv2:WebView2 x:Name="Browser"
-                      Visibility="Collapsed"
                       NavigationCompleted="Browser_NavigationCompleted" />
 
-        <Grid x:Name="FallbackPanel"
-              Margin="24">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="24" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="24" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="*" />
-            </Grid.RowDefinitions>
-
-            <StackPanel Grid.Row="0">
-                <TextBlock FontSize="30" FontWeight="SemiBold" Text="XKE DesktopHost" />
-                <TextBlock Margin="0,10,0,0"
-                           Text="正在启动 .NET WebHost 并加载内嵌 WebView2 前端。若 WebView2 不可用，可复制地址或用系统浏览器打开。"
+        <Border x:Name="LoadingOverlay"
+                Background="#EAF7F0E8">
+            <StackPanel MaxWidth="420"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center">
+                <TextBlock FontSize="32"
+                           FontWeight="SemiBold"
+                           HorizontalAlignment="Center"
+                           Text="XKE·软大课务" />
+                <TextBlock Margin="0,16,0,0"
+                           FontSize="16"
+                           FontWeight="SemiBold"
+                           HorizontalAlignment="Center"
+                           Text="正在加载界面..." />
+                <TextBlock x:Name="LoadingMessageText"
+                           Margin="0,12,0,0"
+                           Foreground="#8C4F4A40"
+                           Text="首次打开时会初始化本地服务，请稍候。"
+                           TextAlignment="Center"
                            TextWrapping="Wrap" />
+                <ProgressBar Margin="0,24,0,0"
+                             Height="6"
+                             IsIndeterminate="True" />
             </StackPanel>
+        </Border>
 
-            <Border Grid.Row="2"
-                Padding="18"
-                Background="#FFF7F7F2"
+        <Border x:Name="ErrorPanel"
+                Visibility="Collapsed"
+                Margin="24"
+                Padding="28"
+                MaxWidth="560"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Background="#FFF9F5EE"
                 BorderBrush="#FFD3D0C7"
                 BorderThickness="1"
-                CornerRadius="10">
-            <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="12" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="8" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="8" />
-                    <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="140" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-
-                <TextBlock Grid.Row="0" Grid.Column="0" FontWeight="SemiBold" Text="Host 状态" />
-                <TextBlock Grid.Row="0" Grid.Column="1" x:Name="StatusText" Text="尚未启动" TextWrapping="Wrap" />
-
-                <TextBlock Grid.Row="2" Grid.Column="0" FontWeight="SemiBold" Text="本地地址" />
-                <TextBlock Grid.Row="2" Grid.Column="1" x:Name="BaseUrlText" Text="-" TextWrapping="Wrap" />
-
-                <TextBlock Grid.Row="4" Grid.Column="0" FontWeight="SemiBold" Text="静态资源" />
-                <TextBlock Grid.Row="4" Grid.Column="1" x:Name="WebRootText" Text="-" TextWrapping="Wrap" />
-
-                <TextBlock Grid.Row="6" Grid.Column="0" FontWeight="SemiBold" Text="细节" />
-                <TextBlock Grid.Row="6" Grid.Column="1" x:Name="DetailText" Text="启动后会优先加载内嵌桌面前端。" TextWrapping="Wrap" />
-            </Grid>
-            </Border>
-
-            <StackPanel Grid.Row="4" Orientation="Horizontal">
-                <Button x:Name="RetryButton" Width="120" Padding="12,8" Content="重启 Host" Click="RetryHost_Click" />
-                <Button x:Name="OpenBrowserButton" Margin="12,0,0,0" Width="140" Padding="12,8" Content="浏览器打开" Click="OpenBrowser_Click" IsEnabled="False" />
-                <Button x:Name="CopyAddressButton" Margin="12,0,0,0" Width="140" Padding="12,8" Content="复制地址" Click="CopyAddress_Click" IsEnabled="False" />
+                CornerRadius="12">
+            <StackPanel>
+                <TextBlock x:Name="ErrorTitleText"
+                           FontSize="28"
+                           FontWeight="SemiBold"
+                           Text="界面加载失败" />
+                <TextBlock x:Name="ErrorDetailText"
+                           Margin="0,14,0,0"
+                           Text="请重试，或暂时用浏览器打开本地界面。"
+                           TextWrapping="Wrap" />
+                <StackPanel Margin="0,24,0,0"
+                            Orientation="Horizontal">
+                    <Button x:Name="RetryButton"
+                            Width="120"
+                            Padding="12,8"
+                            Content="重新加载"
+                            Click="RetryHost_Click" />
+                    <Button x:Name="OpenBrowserButton"
+                            Margin="12,0,0,0"
+                            Width="140"
+                            Padding="12,8"
+                            Content="浏览器打开"
+                            Click="OpenBrowser_Click"
+                            IsEnabled="False" />
+                    <Button x:Name="CopyAddressButton"
+                            Margin="12,0,0,0"
+                            Width="140"
+                            Padding="12,8"
+                            Content="复制地址"
+                            Click="CopyAddress_Click"
+                            IsEnabled="False" />
+                </StackPanel>
             </StackPanel>
-        </Grid>
+        </Border>
     </Grid>
 </Window>
