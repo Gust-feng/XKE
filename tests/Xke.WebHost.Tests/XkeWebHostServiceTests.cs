@@ -139,6 +139,36 @@ public sealed class XkeWebHostServiceTests
         Assert.Equal(1, desktopController.CallCount);
     }
 
+    [Fact]
+    public async Task HostService_DesktopWebViewMode_ReusesStableLoopbackPortAcrossRestarts()
+    {
+        using var webRoot = new TemporaryWebRoot();
+        var firstService = new XkeWebHostService(new XkeWebHostOptions
+        {
+            HostMode = "desktop-webview",
+            RuntimeChannel = "dotnet8-test",
+            WebRootPath = webRoot.RootPath,
+        });
+
+        var firstLaunch = await firstService.StartAsync();
+        var firstPort = new Uri(firstLaunch.BaseUrl).Port;
+        await firstService.DisposeAsync();
+
+        var secondService = new XkeWebHostService(new XkeWebHostOptions
+        {
+            HostMode = "desktop-webview",
+            RuntimeChannel = "dotnet8-test",
+            WebRootPath = webRoot.RootPath,
+        });
+
+        var secondLaunch = await secondService.StartAsync();
+        var secondPort = new Uri(secondLaunch.BaseUrl).Port;
+        await secondService.DisposeAsync();
+
+        Assert.Equal(firstPort, secondPort);
+        Assert.Equal(38443, firstPort);
+    }
+
     private sealed class FakeDesktopWindowController : IDesktopWindowController
     {
         public int CallCount { get; private set; }

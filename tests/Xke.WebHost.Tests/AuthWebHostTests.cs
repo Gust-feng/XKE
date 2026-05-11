@@ -181,6 +181,46 @@ public sealed class AuthWebHostTests
     }
 
     [Fact]
+    public async Task DesktopBootstrap_RestoresLatestTrustedWorkspaceWithoutFrontendState()
+    {
+        using var webRoot = new TemporaryWebRoot();
+        using var dataRoot = new TemporaryDirectory("xke-auth-webhost-desktop-bootstrap");
+
+        await using (var initialHost = await WebHostTestServer.StartAsync(
+            webRoot,
+            dataRoot,
+            hostMode: "desktop-webview",
+            jwAuthClient: new FakeJwAuthClient(),
+            jwScheduleClient: new DefaultFakeJwScheduleClient()))
+        {
+            var login = await initialHost.Client.PostAsJsonAsync("/api/auth/login", new
+            {
+                user = "20260001",
+                password = "secret",
+                prelogin_mode = "capture",
+            });
+            Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+        }
+
+        await using var desktopHost = await WebHostTestServer.StartAsync(
+            webRoot,
+            dataRoot,
+            hostMode: "desktop-webview",
+            jwAuthClient: new FakeJwAuthClient(),
+            jwScheduleClient: new DefaultFakeJwScheduleClient());
+        var bootstrap = await desktopHost.Client.PostAsJsonAsync("/api/desktop/auth-bootstrap", new { });
+        var bootstrapDoc = await ReadJsonAsync(bootstrap);
+        var bootstrapData = GetData(bootstrapDoc);
+        var authData = bootstrapData.GetProperty("auth");
+
+        Assert.Equal(HttpStatusCode.OK, bootstrap.StatusCode);
+        Assert.Equal("20260001", bootstrapData.GetProperty("user").GetString());
+        Assert.False(authData.GetProperty("connected").GetBoolean());
+        Assert.Equal("local_cache", authData.GetProperty("cached_schedule").GetProperty("data_origin").GetString());
+        Assert.False(string.IsNullOrWhiteSpace(authData.GetProperty("session_id").GetString()));
+    }
+
+    [Fact]
     public async Task AuthLogin_FirstInitializationFailsWhenScheduleBootstrapFailsAndDoesNotKeepLocalState()
     {
         using var webRoot = new TemporaryWebRoot();

@@ -4,6 +4,7 @@ namespace Xke.WebHost;
 
 public sealed class XkeWebHostService : IAsyncDisposable
 {
+    private const int DefaultDesktopLoopbackPort = 38443;
     private readonly XkeWebHostOptions _options;
     private WebApplication? _application;
 
@@ -34,6 +35,8 @@ public sealed class XkeWebHostService : IAsyncDisposable
             NoticeSigningPublicKeyPem = _options.NoticeSigningPublicKeyPem,
             TelemetryTransport = _options.TelemetryTransport,
             TelemetryCloudEndpoint = _options.TelemetryCloudEndpoint,
+            FeedbackTransport = _options.FeedbackTransport,
+            FeedbackCloudEndpoint = _options.FeedbackCloudEndpoint,
             NetworkHttpMessageHandler = _options.NetworkHttpMessageHandler,
             NetworkCommandExecutor = _options.NetworkCommandExecutor,
             DesktopWindowController = _options.DesktopWindowController,
@@ -41,7 +44,7 @@ public sealed class XkeWebHostService : IAsyncDisposable
             UpdatePackageDownloader = _options.UpdatePackageDownloader,
             UpdateVersionProvider = _options.UpdateVersionProvider,
             MainExecutablePath = _options.MainExecutablePath,
-            Urls = _options.Urls.Count > 0 ? _options.Urls : new[] { "http://127.0.0.1:0" },
+            Urls = ResolveUrls(),
         };
 
         _application = XkeWebHostApplication.Create(Array.Empty<string>(), launchOptions);
@@ -73,5 +76,22 @@ public sealed class XkeWebHostService : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await StopAsync();
+    }
+
+    private IReadOnlyList<string> ResolveUrls()
+    {
+        if (_options.Urls.Count > 0)
+        {
+            return _options.Urls;
+        }
+
+        return IsDesktopWebViewHostMode(_options.HostMode)
+            ? [$"http://127.0.0.1:{DefaultDesktopLoopbackPort}"]
+            : ["http://127.0.0.1:0"];
+    }
+
+    private static bool IsDesktopWebViewHostMode(string? hostMode)
+    {
+        return string.Equals(hostMode?.Trim(), "desktop-webview", StringComparison.OrdinalIgnoreCase);
     }
 }

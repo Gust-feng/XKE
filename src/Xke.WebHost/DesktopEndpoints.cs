@@ -1,4 +1,6 @@
 using Xke.Contracts.Requests;
+using Xke.Contracts.Responses;
+using Xke.Core.Auth;
 using Xke.Core.Desktop;
 
 namespace Xke.WebHost;
@@ -52,5 +54,37 @@ public static partial class XkeWebHostApplication
                 }, statusCode: StatusCodes.Status500InternalServerError);
             }
         });
+
+        desktop.MapPost("/auth-bootstrap", (AuthService authService, XkeWebHostOptions options) =>
+        {
+            try
+            {
+                if (!IsDesktopWebViewHostMode(options.HostMode))
+                {
+                    return Results.Json(new { detail = "当前运行模式不支持桌面可信恢复" }, statusCode: StatusCodes.Status404NotFound);
+                }
+
+                var result = authService.DesktopBootstrap();
+                return Ok(result.Message, new DesktopAuthBootstrapPayload(result.User, result.Payload));
+            }
+            catch (AuthException ex)
+            {
+                return AuthError(ex);
+            }
+            catch (Exception ex)
+            {
+                return Results.Json(new
+                {
+                    ok = false,
+                    msg = ex.Message,
+                    detail = ex.Message,
+                }, statusCode: StatusCodes.Status500InternalServerError);
+            }
+        });
+    }
+
+    private static bool IsDesktopWebViewHostMode(string? hostMode)
+    {
+        return string.Equals(hostMode?.Trim(), "desktop-webview", StringComparison.OrdinalIgnoreCase);
     }
 }

@@ -13,6 +13,11 @@ public sealed record DesktopSettingsPayload(
     [property: JsonPropertyName("startup_registered")] bool? StartupRegistered
 );
 
+public sealed record DesktopAuthBootstrapPayload(
+    [property: JsonPropertyName("user")] string User,
+    [property: JsonPropertyName("auth")] AuthPayload Auth
+);
+
 public sealed record AccessBlockedDetail(
     [property: JsonPropertyName("blocked")] bool Blocked,
     [property: JsonPropertyName("message")] string Message,

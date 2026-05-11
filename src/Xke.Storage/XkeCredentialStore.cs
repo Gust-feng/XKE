@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text.Json;
 using Xke.Contracts.Models;
 using Xke.Security;
 
@@ -28,6 +30,44 @@ public sealed class XkeCredentialStore
     public bool Exists(string user)
     {
         return File.Exists(GetPath(user));
+    }
+
+    public IReadOnlyList<StoredCredentialDocument> LoadAll()
+    {
+        if (!Directory.Exists(_root.CredentialsDirectory))
+        {
+            return Array.Empty<StoredCredentialDocument>();
+        }
+
+        var documents = new List<StoredCredentialDocument>();
+        foreach (var path in Directory.EnumerateFiles(_root.CredentialsDirectory, "*.json.dpapi", SearchOption.TopDirectoryOnly))
+        {
+            try
+            {
+                var document = _protectedJson.Read<StoredCredentialDocument>(path);
+                if (document is not null && !string.IsNullOrWhiteSpace(document.User))
+                {
+                    documents.Add(document);
+                }
+            }
+            catch (CryptographicException)
+            {
+            }
+            catch (FormatException)
+            {
+            }
+            catch (IOException)
+            {
+            }
+            catch (JsonException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+
+        return documents;
     }
 
     public void Remove(string user)

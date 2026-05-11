@@ -44,25 +44,11 @@ public sealed class AuthService
 
             // Existing local accounts must stay on the local-trust path: verify
             // the persisted credential, then admit only fully initialized local workspaces.
-            var refreshedCredentials = EnsureTrustedToken(existingCredentials, credentialStore);
-            var studentStore = _dataRoot.ForStudent(ResolveStudentId(user, refreshedCredentials.StudentId));
-            var profile = LoadInitializedProfile(studentStore);
-            var settings = AuthSettingsCatalog.WithPreloginMode(studentStore.LoadPreferences() ?? AuthSettingsCatalog.CreateDefault(), preloginMode);
-            var sessionResult = _dataRoot.Sessions().Create(user, profile.StudentId, preloginMode);
-            Dictionary<string, object?> localCachedSchedule;
-            try
-            {
-                localCachedSchedule = LoadRequiredCachedSchedule(sessionResult.SessionId);
-            }
-            catch
-            {
-                _dataRoot.Sessions().Remove(sessionResult.SessionId);
-                throw;
-            }
+            var restoredWorkspace = RestoreTrustedWorkspace(existingCredentials, preloginMode);
 
             return (
                 "登录成功（本地凭据校验通过，已恢复本地可信状态）",
-                BuildPayload(sessionResult.SessionId, profile, studentStore, settings, refreshedCredentials.TrustedLoginToken, localCachedSchedule, connected: false));
+                restoredWorkspace.Payload);
         }
 
         return await InitializeRemoteStateAsync(
@@ -108,32 +94,49 @@ public sealed class AuthService
             throw new AuthException(401, "可信登录环境不可用，请重新手动登录");
         }
 
-        var refreshedCredentials = EnsureTrustedToken(credentials, _dataRoot.Credentials());
-        var studentStore = _dataRoot.ForStudent(ResolveStudentId(user, refreshedCredentials.StudentId));
-        var profile = LoadInitializedProfile(studentStore);
-        var settings = AuthSettingsCatalog.WithPreloginMode(studentStore.LoadPreferences() ?? AuthSettingsCatalog.CreateDefault(), preloginMode);
-        var createdSession = _dataRoot.Sessions().Create(user, profile.StudentId, preloginMode);
-        Dictionary<string, object?> cachedSchedule;
-        try
-        {
-            cachedSchedule = LoadRequiredCachedSchedule(createdSession.SessionId);
-        }
-        catch
-        {
-            _dataRoot.Sessions().Remove(createdSession.SessionId);
-            throw;
-        }
+        var restoredWorkspace = RestoreTrustedWorkspace(credentials, preloginMode);
 
         return (
             "已进入可信环境",
-            BuildPayload(createdSession.SessionId, profile, studentStore, settings, refreshedCredentials.TrustedLoginToken, cachedSchedule, connected: false));
+            restoredWorkspace.Payload);
+    }
+
+    public (string Message, string User, AuthPayload Payload) DesktopBootstrap()
+    {
+        var credentialStore = _dataRoot.Credentials();
+        var orderedCandidates = credentialStore.LoadAll()
+            .Where(document => !string.IsNullOrWhiteSpace(document.User) && !string.IsNullOrWhiteSpace(document.Password))
+            .OrderByDescending(document => ParseCredentialUpdatedAt(document.UpdatedAt))
+            .ThenBy(document => document.User, StringComparer.OrdinalIgnoreCase);
+        AuthException? lastRecoverableError = null;
+
+        foreach (var candidate in orderedCandidates)
+        {
+            try
+            {
+                var restoredWorkspace = RestoreTrustedWorkspace(candidate, string.Empty);
+                return ("已恢复桌面本地可信状态", restoredWorkspace.User, restoredWorkspace.Payload);
+            }
+            catch (AuthException ex) when (ex.StatusCode == 409)
+            {
+                lastRecoverableError = ex;
+            }
+        }
+
+        if (lastRecoverableError is not null)
+        {
+            throw lastRecoverableError;
+        }
+
+        throw new AuthException(404, "当前设备尚未建立可信登录环境，请先手动登录一次");
     }
 
     public (string Message, AuthPayload Payload) GetSession(string sessionId)
     {
         var context = LoadContext(sessionId);
+        var touchedCredentials = TouchCredentialUsage(context.Credentials, _dataRoot.Credentials());
         var cachedSchedule = LoadRequiredCachedSchedule(sessionId);
-        return ("会话有效", BuildPayload(sessionId, context.Profile, context.StudentStore, context.Settings, context.Credentials.TrustedLoginToken, cachedSchedule, connected: false));
+        return ("会话有效", BuildPayload(sessionId, context.Profile, context.StudentStore, context.Settings, touchedCredentials.TrustedLoginToken, cachedSchedule, connected: false));
     }
 
     public async Task<(string Message, AuthPayload Payload)> ConnectAsync(string sessionId, ConnectRequest request, CancellationToken cancellationToken = default)
@@ -352,6 +355,34 @@ public sealed class AuthService
             .TrimEnd('=');
     }
 
+    private RestoredTrustedWorkspace RestoreTrustedWorkspace(StoredCredentialDocument credentials, string preloginMode)
+    {
+        var credentialStore = _dataRoot.Credentials();
+        var refreshedCredentials = EnsureTrustedToken(credentials, credentialStore);
+        refreshedCredentials = TouchCredentialUsage(refreshedCredentials, credentialStore);
+        var studentStore = _dataRoot.ForStudent(ResolveStudentId(refreshedCredentials.User, refreshedCredentials.StudentId));
+        var profile = LoadInitializedProfile(studentStore);
+        var effectivePreloginMode = string.IsNullOrWhiteSpace(preloginMode)
+            ? AuthSettingsCatalog.Normalize(studentStore.LoadPreferences()).Auth.PreloginMode
+            : NormalizePreloginMode(preloginMode);
+        var settings = AuthSettingsCatalog.WithPreloginMode(studentStore.LoadPreferences() ?? AuthSettingsCatalog.CreateDefault(), effectivePreloginMode);
+        var sessionResult = _dataRoot.Sessions().Create(refreshedCredentials.User, profile.StudentId, effectivePreloginMode);
+        Dictionary<string, object?> cachedSchedule;
+        try
+        {
+            cachedSchedule = LoadRequiredCachedSchedule(sessionResult.SessionId);
+        }
+        catch
+        {
+            _dataRoot.Sessions().Remove(sessionResult.SessionId);
+            throw;
+        }
+
+        return new RestoredTrustedWorkspace(
+            refreshedCredentials.User,
+            BuildPayload(sessionResult.SessionId, profile, studentStore, settings, refreshedCredentials.TrustedLoginToken, cachedSchedule, connected: false));
+    }
+
     private StoredCredentialDocument EnsureTrustedToken(StoredCredentialDocument credentials, XkeCredentialStore credentialStore)
     {
         if (!string.IsNullOrWhiteSpace(credentials.TrustedLoginToken))
@@ -365,6 +396,26 @@ public sealed class AuthService
             Password = credentials.Password,
             StudentId = credentials.StudentId,
             TrustedLoginToken = CreateTrustedLoginToken(),
+            MobileJw = credentials.MobileJw,
+            UpdatedAt = DateTimeOffset.Now.ToString("O"),
+        };
+        credentialStore.Save(updated);
+        return updated;
+    }
+
+    private static DateTimeOffset ParseCredentialUpdatedAt(string? value)
+    {
+        return DateTimeOffset.TryParse(value, out var parsed) ? parsed : DateTimeOffset.MinValue;
+    }
+
+    private static StoredCredentialDocument TouchCredentialUsage(StoredCredentialDocument credentials, XkeCredentialStore credentialStore)
+    {
+        var updated = new StoredCredentialDocument
+        {
+            User = credentials.User,
+            Password = credentials.Password,
+            StudentId = credentials.StudentId,
+            TrustedLoginToken = credentials.TrustedLoginToken,
             MobileJw = credentials.MobileJw,
             UpdatedAt = DateTimeOffset.Now.ToString("O"),
         };
@@ -769,4 +820,8 @@ public sealed class AuthService
         XkeStudentStore StudentStore,
         StudentProfileDocument Profile,
         AppSettingsDocument Settings);
+
+    private sealed record RestoredTrustedWorkspace(
+        string User,
+        AuthPayload Payload);
 }
