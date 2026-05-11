@@ -7,6 +7,8 @@ using Xke.Contracts.Api;
 using Xke.Contracts.Models;
 using Xke.Contracts.Requests;
 using Xke.Core.Auth.Jw;
+using Xke.Core.CloudSync;
+using Xke.Core.Feedback;
 using Xke.Core.Network;
 using Xke.Core.Notice;
 using Xke.Security;
@@ -221,6 +223,151 @@ public sealed class NetworkTelemetryFeedbackWebHostTests
         var feedbackDoc = await ReadJsonAsync(feedback);
         Assert.Equal(HttpStatusCode.Forbidden, feedback.StatusCode);
         Assert.True(feedbackDoc.RootElement.GetProperty("detail").GetProperty("blocked").GetBoolean());
+    }
+
+    [Fact]
+    public async Task FeedbackEndpoint_UsesInjectedCloudTransport()
+    {
+        using var webRoot = new TemporaryWebRoot();
+        using var dataRoot = new TemporaryDirectory("xke-feedback-cloud");
+        var transport = new CapturingFeedbackTransport("feedback/v1/2026/04/26/item.json");
+
+        await using var host = await WebHostTestServer.StartAsync(
+            webRoot,
+            dataRoot,
+            hostMode: "test-feedback-cloud",
+            jwAuthClient: new FakeJwAuthClient(),
+            jwScheduleClient: new DefaultFakeJwScheduleClient(),
+            feedbackTransport: transport);
+        var client = host.Client;
+        var sessionId = await LoginAsync(client, "20260001");
+
+        var feedback = await client.PostAsJsonAsync($"/api/feedback/report?session_id={sessionId}", new FeedbackRequest
+        {
+            Category = "suggestion",
+            Content = "希望反馈能进入云端",
+            Contact = "tester@example.com",
+            Build = "1.0.1",
+            CurrentTab = "about",
+        });
+        var feedbackDoc = await ReadJsonAsync(feedback);
+        var feedbackData = GetData(feedbackDoc);
+
+        Assert.Equal(HttpStatusCode.OK, feedback.StatusCode);
+        Assert.Equal("feedback/v1/2026/04/26/item.json", feedbackData.GetProperty("stored_key").GetString());
+        Assert.Single(transport.Payloads);
+        Assert.Equal("20260001", transport.StudentIds[0]);
+        Assert.Equal("20260001", transport.Payloads[0]["student_id"]?.ToString());
+        Assert.False(transport.Payloads[0].ContainsKey("student_id_hash"));
+        Assert.Equal("suggestion", transport.Payloads[0]["category"]?.ToString());
+    }
+
+    [Fact]
+    public async Task FeedbackEndpoint_LimitsEachStudentToSevenSubmissionsPerDay()
+    {
+        using var webRoot = new TemporaryWebRoot();
+        using var dataRoot = new TemporaryDirectory("xke-feedback-daily-limit");
+        var transport = new CapturingFeedbackTransport("feedback/v1/2026/04/26/item.json");
+
+        await using var host = await WebHostTestServer.StartAsync(
+            webRoot,
+            dataRoot,
+            hostMode: "test-feedback-daily-limit",
+            jwAuthClient: new FakeJwAuthClient(),
+            jwScheduleClient: new DefaultFakeJwScheduleClient(),
+            feedbackTransport: transport);
+        var client = host.Client;
+        var sessionId = await LoginAsync(client, "20260001");
+
+        for (var index = 1; index <= 7; index++)
+        {
+            var response = await client.PostAsJsonAsync($"/api/feedback/report?session_id={sessionId}", new FeedbackRequest
+            {
+                Category = "bug",
+                Content = $"第 {index} 条反馈",
+            });
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+
+        var limited = await client.PostAsJsonAsync($"/api/feedback/report?session_id={sessionId}", new FeedbackRequest
+        {
+            Category = "bug",
+            Content = "第 8 条反馈",
+        });
+        var document = await ReadJsonAsync(limited);
+
+        Assert.Equal((HttpStatusCode)429, limited.StatusCode);
+        Assert.Equal("今日反馈次数已达上限，请明天再试", document.RootElement.GetProperty("msg").GetString());
+        Assert.Equal(7, transport.Payloads.Count);
+    }
+
+    [Fact]
+    public async Task HttpFeedbackTransport_PostsToCloudWithPlainStudentId()
+    {
+        using var dataRoot = new TemporaryDirectory("xke-feedback-http");
+        var root = new XkeDataRoot(dataRoot.RootPath, dataRoot.RootPath);
+        var handler = new CapturingFeedbackHttpMessageHandler();
+        var transport = new HttpFeedbackTransport(root, new HttpClient(handler), "https://feedback.example.test/base");
+        var payload = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["feedback_id"] = "feedback-1",
+            ["reported_at"] = "2026-04-26T12:00:00Z",
+            ["student_id"] = "20260001",
+            ["content"] = "content",
+            ["category"] = "bug",
+        };
+
+        var result = await transport.SubmitAsync("20260001", "feedback-1", payload);
+
+        Assert.Equal("feedback/v1/2026/04/26/feedback-1.json", result.StoredKey);
+        Assert.Equal("https://feedback.example.test/base/f", handler.RequestUri?.ToString());
+        Assert.NotNull(handler.RequestBody);
+        using var body = JsonDocument.Parse(handler.RequestBody!);
+        Assert.Equal("20260001", body.RootElement.GetProperty("student_id").GetString());
+        Assert.False(body.RootElement.TryGetProperty("student_id_hash", out _));
+    }
+
+    [Fact]
+    public async Task HttpFeedbackTransport_UsesLocalOutboxWhenNoFeedbackEndpointConfigured()
+    {
+        using var dataRoot = new TemporaryDirectory("xke-feedback-no-endpoint");
+        var root = new XkeDataRoot(dataRoot.RootPath, dataRoot.RootPath);
+        var handler = new ThrowingFeedbackHttpMessageHandler();
+        var previousConfig = Environment.GetEnvironmentVariable(PrivateCloudEndpointOptions.ConfigPathEnvironmentVariable);
+        var previousFeedback = Environment.GetEnvironmentVariable("XKE_FEEDBACK_CLOUD_ENDPOINT");
+        var previousCloudFeedback = Environment.GetEnvironmentVariable("XKE_CLOUD_FEEDBACK_BASE_URL");
+        var previousCloudFunctionFeedback = Environment.GetEnvironmentVariable("XKE_CLOUD_FUNCTION_FEEDBACK_BASE_URL");
+
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                PrivateCloudEndpointOptions.ConfigPathEnvironmentVariable,
+                Path.Combine(dataRoot.RootPath, "missing.local.json"));
+            Environment.SetEnvironmentVariable("XKE_FEEDBACK_CLOUD_ENDPOINT", null);
+            Environment.SetEnvironmentVariable("XKE_CLOUD_FEEDBACK_BASE_URL", null);
+            Environment.SetEnvironmentVariable("XKE_CLOUD_FUNCTION_FEEDBACK_BASE_URL", null);
+
+            var transport = new HttpFeedbackTransport(root, new HttpClient(handler));
+            var payload = new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["feedback_id"] = "feedback-local",
+                ["student_id"] = "20260001",
+                ["content"] = "content",
+            };
+
+            var result = await transport.SubmitAsync("20260001", "feedback-local", payload);
+
+            Assert.False(handler.Called);
+            Assert.Contains(".feedback/outbox/20260001/feedback-local.json", result.StoredKey);
+            Assert.True(File.Exists(Path.Combine(dataRoot.RootPath, result.StoredKey.Replace('/', Path.DirectorySeparatorChar))));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(PrivateCloudEndpointOptions.ConfigPathEnvironmentVariable, previousConfig);
+            Environment.SetEnvironmentVariable("XKE_FEEDBACK_CLOUD_ENDPOINT", previousFeedback);
+            Environment.SetEnvironmentVariable("XKE_CLOUD_FEEDBACK_BASE_URL", previousCloudFeedback);
+            Environment.SetEnvironmentVariable("XKE_CLOUD_FUNCTION_FEEDBACK_BASE_URL", previousCloudFunctionFeedback);
+        }
     }
 
     private static async Task<string> LoginAsync(HttpClient client, string user)
@@ -527,6 +674,72 @@ Windows IP 配置
                 RequestMessage = new HttpRequestMessage(HttpMethod.Get, uri),
                 Content = new StringContent(body, Encoding.UTF8, "application/javascript"),
             };
+        }
+    }
+
+    private sealed class CapturingFeedbackTransport : IFeedbackTransport
+    {
+        private readonly string _storedKey;
+
+        public CapturingFeedbackTransport(string storedKey)
+        {
+            _storedKey = storedKey;
+        }
+
+        public List<string> StudentIds { get; } = [];
+        public List<Dictionary<string, object?>> Payloads { get; } = [];
+
+        public Task<FeedbackTransportResult> SubmitAsync(
+            string studentId,
+            string feedbackId,
+            Dictionary<string, object?> payload,
+            CancellationToken cancellationToken = default)
+        {
+            StudentIds.Add(studentId);
+            Payloads.Add(payload);
+            return Task.FromResult(new FeedbackTransportResult(_storedKey));
+        }
+    }
+
+    private sealed class CapturingFeedbackHttpMessageHandler : HttpMessageHandler
+    {
+        public Uri? RequestUri { get; private set; }
+        public string? RequestBody { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            RequestUri = request.RequestUri;
+            RequestBody = request.Content is null
+                ? string.Empty
+                : await request.Content.ReadAsStringAsync(cancellationToken);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                RequestMessage = request,
+                Content = new StringContent(
+                    """
+                    {
+                      "ok": true,
+                      "msg": "反馈已写入",
+                      "data": {
+                        "feedback_id": "feedback-1",
+                        "stored_key": "feedback/v1/2026/04/26/feedback-1.json"
+                      }
+                    }
+                    """,
+                    Encoding.UTF8,
+                    "application/json"),
+            };
+        }
+    }
+
+    private sealed class ThrowingFeedbackHttpMessageHandler : HttpMessageHandler
+    {
+        public bool Called { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Called = true;
+            throw new InvalidOperationException("HTTP should not be called without a configured feedback endpoint.");
         }
     }
 

@@ -3,6 +3,7 @@ namespace Xke.WebHost;
 using Xke.Core.Auth.Jw;
 using Xke.Core.Course;
 using Xke.Core.Desktop;
+using Xke.Core.Feedback;
 using Xke.Core.Network;
 using Xke.Core.Notice;
 using Xke.Core.Schedule;
@@ -23,6 +24,8 @@ public sealed class XkeWebHostOptions
     public string? NoticeSigningPublicKeyPem { get; init; }
     public ITelemetryTransport? TelemetryTransport { get; init; }
     public string? TelemetryCloudEndpoint { get; init; }
+    public IFeedbackTransport? FeedbackTransport { get; init; }
+    public string? FeedbackCloudEndpoint { get; init; }
     public HttpMessageHandler? NetworkHttpMessageHandler { get; init; }
     public INetworkCommandExecutor? NetworkCommandExecutor { get; init; }
     public IDesktopWindowController? DesktopWindowController { get; init; }

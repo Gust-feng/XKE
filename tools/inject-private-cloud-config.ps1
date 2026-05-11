@@ -116,6 +116,16 @@ $telemetryEndpoint = Select-FirstNonEmpty @(
     (Read-NestedStringValue -Object $privateConfig -ObjectName "telemetry" -Name "base_url"),
     (Read-NestedStringValue -Object $privateConfig -ObjectName "cloud_function" -Name "base_url")
 )
+$feedbackEndpoint = Select-FirstNonEmpty @(
+    (Read-NestedStringValue -Object $privateConfig -ObjectName "remote" -Name "f"),
+    (Read-NestedStringValue -Object $privateConfig -ObjectName "remote" -Name "feedback"),
+    (Read-StringValue -Object $privateConfig -Name "feedback_cloud_endpoint"),
+    (Read-StringValue -Object $privateConfig -Name "feedback_base_url"),
+    (Read-StringValue -Object $privateConfig -Name "cloud_feedback_base_url"),
+    (Read-NestedStringValue -Object $privateConfig -ObjectName "feedback" -Name "endpoint"),
+    (Read-NestedStringValue -Object $privateConfig -ObjectName "feedback" -Name "base_url"),
+    (Read-NestedStringValue -Object $privateConfig -ObjectName "cloud_function" -Name "feedback_base_url")
+)
 
 if ([string]::IsNullOrWhiteSpace($noticeEndpoint)) {
     throw "Private config is missing the notice endpoint."
@@ -125,6 +135,10 @@ if ([string]::IsNullOrWhiteSpace($telemetryEndpoint)) {
     throw "Private config is missing the report endpoint."
 }
 
+if ([string]::IsNullOrWhiteSpace($feedbackEndpoint)) {
+    throw "Private config is missing the feedback endpoint."
+}
+
 $outputPath = Join-Path $resolvedPublishDir $OutputFileName
 $payload = [ordered]@{
     schema_version = 1
@@ -132,6 +146,7 @@ $payload = [ordered]@{
     remote = [ordered]@{
         n = Normalize-NoticeEndpoint $noticeEndpoint
         t = $telemetryEndpoint.Trim()
+        f = $feedbackEndpoint.Trim()
     }
 }
 
@@ -142,3 +157,4 @@ Write-Host "Injected private runtime config into publish directory."
 Write-Host "Output: $outputPath"
 Write-Host "Notice endpoint: set"
 Write-Host "Report endpoint: set"
+Write-Host "Feedback endpoint: set"

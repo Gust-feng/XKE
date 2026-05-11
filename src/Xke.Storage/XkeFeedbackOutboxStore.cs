@@ -21,7 +21,7 @@ public sealed class XkeFeedbackOutboxStore
 
     public string Save(string studentId, string feedbackId, Dictionary<string, object?> payload)
     {
-        // Feedback remains local-only in this slice; persisted content is encrypted at rest.
+        // Cloud feedback falls back here when upload is unavailable; content stays encrypted at rest.
         var path = GetPath(studentId, feedbackId);
         _encrypted.WriteJson(path, payload);
         return _root.RelativePath(path);

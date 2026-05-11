@@ -88,7 +88,12 @@ public static partial class XkeWebHostApplication
             hostOptions.TelemetryTransport
             ?? new HttpTelemetryTransport(new HttpClient(), hostOptions.TelemetryCloudEndpoint));
         builder.Services.AddSingleton<TelemetryService>();
-        builder.Services.AddSingleton<IFeedbackTransport, LocalFeedbackOutboxTransport>();
+        builder.Services.AddSingleton<IFeedbackTransport>(_ =>
+            hostOptions.FeedbackTransport
+            ?? new HttpFeedbackTransport(
+                _.GetRequiredService<XkeDataRoot>(),
+                new HttpClient(),
+                hostOptions.FeedbackCloudEndpoint));
         builder.Services.AddSingleton<FeedbackService>();
         builder.Services.AddSingleton<IUpdatePackageDownloader>(_ =>
             hostOptions.UpdatePackageDownloader ?? new HttpUpdatePackageDownloader(new HttpClient()));

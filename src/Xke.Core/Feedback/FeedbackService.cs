@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using Xke.Contracts.Models;
 using Xke.Contracts.Requests;
 using Xke.Contracts.Responses;
@@ -9,6 +7,8 @@ namespace Xke.Core.Feedback;
 
 public sealed class FeedbackService
 {
+    private const int DailySubmissionLimit = 7;
+
     private readonly XkeDataRoot _dataRoot;
     private readonly IFeedbackTransport _transport;
 
@@ -30,8 +30,19 @@ public sealed class FeedbackService
             throw new FeedbackException(400, "反馈内容不能为空");
         }
 
-        var now = DateTimeOffset.Now.ToString("O");
+        var nowOffset = DateTimeOffset.Now;
+        var now = nowOffset.ToString("O");
         var feedbackId = Guid.NewGuid().ToString("N");
+        var usage = _dataRoot.FeedbackUsage().RecordDailySubmission(
+            session.StudentId,
+            feedbackId,
+            nowOffset,
+            DailySubmissionLimit);
+        if (!usage.Accepted)
+        {
+            throw new FeedbackException(429, "今日反馈次数已达上限，请明天再试");
+        }
+
         var installation = _dataRoot.Telemetry().LoadOrCreateInstallationProfile();
         var payload = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
@@ -39,7 +50,6 @@ public sealed class FeedbackService
             ["feedback_id"] = feedbackId,
             ["reported_at"] = now,
             ["student_id"] = session.StudentId,
-            ["student_id_hash"] = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(session.StudentId))).ToLowerInvariant(),
             ["install_uuid"] = installation.GetValueOrDefault("install_uuid")?.ToString() ?? string.Empty,
             ["category"] = Truncate(request.Category, 32, "other"),
             ["content"] = Truncate(content, 2000, string.Empty),
@@ -52,8 +62,6 @@ public sealed class FeedbackService
             ["source"] = "desktop-feedback",
         };
 
-        // Current slice writes to the local outbox only. Real cloud submission is
-        // intentionally deferred to a later transport slice.
         var result = await _transport.SubmitAsync(session.StudentId, feedbackId, payload, cancellationToken).ConfigureAwait(false);
         return (
             "反馈已提交",

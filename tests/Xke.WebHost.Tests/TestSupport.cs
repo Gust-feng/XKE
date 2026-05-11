@@ -2,6 +2,7 @@ using System.Text.Json;
 using Xke.Core.Auth.Jw;
 using Xke.Core.Course;
 using Xke.Core.Desktop;
+using Xke.Core.Feedback;
 using Xke.Core.Network;
 using Xke.Core.Notice;
 using Xke.Core.Schedule;
@@ -93,6 +94,7 @@ internal static class WebHostTestServer
         HttpMessageHandler? networkHttpMessageHandler = null,
         INetworkCommandExecutor? networkCommandExecutor = null,
         ITelemetryTransport? telemetryTransport = null,
+        IFeedbackTransport? feedbackTransport = null,
         IDesktopWindowController? desktopWindowController = null,
         IDesktopStartupRegistrar? desktopStartupRegistrar = null,
         IUpdatePackageDownloader? updatePackageDownloader = null,
@@ -111,6 +113,7 @@ internal static class WebHostTestServer
             networkHttpMessageHandler,
             networkCommandExecutor,
             telemetryTransport,
+            feedbackTransport,
             desktopWindowController,
             desktopStartupRegistrar,
             updatePackageDownloader,
@@ -130,6 +133,7 @@ internal static class WebHostTestServer
         HttpMessageHandler? networkHttpMessageHandler = null,
         INetworkCommandExecutor? networkCommandExecutor = null,
         ITelemetryTransport? telemetryTransport = null,
+        IFeedbackTransport? feedbackTransport = null,
         IDesktopWindowController? desktopWindowController = null,
         IDesktopStartupRegistrar? desktopStartupRegistrar = null,
         IUpdatePackageDownloader? updatePackageDownloader = null,
@@ -148,6 +152,7 @@ internal static class WebHostTestServer
             NoticeRemoteSource = noticeRemoteSource ?? new MissingNoticeRemoteSource(),
             NoticeSigningPublicKeyPem = noticeSigningPublicKeyPem,
             TelemetryTransport = telemetryTransport ?? new LocalOnlyTelemetryTransport(),
+            FeedbackTransport = feedbackTransport ?? new LocalFeedbackOutboxTransport(new Xke.Storage.XkeDataRoot(dataRoot?.RootPath ?? Path.GetTempPath())),
             NetworkHttpMessageHandler = networkHttpMessageHandler,
             NetworkCommandExecutor = networkCommandExecutor,
             DesktopWindowController = desktopWindowController,

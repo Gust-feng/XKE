@@ -6,6 +6,7 @@ using System.Text.Json;
 using Xke.Contracts.Models;
 using Xke.Contracts.Responses;
 using Xke.Core.CloudSync;
+using Xke.Core.Feedback;
 using Xke.Core.Notice;
 using Xke.Core.Telemetry;
 using Xke.Security;
@@ -41,6 +42,9 @@ public sealed class CloudSyncWebHostTests
           "notice_base_url": "https://notice.example.test/xke-cloud/",
           "telemetry": {
             "base_url": "https://telemetry.example.test/xke"
+          },
+          "feedback": {
+            "base_url": "https://feedback.example.test/xke"
           }
         }
         """);
@@ -49,6 +53,9 @@ public sealed class CloudSyncWebHostTests
         var previousCloudNotice = Environment.GetEnvironmentVariable("XKE_CLOUD_NOTICE_BASE_URL");
         var previousTelemetry = Environment.GetEnvironmentVariable("XKE_TELEMETRY_CLOUD_ENDPOINT");
         var previousCloudFunction = Environment.GetEnvironmentVariable("XKE_CLOUD_FUNCTION_BASE_URL");
+        var previousFeedback = Environment.GetEnvironmentVariable("XKE_FEEDBACK_CLOUD_ENDPOINT");
+        var previousCloudFeedback = Environment.GetEnvironmentVariable("XKE_CLOUD_FEEDBACK_BASE_URL");
+        var previousCloudFunctionFeedback = Environment.GetEnvironmentVariable("XKE_CLOUD_FUNCTION_FEEDBACK_BASE_URL");
 
         try
         {
@@ -57,9 +64,13 @@ public sealed class CloudSyncWebHostTests
             Environment.SetEnvironmentVariable("XKE_CLOUD_NOTICE_BASE_URL", null);
             Environment.SetEnvironmentVariable("XKE_TELEMETRY_CLOUD_ENDPOINT", null);
             Environment.SetEnvironmentVariable("XKE_CLOUD_FUNCTION_BASE_URL", null);
+            Environment.SetEnvironmentVariable("XKE_FEEDBACK_CLOUD_ENDPOINT", null);
+            Environment.SetEnvironmentVariable("XKE_CLOUD_FEEDBACK_BASE_URL", null);
+            Environment.SetEnvironmentVariable("XKE_CLOUD_FUNCTION_FEEDBACK_BASE_URL", null);
 
             Assert.Equal("https://notice.example.test/xke-cloud/", HttpNoticeRemoteSource.ResolveBaseUrl());
             Assert.Equal("https://telemetry.example.test/xke", HttpTelemetryTransport.ResolveBaseUrl());
+            Assert.Equal("https://feedback.example.test/xke", HttpFeedbackTransport.ResolveBaseUrl());
         }
         finally
         {
@@ -68,6 +79,9 @@ public sealed class CloudSyncWebHostTests
             Environment.SetEnvironmentVariable("XKE_CLOUD_NOTICE_BASE_URL", previousCloudNotice);
             Environment.SetEnvironmentVariable("XKE_TELEMETRY_CLOUD_ENDPOINT", previousTelemetry);
             Environment.SetEnvironmentVariable("XKE_CLOUD_FUNCTION_BASE_URL", previousCloudFunction);
+            Environment.SetEnvironmentVariable("XKE_FEEDBACK_CLOUD_ENDPOINT", previousFeedback);
+            Environment.SetEnvironmentVariable("XKE_CLOUD_FEEDBACK_BASE_URL", previousCloudFeedback);
+            Environment.SetEnvironmentVariable("XKE_CLOUD_FUNCTION_FEEDBACK_BASE_URL", previousCloudFunctionFeedback);
         }
     }
 
@@ -83,6 +97,9 @@ public sealed class CloudSyncWebHostTests
         var previousCloudNotice = Environment.GetEnvironmentVariable("XKE_CLOUD_NOTICE_BASE_URL");
         var previousTelemetry = Environment.GetEnvironmentVariable("XKE_TELEMETRY_CLOUD_ENDPOINT");
         var previousCloudFunction = Environment.GetEnvironmentVariable("XKE_CLOUD_FUNCTION_BASE_URL");
+        var previousFeedback = Environment.GetEnvironmentVariable("XKE_FEEDBACK_CLOUD_ENDPOINT");
+        var previousCloudFeedback = Environment.GetEnvironmentVariable("XKE_CLOUD_FEEDBACK_BASE_URL");
+        var previousCloudFunctionFeedback = Environment.GetEnvironmentVariable("XKE_CLOUD_FUNCTION_FEEDBACK_BASE_URL");
 
         try
         {
@@ -91,18 +108,23 @@ public sealed class CloudSyncWebHostTests
             Environment.SetEnvironmentVariable("XKE_CLOUD_NOTICE_BASE_URL", null);
             Environment.SetEnvironmentVariable("XKE_TELEMETRY_CLOUD_ENDPOINT", null);
             Environment.SetEnvironmentVariable("XKE_CLOUD_FUNCTION_BASE_URL", null);
+            Environment.SetEnvironmentVariable("XKE_FEEDBACK_CLOUD_ENDPOINT", null);
+            Environment.SetEnvironmentVariable("XKE_CLOUD_FEEDBACK_BASE_URL", null);
+            Environment.SetEnvironmentVariable("XKE_CLOUD_FUNCTION_FEEDBACK_BASE_URL", null);
             File.WriteAllText(runtimeConfigPath, """
             {
               "schema_version": 1,
               "remote": {
                 "n": "https://runtime-notice.example.test/",
-                "t": "https://runtime-report.example.test"
+                "t": "https://runtime-report.example.test",
+                "f": "https://runtime-feedback.example.test"
               }
             }
             """);
 
             Assert.Equal("https://runtime-notice.example.test/", HttpNoticeRemoteSource.ResolveBaseUrl());
             Assert.Equal("https://runtime-report.example.test", HttpTelemetryTransport.ResolveBaseUrl());
+            Assert.Equal("https://runtime-feedback.example.test", HttpFeedbackTransport.ResolveBaseUrl());
         }
         finally
         {
@@ -120,6 +142,9 @@ public sealed class CloudSyncWebHostTests
             Environment.SetEnvironmentVariable("XKE_CLOUD_NOTICE_BASE_URL", previousCloudNotice);
             Environment.SetEnvironmentVariable("XKE_TELEMETRY_CLOUD_ENDPOINT", previousTelemetry);
             Environment.SetEnvironmentVariable("XKE_CLOUD_FUNCTION_BASE_URL", previousCloudFunction);
+            Environment.SetEnvironmentVariable("XKE_FEEDBACK_CLOUD_ENDPOINT", previousFeedback);
+            Environment.SetEnvironmentVariable("XKE_CLOUD_FEEDBACK_BASE_URL", previousCloudFeedback);
+            Environment.SetEnvironmentVariable("XKE_CLOUD_FUNCTION_FEEDBACK_BASE_URL", previousCloudFunctionFeedback);
         }
     }
 
@@ -508,6 +533,37 @@ public sealed class CloudSyncWebHostTests
         Assert.Equal(3600, (int)courseGrab["max_runtime_sec"]!);
         Assert.Equal(0, (int)courseGrab["cooldown_sec"]!);
         Assert.Equal(300, (int)runtimePolicy["config_pull_interval_sec"]!);
+    }
+
+    [Fact]
+    public void RemotePolicy_VersionDisabledRequiresUpdateWithoutAccountBlock()
+    {
+        var service = new RemotePolicyService();
+
+        var config = service.NormalizePolicy(new Dictionary<string, object?>
+        {
+            ["version_policy"] = new Dictionary<string, object?>
+            {
+                ["versions"] = new List<object?>
+                {
+                    new Dictionary<string, object?>
+                    {
+                        ["enabled"] = false,
+                    },
+                },
+            },
+        }, new Dictionary<string, object?>
+        {
+            ["latest_version"] = "1.0.1",
+            ["force_upgrade"] = true,
+        });
+
+        var appControl = (Dictionary<string, object?>)config["app_control"]!;
+        var decision = service.ResolveAccessDecision(config, "20260001");
+
+        Assert.Equal("blocked", appControl["state"]);
+        Assert.Equal("version-disabled", appControl["reason"]);
+        Assert.False((bool)decision["blocked"]!);
     }
 
     [Fact]

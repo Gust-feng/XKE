@@ -42,6 +42,7 @@ public sealed class XkeDataRoot
     public string TelemetrySpoolDirectory => CloudTelemetrySpoolDirectory;
     public string FeedbackDirectory => Path.Combine(RootPath, ".feedback");
     public string FeedbackOutboxDirectory => Path.Combine(FeedbackDirectory, "outbox");
+    public string FeedbackUsageDirectory => Path.Combine(FeedbackDirectory, "usage");
 
     public XkeStudentStore ForStudent(string studentId)
     {
@@ -89,6 +90,11 @@ public sealed class XkeDataRoot
     }
 
     public XkeFeedbackOutboxStore FeedbackOutbox()
+    {
+        return new(this);
+    }
+
+    public XkeFeedbackUsageStore FeedbackUsage()
     {
         return new(this);
     }
