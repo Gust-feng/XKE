@@ -142,3 +142,12 @@ dotnet build src/Xke.LegacyCompat/Xke.LegacyCompat.csproj --nologo
   - 移动教务：可信本地状态恢复 + 可选重连；
   - 教务系统：人工 challenge / OCR / 抢课链路，属于后置切片。
 - 本文件更新时保持 `../roadmap/01_phase_summary.md`、`./00_current_issues.md`、`../future-plans/00_traditional_jw_manual_login.md` 的指向一致，不产生并行口径。
+
+
+## 2026-10-07 提交前核对
+
+- 当前生产 Auth/Schedule 使用 JW 表单协议，旧移动路径只作为兼容测试入口。当前公共测试宿主仍显式使用旧移动路径，默认协议入口新增了无远程调用的参数/challenge 错误验收；首登成功和回滚的完整 API 验证仍需后续补齐，不能由兼容测试通过代替。
+- 本轮修正 `LocalOnly` 只禁公告/更新却仍装配云上传 transport 的缺口；明确本地模式采用本地 telemetry 与 feedback transport，并增加装配回归测试。
+- 登录 challenge 过期提交时释放其协议客户端，避免从待处理字典移除后遗留资源。
+- 前端由用户明确选择本地保留，不纳入当前提交。后端仓库可构建，桌面资源需本地提供；该交付边界写入 README。
+- 校园网后台调度仍依赖前端；生产默认 JW 首登失败/取消与重复初始化的全路径验收属于下一阶段，当前提交不宣称这些已完成。

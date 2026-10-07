@@ -9,3 +9,6 @@ artifacts/
 xke.runtime.json
 开发数据/
 notes/development-docs/cloud-sync
+
+.dotnet-cli-home/
+**/__pycache__/

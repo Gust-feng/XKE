@@ -7,6 +7,12 @@ description: Continue or review work inside `XKE.DotNet8` while preserving the c
 
 Keep the .NET rewrite on the current vertical-slice path. Do not reopen the old “flatten by technical layer” plan.
 
+## Current Workspace
+
+- The independent repository root is `Z:/XKE`; the previous `Z:/XKE/XKE.DotNet8` nesting is retired.
+- Read current source and development notes before using the historical baseline below: production auth/schedule now use the JW form protocol, and tray/autostart are implemented.
+- Historical Python paths are archive references only; do not restore a parent-directory runtime dependency.
+
 ## Current Baseline
 
 - Treat these slices as completed baselines unless the user explicitly reopens them: host shell, Auth, Notice/control plane, Desktop settings, Schedule mobile-only chain, Network, Telemetry local-only, Feedback local-only.
@@ -15,7 +21,7 @@ Keep the .NET rewrite on the current vertical-slice path. Do not reopen the old 
 
 ## Non-Negotiables
 
-- Keep runtime writes inside `XKE.DotNet8/.runtime/data` or the overridden `XKE_DOTNET_DATA_DIR`.
+- Use `XkeDataRootFactory` as the runtime root authority: `%LOCALAPPDATA%/.XKE/data` by default or `XKE_DOTNET_DATA_DIR` when configured. `.runtime/data` is an explicit development/test override.
 - Do not read from or write to Python legacy runtime `data/`, `.env`, real token caches, or mirrored production snapshots.
 - Keep fixtures desensitized. Never commit real credentials, captcha material, tokens, cloud keys, telemetry payloads from production, or legacy data exports.
 - Preserve current API compatibility only for slices already delivered. Do not pre-model future contracts.
@@ -27,8 +33,8 @@ Keep the .NET rewrite on the current vertical-slice path. Do not reopen the old 
 2. Prefer changing storage and core orchestration before route glue or frontend wording.
 3. Add or update tests in the same slice: contracts, storage/core, WebHost integration.
 4. Run:
-   - `dotnet build .\XKE.DotNet8\XKE.DotNet8.sln`
-   - `dotnet test .\XKE.DotNet8\XKE.DotNet8.sln`
+   - `dotnet build .\XKE.DotNet8.sln`
+   - `dotnet test .\XKE.DotNet8.sln`
 5. If relevant, add or update one smoke entry under `XKE.DotNet8/tools`.
 
 ## File Heuristics

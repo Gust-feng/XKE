@@ -47,6 +47,6 @@
 
 ## 当前开发重心
 
-- 当前主线：移动教务 `/api/auth/*`、`/api/schedule/preferred`、`/api/schedule/local`，用于身份、课表和本地可信状态维护。
+- 当前主线：JW 表单协议 `/api/auth/login`、`/api/auth/captcha`、`/api/schedule/preferred`、`/api/schedule/local`，用于身份、课表和本地可信状态维护。
 - 结构收敛：后端长期结构、测试支持层、Auth/Schedule 行为边界和文档一致性。
 - 后置范围：传统 Web 教务验证码、OCR、Cookie 课表、课程查询、选课轮次、课程预览、抢课。

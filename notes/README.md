@@ -7,7 +7,7 @@
 | 目录 | 内容 | 作用 | 更新时机 |
 | --- | --- | --- | --- |
 | [doc-entry](./doc-entry/00_overview.md) | 文档入口、维护记录 | 给后续开发者和 AI 明确阅读顺序、术语、文档治理规则 | 每次新增、移动、归档文档时更新 |
-| [development-docs](./development-docs/README.md) | 开发文档 / 开发项目 / 具体内容 | 承载可执行开发项目文档，当前项目为 CloudSync 云端同步、反馈云上传、一键自动更新与传统教务 Cookie 课表接入 | 每次开始、完成或调整开发项目时更新 |
+| [development-docs](./development-docs/README.md) | 开发文档 / 开发项目 / 具体内容 | 承载可执行开发项目文档，当前项目为本地工程结构整理、CloudSync 云端同步、反馈云上传、一键自动更新与传统教务 Cookie 课表接入 | 每次开始、完成或调整开发项目时更新 |
 | [roadmap](./roadmap/00_development_direction.md) | 后续开发方向、阶段总结 | 决定当前主线、已完成切片、下一阶段优先级 | 每次切片完成、主线调整、验收口径变化时更新 |
 | [review-issues](./review-issues/00_current_issues.md) | 当前问题手册、审查结论 | 记录仍需修复的问题、暂缓事项、审查排序 | 每次代码审查、问题关闭、优先级变化时更新 |
 | [future-plans](./future-plans/00_traditional_jw_manual_login.md) | 后置功能计划 | 保存 Course 验证码、OCR、真实抢课、WinUI 3 原生桌面 UI 等 future-only 边界 | 只在后置边界变化或准备重启该切片时更新 |
@@ -16,12 +16,16 @@
 | [module-boundaries](./module-boundaries/01_module_map.md) | 模块边界草图 | 说明后端模块职责，防止职责回流到巨型入口 | 模块拆分、依赖方向、服务边界变化时更新 |
 | [sensitive-index](./sensitive-index/00_overview.md) | 敏感边界、路径清单、移动教务/教务系统资料索引 | 记录敏感输入、运行数据、两套教务链路的边界 | 认证材料、数据落盘、真实链路资料变化时更新 |
 
+## 当前工程整理
+
+活动仓库根已调整为 `Z:\XKE`。本轮记录见 [本地工程结构整理](./development-docs/workspace-consolidation/README.md)。Git 关系和业务行为保持不变，旧工程资料仅作私有归档。旧目录清理已完成，临时清理脚本已撤销。
+
 ## 外部文档如何使用
 
-- `Z:/XKE/docs/项目说明/` 是产品/用户说明，只作为用户视角参考，不迁入 notes 正文。
-- `Z:/XKE/重构计划/` 是旧规划和事实冻结资料，只允许提炼仍适用于 `.NET` 重构的结论。
-- `Z:/XKE/重构计划/90_受限资料/` 只能做路径级索引，不复制真实账号、密码、token、Cookie、`.env`、录包或原始响应。
-- `Z:/XKE/reference-archive/` 是历史归档，只作离线参考，不作为活动决策源。
+- 旧 `docs/项目说明/` 已归档到 `开发数据/历史工程/旧Python工程.zip`，只作为用户视角参考，不迁入 notes 正文。
+- 旧 `重构计划/` 保存在同一私有归档中，只允许提炼仍适用于当前项目的结论。
+- 归档中的 `重构计划/90_受限资料/` 只能做路径级索引，不将真实账号、密码、token、Cookie、`.env`、录包或原始响应复制到公开代码或 notes。
+- 旧 `reference-archive/` 保存在同一私有归档中，只作离线参考，不作为活动决策源。
 - 外部引用细则见 [doc-entry/02_external_reference_index.md](./doc-entry/02_external_reference_index.md) 与 [sensitive-index/03_external_reference_rules.md](./sensitive-index/03_external_reference_rules.md)。
 
 ## 当前阅读顺序
@@ -59,4 +63,4 @@
 
 ## 归档入口
 
-- [reference-archive/notes/notes-archive-index.md](../../reference-archive/notes/notes-archive-index.md)
+- 历史 notes 索引：`开发数据/历史工程/旧Python工程.zip` 内的 `reference-archive/notes/notes-archive-index.md`。

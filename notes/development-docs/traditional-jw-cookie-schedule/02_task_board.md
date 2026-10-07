@@ -2,9 +2,9 @@
 
 ## 当前状态
 
-当前切片：`jw-cookie-schedule-v1`
+当前切片：`jw-protocol-login-v1`
 
-当前阶段：阶段 1，传统教务 HTML 离线解析。
+当前阶段：JW 表单协议登录与首登初始化接入。
 
 ## Ready
 
@@ -44,6 +44,17 @@
 - 真实 smoke 依赖本机测试账号环境，不写入仓库文档
 
 ## Done
+
+
+
+- 验证 `Logon.do?method=logon&flag=sess`、验证码与 `encoded` 表单协议
+- 新增两段式 `/api/auth/protocol/login` 与 `/api/auth/protocol/captcha`
+- 已认证 JW 会话复用现有 HTML 课表拉取与解析
+- 历史移动认证只保留为测试兼容 seam，生产 `/api/auth/login` 已统一为 JW 表单协议
+- JW 资料页解析学号、姓名、院系、专业、班级与培养层次
+- 生产 `/api/auth/login`、重新初始化和课表刷新统一为 JW 表单协议
+- 历史 mobile 缓存保留只读回退，新的课表缓存统一写入 `jw_schedule`
+- JW 最小 Cookie 会话使用 DPAPI 保存；复用失败后自动删除并回退验证码登录
 
 - 建立 `notes/development-docs/traditional-jw-cookie-schedule/` 开发项目目录
 - 明确第一阶段从离线解析开始

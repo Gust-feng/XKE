@@ -2,6 +2,10 @@
 
 `XKE.DotNet8/notes` 已按开发用途收敛为目录。根目录 README 负责说明每个文件夹的内容和功能；本文件负责给出活动阅读顺序与维护约束。
 
+## 当前结构整理
+
+当前活动仓库根为 `Z:\XKE`。本轮先读 [workspace-consolidation/README.md](../development-docs/workspace-consolidation/README.md)；原有开发项目仍按以下入口查阅。本地结构整理和旧目录清理已完成，复核结果见该项目 README。
+
 ## 活跃文档（按优先级阅读）
 
 1. [development-docs/README.md](../development-docs/README.md)
@@ -54,4 +58,4 @@
 
 ## 归档入口
 
-- [notes-archive-index.md](../../../reference-archive/notes/notes-archive-index.md)
+- 历史 notes 索引保存在 `开发数据/历史工程/旧Python工程.zip` 内的 `reference-archive/notes/notes-archive-index.md`。

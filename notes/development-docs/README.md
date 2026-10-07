@@ -19,6 +19,7 @@ development-docs/
 | 反馈云上传 | [feedback-cloud/README.md](./feedback-cloud/README.md) | 阶段 1：云端优先 + 本地加密兜底 |
 | 一键自动更新 | [auto-update/README.md](./auto-update/README.md) | 阶段 0：切片准备 |
 | 传统教务 Cookie 课表 | [traditional-jw-cookie-schedule/README.md](./traditional-jw-cookie-schedule/README.md) | 阶段 1：离线解析 |
+| 本地工程结构整理 | [workspace-consolidation/README.md](./workspace-consolidation/README.md) | 已完成：独立仓库、私有归档与旧目录清理 |
 
 ## 文件职责
 
@@ -46,6 +47,11 @@ development-docs/
 - [traditional-jw-cookie-schedule/01_implementation_steps.md](./traditional-jw-cookie-schedule/01_implementation_steps.md)
 - [traditional-jw-cookie-schedule/02_task_board.md](./traditional-jw-cookie-schedule/02_task_board.md)
 
+- [workspace-consolidation/README.md](./workspace-consolidation/README.md)
+- [workspace-consolidation/00_current_focus.md](./workspace-consolidation/00_current_focus.md)
+- [workspace-consolidation/01_implementation_steps.md](./workspace-consolidation/01_implementation_steps.md)
+- [workspace-consolidation/02_task_board.md](./workspace-consolidation/02_task_board.md)
+
 ## 新增项目规则
 
 新增开发项目时：
@@ -66,3 +72,7 @@ development-docs/
 - 每个需要真实资料的开发项目，必须在项目 README 或当前焦点文档中写明对应 `开发数据/<中文目录>/` 路径。
 - `开发数据/` 下新增资料目录和说明文档使用中文命名，便于一眼区分真实资料用途；开发文档中的示例 URL 和账号统一使用占位符。
 - 需要认证资料时，只引用 `../sensitive-index/` 中的路径索引和规则。
+
+## 本地工程结构整理
+
+[workspace-consolidation/README.md](./workspace-consolidation/README.md)：将当前仓库独立到 `Z:\XKE`，保留 Git 关系、未提交修改与私有资料。功能精简和前端重构尚未开始。
