@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Collections.Concurrent;
 using Xke.Contracts.Models;
 using Xke.Contracts.Requests;
 using Xke.Contracts.Responses;
@@ -14,15 +15,143 @@ public sealed class AuthService
     private readonly IJwAuthClient _jwClient;
     private readonly ScheduleService _scheduleService;
     private readonly MobileSessionRuntimeStore _mobileSessionRuntime;
+    private readonly TraditionalJwSessionRuntimeStore _traditionalJwSessions;
+    private readonly ConcurrentDictionary<string, PendingProtocolLogin> _protocolLogins = new(StringComparer.Ordinal);
     private readonly object _connectedSessionsGate = new();
     private readonly HashSet<string> _connectedSessions = new(StringComparer.Ordinal);
 
-    public AuthService(XkeDataRoot dataRoot, IJwAuthClient jwClient, ScheduleService scheduleService, MobileSessionRuntimeStore mobileSessionRuntime)
+    public AuthService(XkeDataRoot dataRoot, IJwAuthClient jwClient, ScheduleService scheduleService, MobileSessionRuntimeStore mobileSessionRuntime, TraditionalJwSessionRuntimeStore traditionalJwSessions)
     {
         _dataRoot = dataRoot;
         _jwClient = jwClient;
         _scheduleService = scheduleService;
         _mobileSessionRuntime = mobileSessionRuntime;
+        _traditionalJwSessions = traditionalJwSessions;
+    }
+
+    public async Task<(string Message, object Payload)> BeginProtocolLoginAsync(LoginRequest request, bool forceRemote = false, CancellationToken cancellationToken = default)
+    {
+        CleanupExpiredProtocolLogins();
+        var user = NormalizeRequired(request.User, "账号不能为空");
+        var password = NormalizeRequired(request.Password, "密码不能为空");
+        var existing = _dataRoot.Credentials().Load(user);
+        if (existing is not null && !forceRemote && !RequiresProtocolProfileRefresh(existing))
+        {
+            if (!string.Equals(existing.Password, password, StringComparison.Ordinal))
+            {
+                throw new AuthException(401, "本地账号或密码不正确");
+            }
+
+            var restored = RestoreTrustedWorkspace(existing, NormalizePreloginMode(request.PreloginMode));
+            if (await TryRestorePersistedJwSessionAsync(restored.Payload.SessionId, existing, cancellationToken).ConfigureAwait(false))
+            {
+                var refreshed = GetSession(restored.Payload.SessionId);
+                return ("登录成功（已复用本地 JW 会话）", refreshed.Payload);
+            }
+
+            _dataRoot.Sessions().Remove(restored.Payload.SessionId);
+            MarkSessionDisconnected(restored.Payload.SessionId);
+        }
+
+        var protocol = new DirectJwLoginProtocol(user, password);
+        try
+        {
+            var image = await protocol.BeginAsync(cancellationToken).ConfigureAwait(false);
+            var challengeId = Guid.NewGuid().ToString("N");
+            _protocolLogins[challengeId] = new PendingProtocolLogin(user, password, NormalizePreloginMode(request.PreloginMode), existing, protocol, DateTimeOffset.Now.AddMinutes(2));
+            return ("需要输入教务系统验证码", new Dictionary<string, object?>
+            {
+                ["status"] = "captcha_required",
+                ["challenge_id"] = challengeId,
+                ["captcha_image"] = image,
+                ["expires_in_seconds"] = 120,
+                ["protocol"] = "jw_form",
+            });
+        }
+        catch (JwScheduleException ex)
+        {
+            protocol.Dispose();
+            throw new AuthException(502, ex.Message);
+        }
+        catch
+        {
+            protocol.Dispose();
+            throw;
+        }
+    }
+
+    public async Task<(string Message, AuthPayload Payload)> SubmitProtocolCaptchaAsync(JwCaptchaSubmitRequest request, CancellationToken cancellationToken = default)
+    {
+        if (!_protocolLogins.TryRemove(request.ChallengeId?.Trim() ?? string.Empty, out var pending))
+        {
+            throw new AuthException(410, "登录验证码已过期，请重新登录");
+        }
+
+        if (pending.ExpiresAt <= DateTimeOffset.Now)
+        {
+            pending.Protocol.Dispose();
+            throw new AuthException(410, "登录验证码已过期，请重新登录");
+        }
+
+        using (pending.Protocol)
+        {
+            try
+            {
+                await pending.Protocol.CompleteAsync(request.CaptchaCode, cancellationToken).ConfigureAwait(false);
+            }
+            catch (JwScheduleException ex)
+            {
+                throw new AuthException(ex.StatusCode is 400 or 401 ? ex.StatusCode : 502, ex.Message);
+            }
+            var jwSession = pending.Protocol.TransferAuthenticatedSession();
+            StudentProfileDocument profile;
+            try
+            {
+                profile = await jwSession.FetchStudentProfileAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                jwSession.Dispose();
+                throw;
+            }
+
+            var store = _dataRoot.ForStudent(profile.StudentId);
+            using var snapshot = StudentInitializationSnapshot.Capture(_dataRoot, store);
+            var credentials = new StoredCredentialDocument
+            {
+                User = pending.User,
+                Password = pending.Password,
+                StudentId = profile.StudentId,
+                TrustedLoginToken = string.IsNullOrWhiteSpace(pending.PreviousCredentials?.TrustedLoginToken)
+                    ? CreateTrustedLoginToken()
+                    : pending.PreviousCredentials.TrustedLoginToken,
+                UpdatedAt = DateTimeOffset.Now.ToString("O"),
+            };
+            var sessionId = string.Empty;
+            try
+            {
+                store.SaveProfile(profile);
+                var settings = AuthSettingsCatalog.WithPreloginMode(AuthSettingsCatalog.CreateDefault(), pending.PreloginMode);
+                store.SavePreferences(settings);
+                _dataRoot.Credentials().Save(credentials);
+                sessionId = _dataRoot.Sessions().Create(pending.User, profile.StudentId, pending.PreloginMode).SessionId;
+                _traditionalJwSessions.Store(sessionId, jwSession);
+                _dataRoot.JwSessions().Save(jwSession.ExportStoredSession());
+                var schedule = await _scheduleService.FetchCookieAsync(sessionId, new ScheduleRequest { Mode = "current" }, cancellationToken).ConfigureAwait(false);
+                _dataRoot.JwSessions().Save(jwSession.ExportStoredSession());
+                return ("首次登录成功，已使用教务系统协议完成本地初始化", BuildPayload(sessionId, profile, store, settings, credentials.TrustedLoginToken, schedule.Payload, connected: true));
+            }
+            catch
+            {
+                if (!string.IsNullOrWhiteSpace(sessionId)) { _dataRoot.Sessions().Remove(sessionId); _traditionalJwSessions.Remove(sessionId); }
+                else { jwSession.Dispose(); }
+                _dataRoot.JwSessions().Remove(pending.User);
+                if (pending.PreviousCredentials is null) { _dataRoot.Credentials().Remove(pending.User); }
+                else { _dataRoot.Credentials().Save(pending.PreviousCredentials); }
+                snapshot.Restore();
+                throw;
+            }
+        }
     }
 
     public int SessionCount => _dataRoot.Sessions().Count();
@@ -295,9 +424,11 @@ public sealed class AuthService
 
     public string Logout(string sessionId)
     {
-        EnsureSessionExists(sessionId);
+        var session = EnsureSessionExists(sessionId);
         _dataRoot.Sessions().Remove(sessionId);
         MarkSessionDisconnected(sessionId);
+        _traditionalJwSessions.Remove(sessionId);
+        _dataRoot.JwSessions().Remove(session.User);
         return "已注销";
     }
 
@@ -340,6 +471,81 @@ public sealed class AuthService
     private static string NormalizePreloginMode(string? value)
     {
         return AuthSettingsCatalog.NormalizePreloginMode(value);
+    }
+
+    private bool RequiresProtocolProfileRefresh(StoredCredentialDocument credentials)
+    {
+        var profile = _dataRoot.ForStudent(ResolveStudentId(credentials.User, credentials.StudentId)).LoadProfile();
+        if (profile is null)
+        {
+            return true;
+        }
+
+        return string.IsNullOrWhiteSpace(profile.Name)
+               || string.Equals(profile.Name, "教务用户", StringComparison.Ordinal)
+               || string.Equals(profile.Name, credentials.User, StringComparison.Ordinal)
+               || string.IsNullOrWhiteSpace(profile.AcademyName)
+               || string.IsNullOrWhiteSpace(profile.MajorName)
+               || string.IsNullOrWhiteSpace(profile.TrainingLevel);
+    }
+
+    private async Task<bool> TryRestorePersistedJwSessionAsync(
+        string sessionId,
+        StoredCredentialDocument credentials,
+        CancellationToken cancellationToken)
+    {
+        var stored = _dataRoot.JwSessions().Load(credentials.User);
+        if (stored is null || stored.Cookies.Count == 0)
+        {
+            return false;
+        }
+
+        var client = TraditionalJwClient.FromStoredSession(
+            credentials.User,
+            credentials.Password,
+            stored,
+            TraditionalJwOptions.FromDataRoot(_dataRoot));
+        try
+        {
+            var profile = await client.FetchStudentProfileAsync(cancellationToken).ConfigureAwait(false);
+            if (!string.Equals(profile.StudentId, ResolveStudentId(credentials.User, credentials.StudentId), StringComparison.OrdinalIgnoreCase))
+            {
+                client.Dispose();
+                _dataRoot.JwSessions().Remove(credentials.User);
+                return false;
+            }
+
+            _dataRoot.ForStudent(profile.StudentId).SaveProfile(profile);
+            _traditionalJwSessions.Store(sessionId, client);
+            _dataRoot.JwSessions().Save(client.ExportStoredSession());
+            return true;
+        }
+        catch (TraditionalJwSessionExpiredException)
+        {
+            client.Dispose();
+            _dataRoot.JwSessions().Remove(credentials.User);
+            return false;
+        }
+        catch (JwScheduleException)
+        {
+            client.Dispose();
+            _dataRoot.JwSessions().Remove(credentials.User);
+            return false;
+        }
+    }
+
+    private void CleanupExpiredProtocolLogins()
+    {
+        var now = DateTimeOffset.Now;
+        foreach (var pair in _protocolLogins)
+        {
+            if (pair.Value.ExpiresAt > now || !_protocolLogins.TryRemove(pair.Key, out var expired))
+            {
+                continue;
+            }
+
+            expired.Protocol.Dispose();
+        }
     }
 
     private static string ResolveStudentId(string user, string? storedStudentId)
@@ -614,7 +820,8 @@ public sealed class AuthService
             AcademyName: profile.AcademyName,
             TrainingLevel: profile.TrainingLevel,
             CampusName: profile.CampusName,
-            AvatarUrl: avatarUrl);
+            AvatarUrl: avatarUrl,
+            UpdatedAt: profile.UpdatedAt);
     }
 
     private static StudentProfileDocument EnsureRemoteProfile(StudentProfileDocument profile, string errorMessage)
@@ -824,4 +1031,6 @@ public sealed class AuthService
     private sealed record RestoredTrustedWorkspace(
         string User,
         AuthPayload Payload);
+
+    private sealed record PendingProtocolLogin(string User, string Password, string PreloginMode, StoredCredentialDocument? PreviousCredentials, DirectJwLoginProtocol Protocol, DateTimeOffset ExpiresAt);
 }

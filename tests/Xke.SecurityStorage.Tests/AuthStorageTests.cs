@@ -144,6 +144,36 @@ public sealed class AuthStorageTests
     }
 
     [Fact]
+    public void JwSessionStore_ProtectsAndRemovesStoredCookies()
+    {
+        using var workspace = new TemporaryDirectory();
+        var root = CreateTemporaryDataRoot(workspace);
+        var sessions = root.JwSessions();
+
+        sessions.Save(new JwSessionDocument
+        {
+            User = "20260001",
+            UpdatedAt = "2026-09-08T00:00:00Z",
+            Cookies =
+            [
+                new JwSessionCookieDocument { Name = "JSESSIONID", Value = "secret-session", Host = "222.243.161.213", Path = "/" },
+                new JwSessionCookieDocument { Name = "SERVERID", Value = "secret-server", Host = "222.243.161.213", Path = "/" },
+            ],
+        });
+
+        var restored = sessions.Load("20260001");
+        var protectedPath = Path.Combine(root.JwSessionsDirectory, "20260001.json.dpapi");
+
+        Assert.NotNull(restored);
+        Assert.Equal(2, restored!.Cookies.Count);
+        Assert.DoesNotContain("secret-session", File.ReadAllText(protectedPath));
+        Assert.DoesNotContain("secret-server", File.ReadAllText(protectedPath));
+
+        sessions.Remove("20260001");
+        Assert.Null(sessions.Load("20260001"));
+    }
+
+    [Fact]
     public void RuntimeDataRoot_UsesCloudSyncAndDesktopPaths()
     {
         using var workspace = new TemporaryDirectory();

@@ -222,6 +222,33 @@ public sealed class MobileJwEncryptedCredentialDocument
     public string ExpiresAt { get; init; } = string.Empty;
 }
 
+public sealed class JwSessionDocument
+{
+    [JsonPropertyName("user")]
+    public string User { get; init; } = string.Empty;
+
+    [JsonPropertyName("updated_at")]
+    public string UpdatedAt { get; init; } = string.Empty;
+
+    [JsonPropertyName("cookies")]
+    public IReadOnlyList<JwSessionCookieDocument> Cookies { get; init; } = Array.Empty<JwSessionCookieDocument>();
+}
+
+public sealed class JwSessionCookieDocument
+{
+    [JsonPropertyName("name")]
+    public string Name { get; init; } = string.Empty;
+
+    [JsonPropertyName("value")]
+    public string Value { get; init; } = string.Empty;
+
+    [JsonPropertyName("host")]
+    public string Host { get; init; } = string.Empty;
+
+    [JsonPropertyName("path")]
+    public string Path { get; init; } = "/";
+}
+
 public sealed class StoredSessionDocument
 {
     [JsonPropertyName("session_id_hash")]

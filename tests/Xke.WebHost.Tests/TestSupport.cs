@@ -147,6 +147,8 @@ internal static class WebHostTestServer
             WebRootPath = webRootPath,
             AuthDataRootPath = dataRoot?.RootPath ?? string.Empty,
             JwAuthClient = jwAuthClient,
+            UseLegacyMobileAuthentication = true,
+            UseLegacyMobileScheduleForTests = true,
             JwScheduleClient = jwScheduleClient,
             CourseClient = courseClient,
             NoticeRemoteSource = noticeRemoteSource ?? new MissingNoticeRemoteSource(),

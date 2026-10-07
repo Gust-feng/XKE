@@ -17,6 +17,7 @@ public sealed class XkeDataRoot
     public string AuthDirectory => Path.Combine(RootPath, "auth");
     public string CredentialsDirectory => Path.Combine(AuthDirectory, "credentials");
     public string SessionsDirectory => Path.Combine(AuthDirectory, "sessions");
+    public string JwSessionsDirectory => Path.Combine(AuthDirectory, "jw-sessions");
     public string NoticeCacheDirectory => Path.Combine(RootPath, ".notice_cache", LegacyNoticeCacheRoot.CacheVersion);
     public string CloudDirectory => Path.Combine(RootPath, ".cloud");
     public string CloudFeedPath => Path.Combine(CloudDirectory, "feed.json");
@@ -55,6 +56,11 @@ public sealed class XkeDataRoot
     }
 
     public XkeSessionStore Sessions()
+    {
+        return new(this);
+    }
+
+    public XkeJwSessionStore JwSessions()
     {
         return new(this);
     }

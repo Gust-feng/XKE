@@ -17,6 +17,7 @@ public sealed class PrivateCloudEndpointOptions
     public string NoticeBaseUrl { get; init; } = string.Empty;
     public string TelemetryCloudEndpoint { get; init; } = string.Empty;
     public string FeedbackCloudEndpoint { get; init; } = string.Empty;
+    public bool LocalOnly { get; init; }
 
     public static PrivateCloudEndpointOptions Load()
     {
@@ -59,6 +60,7 @@ public sealed class PrivateCloudEndpointOptions
                     ReadNestedString(root, "feedback", "endpoint"),
                     ReadNestedString(root, "feedback", "base_url"),
                     ReadNestedString(root, "cloud_function", "feedback_base_url")),
+                LocalOnly = ReadBoolean(root, "local_only"),
             };
         }
         catch (JsonException ex) when (IsAutoDiscoveredConfig(path))
@@ -132,6 +134,19 @@ public sealed class PrivateCloudEndpointOptions
         return element.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.String
             ? property.GetString()?.Trim() ?? string.Empty
             : string.Empty;
+    }
+
+    private static bool ReadBoolean(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var property))
+        {
+            return false;
+        }
+
+        return property.ValueKind == JsonValueKind.True
+               || (property.ValueKind == JsonValueKind.String
+                   && bool.TryParse(property.GetString(), out var parsed)
+                   && parsed);
     }
 
     private static string FirstNonEmpty(params string?[] values)

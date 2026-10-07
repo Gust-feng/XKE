@@ -40,5 +40,6 @@ public sealed record JwScheduleFetchResult(
     Dictionary<string, object?> RawPayload,
     string Remarks,
     string FallbackReason,
-    MobileJwEncryptedCredentialDocument? MobileJw = null
+    MobileJwEncryptedCredentialDocument? MobileJw = null,
+    string TermLabel = ""
 );

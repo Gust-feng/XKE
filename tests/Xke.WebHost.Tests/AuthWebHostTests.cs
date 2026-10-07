@@ -47,6 +47,10 @@ public sealed class AuthWebHostTests
         Assert.True(loginData.GetProperty("connected").GetBoolean());
         Assert.Equal("auto", loginData.GetProperty("prelogin_mode").GetString());
         Assert.Equal("20260001", loginData.GetProperty("student").GetProperty("student_id").GetString());
+        Assert.Equal("软件一班", loginData.GetProperty("student").GetProperty("class_name").GetString());
+        Assert.Equal("软件技术", loginData.GetProperty("student").GetProperty("major_name").GetString());
+        Assert.Equal("信息工程学院", loginData.GetProperty("student").GetProperty("academy_name").GetString());
+        Assert.Equal("主校区", loginData.GetProperty("student").GetProperty("campus_name").GetString());
         Assert.Equal("live_fetch", loginData.GetProperty("cached_schedule").GetProperty("data_origin").GetString());
         Assert.Equal("第7周", loginData.GetProperty("cached_schedule").GetProperty("week_label").GetString());
         Assert.Equal(1, fakeSchedule.PreferredCalls);

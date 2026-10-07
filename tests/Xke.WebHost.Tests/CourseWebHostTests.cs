@@ -188,6 +188,8 @@ public sealed class CourseWebHostTests
                 WebRootPath = webRoot.RootPath,
                 AuthDataRootPath = dataRoot.RootPath,
                 JwAuthClient = new FakeJwAuthClient(),
+                UseLegacyMobileAuthentication = true,
+                UseLegacyMobileScheduleForTests = true,
                 JwScheduleClient = new DefaultFakeJwScheduleClient(),
                 CourseClient = courseClient,
                 NoticeRemoteSource = new MissingNoticeRemoteSource(),

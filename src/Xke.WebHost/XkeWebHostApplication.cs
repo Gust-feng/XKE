@@ -38,6 +38,8 @@ public static partial class XkeWebHostApplication
 
         var resolvedPaths = XkePathResolver.Resolve(hostOptions.WebRootPath);
         var dotNetRoot = ResolveDotNetWorkspaceRoot(resolvedPaths.AppBaseDirectory);
+        var privateCloudOptions = PrivateCloudEndpointOptions.Load();
+        var localOnly = hostOptions.LocalOnly || privateCloudOptions.LocalOnly;
         builder.Services.AddSingleton(hostOptions);
         builder.Services.AddSingleton(resolvedPaths);
         builder.Services.AddSingleton(XkeDataRootFactory.CreateDefault(
@@ -69,7 +71,9 @@ public static partial class XkeWebHostApplication
             DefaultChannel = "beta",
         });
         builder.Services.AddSingleton<INoticeRemoteSource>(_ =>
-            hostOptions.NoticeRemoteSource ?? new HttpNoticeRemoteSource(new HttpClient()));
+            localOnly
+                ? new LocalOnlyNoticeRemoteSource()
+                : hostOptions.NoticeRemoteSource ?? new HttpNoticeRemoteSource(new HttpClient()));
         builder.Services.AddSingleton<RemotePolicyService>();
         builder.Services.AddSingleton<CloudFeedService>();
         builder.Services.AddSingleton<NoticeService>();
@@ -82,21 +86,33 @@ public static partial class XkeWebHostApplication
         builder.Services.AddSingleton<CourseService>();
         builder.Services.AddSingleton<JwCaptchaChallengeStore>();
         builder.Services.AddSingleton<IJwCaptchaSolver, ManualCaptchaSolver>();
-        builder.Services.AddSingleton<ScheduleService>();
+        builder.Services.AddSingleton(_ => new ScheduleService(
+            _.GetRequiredService<XkeDataRoot>(),
+            _.GetRequiredService<IJwScheduleClient>(),
+            _.GetRequiredService<MobileSessionRuntimeStore>(),
+            _.GetRequiredService<JwCaptchaChallengeStore>(),
+            _.GetRequiredService<IJwCaptchaSolver>(),
+            hostOptions.UseLegacyMobileScheduleForTests));
         builder.Services.AddSingleton<NetworkService>();
         builder.Services.AddSingleton<ITelemetryTransport>(_ =>
-            hostOptions.TelemetryTransport
-            ?? new HttpTelemetryTransport(new HttpClient(), hostOptions.TelemetryCloudEndpoint));
+            localOnly
+                ? new LocalOnlyTelemetryTransport()
+                : hostOptions.TelemetryTransport
+                  ?? new HttpTelemetryTransport(new HttpClient(), hostOptions.TelemetryCloudEndpoint));
         builder.Services.AddSingleton<TelemetryService>();
         builder.Services.AddSingleton<IFeedbackTransport>(_ =>
-            hostOptions.FeedbackTransport
-            ?? new HttpFeedbackTransport(
-                _.GetRequiredService<XkeDataRoot>(),
-                new HttpClient(),
-                hostOptions.FeedbackCloudEndpoint));
+            localOnly
+                ? new LocalFeedbackOutboxTransport(_.GetRequiredService<XkeDataRoot>())
+                : hostOptions.FeedbackTransport
+                  ?? new HttpFeedbackTransport(
+                      _.GetRequiredService<XkeDataRoot>(),
+                      new HttpClient(),
+                      hostOptions.FeedbackCloudEndpoint));
         builder.Services.AddSingleton<FeedbackService>();
         builder.Services.AddSingleton<IUpdatePackageDownloader>(_ =>
-            hostOptions.UpdatePackageDownloader ?? new HttpUpdatePackageDownloader(new HttpClient()));
+            localOnly
+                ? new LocalOnlyUpdatePackageDownloader()
+                : hostOptions.UpdatePackageDownloader ?? new HttpUpdatePackageDownloader(new HttpClient()));
         builder.Services.AddSingleton<IUpdateVersionProvider>(_ =>
             hostOptions.UpdateVersionProvider ?? new AssemblyUpdateVersionProvider());
         builder.Services.AddSingleton<UpdateService>();

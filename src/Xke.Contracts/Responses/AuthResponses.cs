@@ -13,7 +13,8 @@ public sealed record AuthStudentSummary(
     [property: JsonPropertyName("academy_name")] string AcademyName,
     [property: JsonPropertyName("training_level")] string TrainingLevel,
     [property: JsonPropertyName("campus_name")] string CampusName,
-    [property: JsonPropertyName("avatar_url")] string AvatarUrl
+    [property: JsonPropertyName("avatar_url")] string AvatarUrl,
+    [property: JsonPropertyName("updated_at")] string UpdatedAt = ""
 );
 
 public sealed record AuthCourseGrabState(

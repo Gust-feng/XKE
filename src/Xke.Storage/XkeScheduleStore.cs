@@ -339,7 +339,7 @@ public sealed class XkeScheduleStore
     private static IReadOnlyList<string> NormalizeSourceKeys(IReadOnlyList<string> sourceKeys)
     {
         return sourceKeys.Count == 0
-            ? ["mobile_schedule", "jw_schedule"]
+            ? ["jw_schedule", "mobile_schedule"]
             : sourceKeys.Select(NormalizeSourceKey).Distinct(StringComparer.Ordinal).ToArray();
     }
 
@@ -347,10 +347,11 @@ public sealed class XkeScheduleStore
     {
         return (source ?? string.Empty).Trim().ToLowerInvariant() switch
         {
-            "mobile" or "encrypted" or "preferred" or "mobile_schedule" => "mobile_schedule",
+            "mobile" or "encrypted" or "mobile_schedule" => "mobile_schedule",
+            "preferred" => "jw_schedule",
             "cookie" or "jw" or "jw_schedule" => "jw_schedule",
             var value when !string.IsNullOrWhiteSpace(value) => XkeDataRoot.SanitizePathSegment(value),
-            _ => "mobile_schedule",
+            _ => "jw_schedule",
         };
     }
 
@@ -359,8 +360,8 @@ public sealed class XkeScheduleStore
         return (source ?? string.Empty).Trim().ToLowerInvariant() switch
         {
             "mobile" or "encrypted" or "mobile_schedule" => ["mobile_schedule"],
-            "cookie" or "jw" or "jw_schedule" => ["jw_schedule"],
-            _ => ["mobile_schedule", "jw_schedule"],
+            "cookie" or "jw" or "jw_schedule" => ["jw_schedule", "mobile_schedule"],
+            _ => ["jw_schedule", "mobile_schedule"],
         };
     }
 

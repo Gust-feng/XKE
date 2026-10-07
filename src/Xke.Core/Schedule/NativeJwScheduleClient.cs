@@ -15,6 +15,8 @@ public sealed class NativeJwScheduleClient : IJwScheduleClient
     private readonly TraditionalJwScheduleHtmlParser _cookieParser;
     private readonly TraditionalJwSessionRuntimeStore _traditionalSessions;
     private readonly Func<string, string, string, TraditionalJwClient> _traditionalClientFactory;
+    private readonly Func<string, string, DirectJwLoginProtocol> _directLoginFactory;
+    private readonly XkeDataRoot? _dataRoot;
 
     public NativeJwScheduleClient(HttpClient client)
         : this(client, new MobileJwLoginClient(client))
@@ -39,7 +41,9 @@ public sealed class NativeJwScheduleClient : IJwScheduleClient
                 user,
                 password,
                 preloginMode,
-                TraditionalJwOptions.FromDataRoot(dataRoot)))
+                TraditionalJwOptions.FromDataRoot(dataRoot)),
+            (user, password) => new DirectJwLoginProtocol(user, password),
+            dataRoot)
     {
     }
 
@@ -52,7 +56,9 @@ public sealed class NativeJwScheduleClient : IJwScheduleClient
             loginClient,
             cookieParser,
             new TraditionalJwSessionRuntimeStore(),
-            (user, password, preloginMode) => new TraditionalJwClient(user, password, preloginMode))
+            (user, password, preloginMode) => new TraditionalJwClient(user, password, preloginMode),
+            (user, password) => new DirectJwLoginProtocol(user, password),
+            dataRoot: null)
     {
     }
 
@@ -61,13 +67,17 @@ public sealed class NativeJwScheduleClient : IJwScheduleClient
         MobileJwLoginClient loginClient,
         TraditionalJwScheduleHtmlParser cookieParser,
         TraditionalJwSessionRuntimeStore traditionalSessions,
-        Func<string, string, string, TraditionalJwClient> traditionalClientFactory)
+        Func<string, string, string, TraditionalJwClient> traditionalClientFactory,
+        Func<string, string, DirectJwLoginProtocol>? directLoginFactory = null,
+        XkeDataRoot? dataRoot = null)
     {
         _client = client;
         _loginClient = loginClient;
         _cookieParser = cookieParser;
         _traditionalSessions = traditionalSessions;
         _traditionalClientFactory = traditionalClientFactory;
+        _directLoginFactory = directLoginFactory ?? ((user, password) => new DirectJwLoginProtocol(user, password));
+        _dataRoot = dataRoot;
         _client.Timeout = TimeSpan.FromSeconds(15);
     }
 
@@ -151,7 +161,9 @@ public sealed class NativeJwScheduleClient : IJwScheduleClient
         {
             try
             {
-                return await existingClient.FetchScheduleAsync(request, _cookieParser, cancellationToken).ConfigureAwait(false);
+                var result = await existingClient.FetchScheduleAsync(request, _cookieParser, cancellationToken).ConfigureAwait(false);
+                _dataRoot?.JwSessions().Save(existingClient.ExportStoredSession());
+                return result;
             }
             catch (TraditionalJwSessionExpiredException)
             {
@@ -159,17 +171,69 @@ public sealed class NativeJwScheduleClient : IJwScheduleClient
             }
         }
 
-        var loginClient = _traditionalClientFactory(user, password, preloginMode);
-        var challenge = await loginClient.BeginLoginAsync(cancellationToken).ConfigureAwait(false);
+        if (_dataRoot?.JwSessions().Load(user) is { Cookies.Count: > 0 } persisted)
+        {
+            var restoredClient = _traditionalClientFactory(user, password, preloginMode);
+            restoredClient.ImportStoredSession(persisted);
+            try
+            {
+                var result = await restoredClient.FetchScheduleAsync(request, _cookieParser, cancellationToken).ConfigureAwait(false);
+                _traditionalSessions.Store(runtimeKey, restoredClient);
+                _dataRoot.JwSessions().Save(restoredClient.ExportStoredSession());
+                return result;
+            }
+            catch (TraditionalJwSessionExpiredException)
+            {
+                restoredClient.Dispose();
+                _dataRoot.JwSessions().Remove(user);
+            }
+            catch
+            {
+                restoredClient.Dispose();
+                throw;
+            }
+        }
+
+        var loginProtocol = _directLoginFactory(user, password);
+        string captchaImage;
+        try
+        {
+            captchaImage = await loginProtocol.BeginAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            loginProtocol.Dispose();
+            throw;
+        }
+
         throw new JwCaptchaRequiredException(
             "需要输入教务系统验证码",
-            challenge.CaptchaImage,
-            challenge.ExpiresInSeconds,
+            captchaImage,
+            expiresInSeconds: 120,
             async (captchaCode, token) =>
             {
-                var result = await loginClient.CompleteLoginAndFetchScheduleAsync(captchaCode, request, _cookieParser, token).ConfigureAwait(false);
-                _traditionalSessions.Store(runtimeKey, loginClient);
-                return result;
+                try
+                {
+                    await loginProtocol.CompleteAsync(captchaCode, token).ConfigureAwait(false);
+                    var authenticatedClient = loginProtocol.TransferAuthenticatedSession();
+                    try
+                    {
+                        var result = await authenticatedClient.FetchScheduleAsync(request, _cookieParser, token).ConfigureAwait(false);
+                        _traditionalSessions.Store(runtimeKey, authenticatedClient);
+                        _dataRoot?.JwSessions().Save(authenticatedClient.ExportStoredSession());
+                        return result;
+                    }
+                    catch
+                    {
+                        authenticatedClient.Dispose();
+                        throw;
+                    }
+                }
+                catch
+                {
+                    loginProtocol.Dispose();
+                    throw;
+                }
             });
     }
 

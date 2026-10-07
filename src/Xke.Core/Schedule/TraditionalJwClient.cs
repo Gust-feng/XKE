@@ -5,13 +5,15 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Xke.Contracts.Requests;
 using Xke.Contracts.Responses;
+using Xke.Contracts.Models;
+using Xke.Core.Auth.Jw;
 using Xke.Storage;
 
 namespace Xke.Core.Schedule;
 
 public sealed class TraditionalJwClient : IDisposable
 {
-    private const string BrowserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36";
+    private const string BrowserUserAgent = DirectJwLoginProtocol.BrowserUserAgent;
     private static readonly TimeSpan AutomatedPreloginRequestTimeout = TimeSpan.FromSeconds(3);
     private static readonly Uri SsoBaseUri = new("http://sso.hnsoftedu.com/");
     private static readonly Uri PortalValidateUri = new("http://my.hnsoftedu.com/cas/validate");
@@ -66,6 +68,7 @@ public sealed class TraditionalJwClient : IDisposable
     private readonly TraditionalJwOptions _options;
     private readonly HttpClient _httpClient;
     private readonly bool _ownsHttpClient;
+    private readonly bool _assumeJwSession;
     private readonly CookieContainer _cookies = new();
     private readonly HashSet<string> _observedCookieScopes = new(StringComparer.OrdinalIgnoreCase);
     private TraditionalJwLoginPageContext? _loginPage;
@@ -75,14 +78,17 @@ public sealed class TraditionalJwClient : IDisposable
         string password,
         string preloginMode,
         TraditionalJwOptions? options = null,
-        HttpClient? httpClient = null)
+        HttpClient? httpClient = null,
+        bool ownsInjectedHttpClient = false,
+        bool assumeJwSession = false)
     {
         _user = (user ?? string.Empty).Trim();
         _password = password ?? string.Empty;
         _ = preloginMode;
         _options = options ?? TraditionalJwOptions.CreateDefault();
         _httpClient = httpClient ?? CreateDefaultHttpClient(_options.Timeout);
-        _ownsHttpClient = httpClient is null;
+        _ownsHttpClient = httpClient is null || ownsInjectedHttpClient;
+        _assumeJwSession = assumeJwSession;
     }
 
     public async Task<TraditionalJwCaptchaChallenge> BeginLoginAsync(CancellationToken cancellationToken = default)
@@ -139,13 +145,155 @@ public sealed class TraditionalJwClient : IDisposable
                 ["parser"] = "traditional_jw_html",
                 ["rq"] = fetched.Params.Rq,
                 ["sjms_value"] = fetched.Params.SjmsValue,
+                ["term"] = new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    ["label"] = fetched.Params.TermLabel,
+                    ["academic_term"] = fetched.Params.TermLabel,
+                },
                 ["row_count"] = parsed.Rows.Count,
                 ["warning_count"] = parsed.DataWarnings.Count,
             },
         };
     }
 
+    public async Task<StudentProfileDocument> FetchStudentProfileAsync(CancellationToken cancellationToken = default)
+    {
+        EnsureJwSessionForReadOnlyCourse();
+        var profileUris = new List<Uri>
+        {
+            new("http://jw.hnsoftedu.com/jsxsd/grxx/xsgrxx"),
+            new("http://jw.hnsoftedu.com/jsxsd/grxx/xsgrxx.jsp"),
+        };
+        using (var main = await SendAsync(
+            HttpMethod.Get,
+            JwMainPageUri,
+            new Dictionary<string, string> { ["Referer"] = "http://jw.hnsoftedu.com/" },
+            content: null,
+            cancellationToken,
+            stage: "jw_profile_index").ConfigureAwait(false))
+        {
+            if (main.IsSuccessStatusCode)
+            {
+                var mainHtml = await main.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                profileUris.AddRange(DiscoverProfileUris(mainHtml));
+            }
+        }
+
+        foreach (var uri in profileUris.DistinctBy(uri => uri.AbsoluteUri, StringComparer.OrdinalIgnoreCase))
+        {
+            using var response = await SendAsync(
+                HttpMethod.Get,
+                uri,
+                new Dictionary<string, string>
+                {
+                    ["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    ["Referer"] = JwMainPageUri.ToString(),
+                },
+                content: null,
+                cancellationToken,
+                stage: "jw_profile").ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                continue;
+            }
+
+            var html = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            if (LooksLikeLoginPage(html))
+            {
+                throw new TraditionalJwSessionExpiredException("学生资料页返回登录页，当前 JW 会话已失效");
+            }
+
+            var parsed = ParseStudentProfile(html, _user);
+            if (!string.Equals(parsed.Name, _user, StringComparison.Ordinal) || HasProfileDetails(parsed))
+            {
+                return parsed;
+            }
+        }
+
+        return new StudentProfileDocument
+        {
+            StudentId = _user,
+            Name = _user,
+            UpdatedAt = DateTimeOffset.Now.ToString("O"),
+        };
+    }
+
+    private static IEnumerable<Uri> DiscoverProfileUris(string html)
+    {
+        foreach (Match match in Regex.Matches(html ?? string.Empty, "(?:href|url)\\s*[=:]\\s*['\\\"](?<path>[^'\\\"]*(?:grxx|xsgrxx)[^'\\\"]*)", RegexOptions.IgnoreCase))
+        {
+            var rawPath = WebUtility.HtmlDecode(match.Groups["path"].Value).Trim();
+            if (!Uri.TryCreate(JwMainPageUri, rawPath, out var uri)
+                || !string.Equals(uri.Host, JwMainPageUri.Host, StringComparison.OrdinalIgnoreCase)
+                || !uri.AbsolutePath.StartsWith("/jsxsd/", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            yield return uri;
+        }
+    }
+
     public bool HasBootstrappedJwSession => HasJwSessionCookie();
+
+    public static TraditionalJwClient FromStoredSession(
+        string user,
+        string password,
+        JwSessionDocument document,
+        TraditionalJwOptions? options = null)
+    {
+        var handler = new SocketsHttpHandler
+        {
+            AllowAutoRedirect = false,
+            UseCookies = false,
+        };
+        var client = new HttpClient(handler, disposeHandler: true)
+        {
+            Timeout = (options ?? TraditionalJwOptions.CreateDefault()).Timeout,
+        };
+        var result = new TraditionalJwClient(user, password, "protocol", options, client, ownsInjectedHttpClient: true, assumeJwSession: true);
+        result.ImportStoredSession(document);
+        return result;
+    }
+
+    public JwSessionDocument ExportStoredSession()
+    {
+        var cookies = new List<JwSessionCookieDocument>();
+        foreach (var uri in new[]
+        {
+            new Uri("http://222.243.161.213/"),
+            new Uri("http://jw.hnsoftedu.com/jsxsd/"),
+        })
+        {
+            foreach (Cookie cookie in _cookies.GetCookies(uri))
+            {
+                if (cookie.Expired || string.IsNullOrWhiteSpace(cookie.Name) || string.IsNullOrWhiteSpace(cookie.Value))
+                {
+                    continue;
+                }
+
+                if (!cookies.Any(item => string.Equals(item.Name, cookie.Name, StringComparison.Ordinal)
+                                         && string.Equals(item.Host, cookie.Domain, StringComparison.OrdinalIgnoreCase)
+                                         && string.Equals(item.Path, cookie.Path, StringComparison.Ordinal)))
+                {
+                    cookies.Add(new JwSessionCookieDocument
+                    {
+                        Name = cookie.Name,
+                        Value = cookie.Value,
+                        Host = cookie.Domain,
+                        Path = string.IsNullOrWhiteSpace(cookie.Path) ? "/" : cookie.Path,
+                    });
+                }
+            }
+        }
+
+        return new JwSessionDocument
+        {
+            User = _user,
+            UpdatedAt = DateTimeOffset.Now.ToString("O"),
+            Cookies = cookies,
+        };
+    }
 
     public async Task<IReadOnlyList<CourseRound>> FetchCourseRoundsAsync(CancellationToken cancellationToken = default)
     {
@@ -671,10 +819,43 @@ public sealed class TraditionalJwClient : IDisposable
         return new TraditionalJwScheduleParams(
             Rq: selectedWeek.GetValueOrDefault("value")?.ToString() ?? string.Empty,
             SjmsValue: selectedMode.GetValueOrDefault("value")?.ToString() ?? string.Empty,
+            TermLabel: ExtractTermLabel(html, request),
             WeekLabel: selectedWeek.GetValueOrDefault("label")?.ToString() ?? "当前周",
             CurrentWeekLabel: currentWeek?.GetValueOrDefault("label")?.ToString() ?? selectedWeek.GetValueOrDefault("label")?.ToString() ?? "当前周",
             AvailableWeeks: weeks,
             AvailableModes: modes);
+    }
+
+    private static string ExtractTermLabel(string html, ScheduleRequest request)
+    {
+        foreach (Match select in Regex.Matches(
+            html ?? string.Empty,
+            @"<select(?<attrs>[^>]*)>(?<body>.*?)</select>",
+            RegexOptions.IgnoreCase | RegexOptions.Singleline))
+        {
+            var attrs = select.Groups["attrs"].Value;
+            if (Regex.IsMatch(attrs, @"\b(?:id|name)\s*=\s*[""']week[""']", RegexOptions.IgnoreCase))
+            {
+                continue;
+            }
+
+            var options = Regex.Matches(
+                    select.Groups["body"].Value,
+                    @"<option(?<attrs>[^>]*)>(?<body>.*?)</option>",
+                    RegexOptions.IgnoreCase | RegexOptions.Singleline)
+                .Cast<Match>()
+                .Select(option => StripHtml(option.Groups["body"].Value))
+                .Where(label => !string.IsNullOrWhiteSpace(label) && !label.Contains("请选择", StringComparison.Ordinal))
+                .ToArray();
+            if (options.Length == 1)
+            {
+                return options[0];
+            }
+        }
+
+        return request.TermLabel?.Trim()
+            ?? request.AcademicTerm?.Trim()
+            ?? string.Empty;
     }
 
     private static Dictionary<string, object?>? ResolveRequestedScheduleWeek(
@@ -910,7 +1091,40 @@ public sealed class TraditionalJwClient : IDisposable
 
     private bool HasJwSessionCookie()
     {
+        if (_assumeJwSession)
+        {
+            return true;
+        }
         return HasCookie(new Uri("http://jw.hnsoftedu.com/jsxsd/"), "JSESSIONID");
+    }
+
+    public void ImportStoredSession(JwSessionDocument document)
+    {
+        foreach (var item in document.Cookies)
+        {
+            if (string.IsNullOrWhiteSpace(item.Name)
+                || string.IsNullOrWhiteSpace(item.Value)
+                || string.IsNullOrWhiteSpace(item.Host)
+                || !IsJwCookieHost(item.Host))
+            {
+                continue;
+            }
+
+            try
+            {
+                _cookies.Add(new Cookie(item.Name, item.Value, string.IsNullOrWhiteSpace(item.Path) ? "/" : item.Path, item.Host));
+            }
+            catch (CookieException)
+            {
+            }
+        }
+    }
+
+    private static bool IsJwCookieHost(string host)
+    {
+        var normalized = (host ?? string.Empty).Trim().TrimStart('.');
+        return normalized.Equals("222.243.161.213", StringComparison.OrdinalIgnoreCase)
+               || normalized.Equals("jw.hnsoftedu.com", StringComparison.OrdinalIgnoreCase);
     }
 
     private string EncryptPassword(string cryptoBase64)
@@ -1316,6 +1530,87 @@ public sealed class TraditionalJwClient : IDisposable
         return Regex.Replace(StripHtml(value), @"\s+", " ").Trim();
     }
 
+    private static StudentProfileDocument ParseStudentProfile(string html, string fallbackUser)
+    {
+        var fields = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (Match row in Regex.Matches(html ?? string.Empty, @"<tr[^>]*>(?<cells>.*?)</tr>", RegexOptions.IgnoreCase | RegexOptions.Singleline))
+        {
+            var cells = Regex.Matches(row.Groups["cells"].Value, @"<(?:th|td)[^>]*>(?<value>.*?)</(?:th|td)>", RegexOptions.IgnoreCase | RegexOptions.Singleline)
+                .Select(match => CleanHtmlText(WebUtility.HtmlDecode(match.Groups["value"].Value)))
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .ToArray();
+            for (var index = 0; index + 1 < cells.Length; index += 2)
+            {
+                AddProfileField(fields, cells[index], cells[index + 1]);
+            }
+        }
+
+        foreach (Match input in Regex.Matches(html ?? string.Empty, @"<input(?<attrs>[^>]*)>", RegexOptions.IgnoreCase | RegexOptions.Singleline))
+        {
+            var attributes = input.Groups["attrs"].Value;
+            var label = MatchAttribute(attributes, "name");
+            var value = MatchAttribute(attributes, "value");
+            AddProfileField(fields, label, value);
+        }
+
+        var studentId = ReadProfileField(fields, "学号", "学生号", "xh", "xuehao");
+        return new StudentProfileDocument
+        {
+            StudentId = string.IsNullOrWhiteSpace(studentId) ? fallbackUser : studentId,
+            Name = ReadProfileField(fields, ["姓名", "xm", "xingming"], fallbackUser),
+            ClassName = ReadProfileField(fields, "班级", "bj", "class"),
+            MajorName = ReadProfileField(fields, "专业", "zymc", "major"),
+            AcademyName = ReadProfileField(fields, "学院", "院系", "系别", "xymc", "academy"),
+            TrainingLevel = ReadProfileField(fields, "培养层次", "学历层次", "学生类别", "pycc", "level"),
+            CampusName = ReadProfileField(fields, "校区", "xq", "campus"),
+            UpdatedAt = DateTimeOffset.Now.ToString("O"),
+        };
+    }
+
+    private static void AddProfileField(Dictionary<string, string> fields, string label, string value)
+    {
+        var key = Regex.Replace(label ?? string.Empty, @"\s|：|:", string.Empty);
+        var cleaned = CleanHtmlText(value ?? string.Empty);
+        if (!string.IsNullOrWhiteSpace(key) && !string.IsNullOrWhiteSpace(cleaned) && !fields.ContainsKey(key))
+        {
+            fields[key] = cleaned;
+        }
+    }
+
+    private static string ReadProfileField(Dictionary<string, string> fields, params string[] names)
+    {
+        return ReadProfileField(fields, names, string.Empty);
+    }
+
+    private static string ReadProfileField(Dictionary<string, string> fields, string[] names, string fallback)
+    {
+        foreach (var name in names)
+        {
+            var normalized = Regex.Replace(name ?? string.Empty, @"\s|：|:", string.Empty);
+            if (fields.TryGetValue(normalized, out var exact) && !string.IsNullOrWhiteSpace(exact))
+            {
+                return exact;
+            }
+
+            var fuzzy = fields.FirstOrDefault(pair => pair.Key.Contains(normalized, StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrWhiteSpace(fuzzy.Value))
+            {
+                return fuzzy.Value;
+            }
+        }
+
+        return fallback;
+    }
+
+    private static bool HasProfileDetails(StudentProfileDocument profile)
+    {
+        return !string.IsNullOrWhiteSpace(profile.ClassName)
+               || !string.IsNullOrWhiteSpace(profile.MajorName)
+               || !string.IsNullOrWhiteSpace(profile.AcademyName)
+               || !string.IsNullOrWhiteSpace(profile.TrainingLevel)
+               || !string.IsNullOrWhiteSpace(profile.CampusName);
+    }
+
     private static bool LooksLikeLoginPage(string html)
     {
         var text = html ?? string.Empty;
@@ -1344,6 +1639,7 @@ public sealed record TraditionalJwLoginPageContext(
 public sealed record TraditionalJwScheduleParams(
     string Rq,
     string SjmsValue,
+    string TermLabel,
     string WeekLabel,
     string CurrentWeekLabel,
     IReadOnlyList<Dictionary<string, object?>> AvailableWeeks,

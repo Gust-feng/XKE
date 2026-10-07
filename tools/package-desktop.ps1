@@ -6,6 +6,7 @@ param(
     [string]$Version,
     [switch]$SelfContained,
     [switch]$CreateRootLauncher,
+    [switch]$LocalOnly,
     [switch]$NoInject
 )
 
@@ -205,7 +206,15 @@ if ($CreateRootLauncher) {
     Write-RootLauncher -DestinationRoot $publishDir
 }
 
-if (-not $NoInject) {
+if ($LocalOnly) {
+    $localOnlyConfig = [ordered]@{
+        schema_version = 1
+        local_only = $true
+    } | ConvertTo-Json
+    Set-Content -LiteralPath (Join-Path $publishDir "xke.runtime.json") -Value $localOnlyConfig -Encoding UTF8
+    Write-Host "Local-only runtime config written."
+}
+elseif (-not $NoInject) {
     $injectArgs = @{
         PublishDir = $publishDir
     }

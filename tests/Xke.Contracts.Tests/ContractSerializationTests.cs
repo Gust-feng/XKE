@@ -108,7 +108,8 @@ public sealed class ContractSerializationTests
                 AcademyName: "信息工程学院",
                 TrainingLevel: "专科",
                 CampusName: "主校区",
-                AvatarUrl: "/api/auth/avatar?v=1"),
+                AvatarUrl: "/api/auth/avatar?v=1",
+                UpdatedAt: "2026-09-08T00:00:00Z"),
             Preferences: new LegacyPreferencesDocument
             {
                 Theme = "forest-notes",
@@ -159,6 +160,7 @@ public sealed class ContractSerializationTests
         Assert.Contains("\"session_id\":\"sid-1\"", json);
         Assert.Contains("\"student_id\":\"20260001\"", json);
         Assert.Contains("\"avatar_url\":\"/api/auth/avatar?v=1\"", json);
+        Assert.Contains("\"updated_at\":\"2026-09-08T00:00:00Z\"", json);
         Assert.Contains("\"storage_dir\":\".runtime/data/students/20260001\"", json);
         Assert.Contains("\"prelogin_mode\":\"auto\"", json);
         Assert.Contains("\"ignored_weekend_blocks\":", json);

@@ -269,6 +269,8 @@ public sealed class ScheduleWebHostTests
                 WebRootPath = webRoot.RootPath,
                 AuthDataRootPath = dataRoot.RootPath,
                 JwAuthClient = fakeAuth,
+                UseLegacyMobileAuthentication = true,
+                UseLegacyMobileScheduleForTests = true,
                 JwScheduleClient = scheduleClient,
                 NoticeRemoteSource = new MissingNoticeRemoteSource(),
                 Urls = new[] { "http://127.0.0.1:0" },

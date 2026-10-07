@@ -18,6 +18,11 @@ public sealed class XkeWebHostOptions
     public string RuntimeChannel { get; init; } = "dotnet8";
     public string HostMode { get; init; } = "standalone";
     public IJwAuthClient? JwAuthClient { get; init; }
+    // Test-only seam for the retired mobile authentication client. Production
+    // hosts always use the JW form protocol.
+    public bool UseLegacyMobileAuthentication { get; init; }
+    public bool UseLegacyMobileScheduleForTests { get; init; }
+    public bool LocalOnly { get; init; }
     public IJwScheduleClient? JwScheduleClient { get; init; }
     public ICourseClient? CourseClient { get; init; }
     public INoticeRemoteSource? NoticeRemoteSource { get; init; }

@@ -12,12 +12,30 @@ public static partial class XkeWebHostApplication
     {
         var auth = app.MapGroup("/api/auth");
 
-        auth.MapPost("/login", async (LoginRequest request, AuthService authService, NoticeService noticeService, HttpContext context) =>
+        auth.MapPost("/captcha", async (JwCaptchaSubmitRequest request, AuthService authService, HttpContext context) =>
+        {
+            try
+            {
+                var result = await authService.SubmitProtocolCaptchaAsync(request, context.RequestAborted);
+                return Ok(result.Message, result.Payload);
+            }
+            catch (AuthException ex) { return AuthError(ex); }
+            catch (ScheduleException ex) { return ScheduleError(ex); }
+            catch (Exception ex) { return Results.Json(new { detail = ex.Message }, statusCode: StatusCodes.Status500InternalServerError); }
+        });
+
+        auth.MapPost("/login", async (LoginRequest request, AuthService authService, NoticeService noticeService, XkeWebHostOptions options, HttpContext context) =>
         {
             try
             {
                 await EnsureStudentAllowedAsync(noticeService, request.User, "login", context.RequestAborted);
-                var result = await authService.LoginAsync(request, context.RequestAborted);
+                if (options.UseLegacyMobileAuthentication)
+                {
+                    var legacyResult = await authService.LoginAsync(request, context.RequestAborted);
+                    return Ok(legacyResult.Message, legacyResult.Payload);
+                }
+
+                var result = await authService.BeginProtocolLoginAsync(request, cancellationToken: context.RequestAborted);
                 return Ok(result.Message, result.Payload);
             }
             catch (BlockedAccessException ex)
@@ -34,11 +52,17 @@ public static partial class XkeWebHostApplication
             }
         });
 
-        auth.MapPost("/reinitialize", async (LoginRequest request, AuthService authService, NoticeService noticeService, HttpContext context) =>
+        auth.MapPost("/reinitialize", async (LoginRequest request, AuthService authService, NoticeService noticeService, XkeWebHostOptions options, HttpContext context) =>
         {
             try
             {
                 await EnsureStudentAllowedAsync(noticeService, request.User, "login", context.RequestAborted);
+                if (!options.UseLegacyMobileAuthentication)
+                {
+                    var protocolResult = await authService.BeginProtocolLoginAsync(request, forceRemote: true, cancellationToken: context.RequestAborted);
+                    return Ok(protocolResult.Message, protocolResult.Payload);
+                }
+
                 var result = await authService.ReinitializeAsync(request, context.RequestAborted);
                 return Ok(result.Message, result.Payload);
             }

@@ -193,6 +193,23 @@ public sealed class TraditionalJwClientTests
         Assert.DoesNotContain("secret-pass", error.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task TraditionalJwClient_ParsesProfileFromTheAuthenticatedJwSession()
+    {
+        using var dataRoot = new TemporaryDirectory("xke-traditional-jw-profile");
+        using var http = new HttpClient(new TraditionalJwFakeHandler());
+        using var client = new TraditionalJwClient("20260001", "secret-pass", "auto", new TraditionalJwOptions { DataRootPath = dataRoot.RootPath }, http);
+
+        await client.BeginLoginAsync();
+        await client.CompleteLoginAndFetchScheduleAsync("2468", new ScheduleRequest(), new TraditionalJwScheduleHtmlParser());
+        var profile = await client.FetchStudentProfileAsync();
+
+        Assert.Equal("20260001", profile.StudentId);
+        Assert.Equal("测试同学", profile.Name);
+        Assert.Equal("信息工程学院", profile.AcademyName);
+        Assert.Equal("软件技术", profile.MajorName);
+    }
+
     [Theory]
     [InlineData("portal_login")]
     [InlineData("jw_ticket")]
@@ -249,7 +266,8 @@ public sealed class TraditionalJwClientTests
                 {
                     DataRootPath = dataRoot.RootPath,
                 }, traditionalHttp);
-            });
+            },
+            (user, password) => new DirectJwLoginProtocol(user, password, new HttpClient(handler)));
 
         var challenge = await Assert.ThrowsAsync<JwCaptchaRequiredException>(() => native.FetchCookieAsync(
             "20260001",
@@ -273,10 +291,65 @@ public sealed class TraditionalJwClientTests
 
         Assert.Equal("jw_schedule", first.SourceKey);
         Assert.Equal("jw_schedule", second.SourceKey);
-        Assert.Equal(1, factoryCalls);
+        Assert.Equal(0, factoryCalls);
         Assert.Equal(1, handler.CaptchaRequests);
-        Assert.Equal(1, handler.LoginPosts);
+        Assert.Equal(1, handler.DirectLoginPosts);
         Assert.Equal(2, handler.ScheduleLoadRequests);
+    }
+
+    [Fact]
+    public async Task NativeJwScheduleClient_RestoresPersistedSessionBeforeRequestingCaptcha()
+    {
+        using var dataRoot = new TemporaryDirectory("xke-traditional-jw-persisted-session");
+        var root = new Xke.Storage.XkeDataRoot(dataRoot.RootPath, dataRoot.RootPath);
+        root.JwSessions().Save(new Xke.Contracts.Models.JwSessionDocument
+        {
+            User = "20260001",
+            UpdatedAt = DateTimeOffset.Now.ToString("O"),
+            Cookies =
+            [
+                new Xke.Contracts.Models.JwSessionCookieDocument { Name = "JSESSIONID", Value = "test-session", Host = "jw.hnsoftedu.com", Path = "/jsxsd" },
+            ],
+        });
+        var handler = new TraditionalJwFakeHandler();
+        using var mobileHttp = new HttpClient(new ThrowingHandler());
+        using var traditionalHttp = new HttpClient(handler);
+        var native = new NativeJwScheduleClient(
+            mobileHttp,
+            new MobileJwLoginClient(mobileHttp),
+            new TraditionalJwScheduleHtmlParser(),
+            new TraditionalJwSessionRuntimeStore(),
+            (user, password, preloginMode) => new TraditionalJwClient(user, password, preloginMode, TraditionalJwOptions.FromDataRoot(root), traditionalHttp),
+            directLoginFactory: (user, password) => new DirectJwLoginProtocol(user, password, new HttpClient(handler)),
+            dataRoot: root);
+
+        var result = await native.FetchCookieAsync("20260001", "secret-pass", "auto", new ScheduleRequest { Mode = "current" }, sessionId: "session-1");
+
+        Assert.Equal("jw_schedule", result.SourceKey);
+        Assert.Equal(0, handler.CaptchaRequests);
+    }
+
+    [Fact]
+    public void TraditionalJwClient_ExportsAllCookiesFromApprovedJwHosts()
+    {
+        var document = new Xke.Contracts.Models.JwSessionDocument
+        {
+            User = "20260001",
+            Cookies =
+            [
+                new Xke.Contracts.Models.JwSessionCookieDocument { Name = "JSESSIONID", Value = "session", Host = "jw.hnsoftedu.com", Path = "/jsxsd" },
+                new Xke.Contracts.Models.JwSessionCookieDocument { Name = "SERVERID", Value = "server", Host = "222.243.161.213", Path = "/" },
+                new Xke.Contracts.Models.JwSessionCookieDocument { Name = "route", Value = "route-cookie", Host = "jw.hnsoftedu.com", Path = "/" },
+                new Xke.Contracts.Models.JwSessionCookieDocument { Name = "third-party", Value = "ignored", Host = "example.invalid", Path = "/" },
+            ],
+        };
+        using var client = TraditionalJwClient.FromStoredSession("20260001", "secret-pass", document);
+
+        var exported = client.ExportStoredSession();
+
+        Assert.Equal(3, exported.Cookies.Count);
+        Assert.Contains(exported.Cookies, item => item.Name == "route");
+        Assert.DoesNotContain(exported.Cookies, item => item.Name == "third-party");
     }
 
     [Fact]
@@ -328,6 +401,7 @@ public sealed class TraditionalJwClientTests
         public List<CapturedRequest> Requests { get; } = [];
         public int CaptchaRequests { get; private set; }
         public int LoginPosts { get; private set; }
+        public int DirectLoginPosts { get; private set; }
         public int ScheduleLoadRequests { get; private set; }
         public int CourseRoundRequests { get; private set; }
         public int PreviewEntryRequests { get; private set; }
@@ -346,6 +420,29 @@ public sealed class TraditionalJwClientTests
                 StringComparer.OrdinalIgnoreCase) ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             Requests.Add(new CapturedRequest(request.Method, request.RequestUri!, body, headers, contentHeaders));
             var uri = request.RequestUri!;
+            if (uri.Host == "222.243.161.213" && uri.AbsolutePath == "/")
+            {
+                return Text(HttpStatusCode.OK, "<html>JW login</html>");
+            }
+
+            if (uri.Host == "222.243.161.213" && uri.AbsolutePath == "/verifycode.servlet")
+            {
+                CaptchaRequests++;
+                return Bytes(HttpStatusCode.OK, CaptchaImage, "image/jpeg");
+            }
+
+            if (uri.Host == "222.243.161.213" && uri.AbsolutePath == "/Logon.do" && uri.Query.Contains("flag=sess", StringComparison.OrdinalIgnoreCase))
+            {
+                return Text(HttpStatusCode.OK, "abcdefghijklmnopqrstuvwxyz#11111111111111111111");
+            }
+
+            if (uri.Host == "222.243.161.213" && uri.AbsolutePath == "/Logon.do")
+            {
+                DirectLoginPosts++;
+                var response = Text(HttpStatusCode.OK, "ok");
+                response.Headers.Location = new Uri("http://jw.hnsoftedu.com/jsxsd/framework/xsMainV.jsp");
+                return response;
+            }
             if (uri.Host == "sso.hnsoftedu.com" && uri.AbsolutePath == "/login" && request.Method == HttpMethod.Get)
             {
                 await DelayIfNeededAsync(uri.Query.Contains("jw.hnsoftedu.com", StringComparison.OrdinalIgnoreCase) ? "jw_ticket" : "login_page", cancellationToken);
@@ -426,6 +523,17 @@ public sealed class TraditionalJwClientTests
             {
                 await DelayIfNeededAsync("jw_main", cancellationToken);
                 return Text(HttpStatusCode.OK, "main");
+            }
+
+            if (uri.Host == "jw.hnsoftedu.com" && uri.AbsolutePath == "/jsxsd/grxx/xsgrxx")
+            {
+                return Text(HttpStatusCode.OK, """
+                <table>
+                  <tr><th>学号</th><td>20260001</td><th>姓名</th><td>测试同学</td></tr>
+                  <tr><th>学院</th><td>信息工程学院</td><th>专业</th><td>软件技术</td></tr>
+                  <tr><th>班级</th><td>软件一班</td><th>培养层次</th><td>专科</td></tr>
+                </table>
+                """);
             }
 
             if (uri.Host == "jw.hnsoftedu.com" && uri.AbsolutePath.EndsWith("/xsMainV_new.jsp", StringComparison.Ordinal))

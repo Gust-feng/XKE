@@ -15,19 +15,22 @@ public sealed class ScheduleService
     private readonly MobileSessionRuntimeStore _mobileSessionRuntime;
     private readonly JwCaptchaChallengeStore _captchaChallengeStore;
     private readonly IJwCaptchaSolver _captchaSolver;
+    private readonly bool _useLegacyMobileSchedule;
 
     public ScheduleService(
         XkeDataRoot dataRoot,
         IJwScheduleClient scheduleClient,
         MobileSessionRuntimeStore mobileSessionRuntime,
         JwCaptchaChallengeStore captchaChallengeStore,
-        IJwCaptchaSolver captchaSolver)
+        IJwCaptchaSolver captchaSolver,
+        bool useLegacyMobileSchedule = false)
     {
         _dataRoot = dataRoot;
         _scheduleClient = scheduleClient;
         _mobileSessionRuntime = mobileSessionRuntime;
         _captchaChallengeStore = captchaChallengeStore;
         _captchaSolver = captchaSolver;
+        _useLegacyMobileSchedule = useLegacyMobileSchedule;
     }
 
     public (string Message, Dictionary<string, object?> Payload) LoadLocal(string sessionId, string weekLabel, string source)
@@ -72,6 +75,11 @@ public sealed class ScheduleService
         ScheduleRequest request,
         CancellationToken cancellationToken = default)
     {
+        if (!_useLegacyMobileSchedule)
+        {
+            return await FetchCookieAsync(sessionId, request, cancellationToken).ConfigureAwait(false);
+        }
+
         var context = LoadContext(sessionId);
         try
         {
@@ -90,7 +98,7 @@ public sealed class ScheduleService
         }
         catch (JwScheduleException ex)
         {
-            throw new ScheduleException(500, ex.Message);
+            throw new ScheduleException(ex.StatusCode, ex.Message);
         }
     }
 
@@ -173,17 +181,17 @@ public sealed class ScheduleService
 
     private static Dictionary<string, object?> BuildCaptchaPayload(JwCaptchaChallenge challenge)
     {
-        var payload = new JwCaptchaChallengePayload(
+        var challengePayload = new JwCaptchaChallengePayload(
             Status: "captcha_required",
             ChallengeId: challenge.ChallengeId,
             CaptchaImage: challenge.CaptchaImage,
             ExpiresInSeconds: challenge.RemainingSeconds(DateTimeOffset.Now));
         return new Dictionary<string, object?>(StringComparer.Ordinal)
         {
-            ["status"] = payload.Status,
-            ["challenge_id"] = payload.ChallengeId,
-            ["captcha_image"] = payload.CaptchaImage,
-            ["expires_in_seconds"] = payload.ExpiresInSeconds,
+            ["status"] = challengePayload.Status,
+            ["challenge_id"] = challengePayload.ChallengeId,
+            ["captcha_image"] = challengePayload.CaptchaImage,
+            ["expires_in_seconds"] = challengePayload.ExpiresInSeconds,
         };
     }
 
@@ -215,7 +223,7 @@ public sealed class ScheduleService
 
     private static Dictionary<string, object?> BuildPayloadFromFetchResult(JwScheduleFetchResult result)
     {
-        return new Dictionary<string, object?>(StringComparer.Ordinal)
+        var payload = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["source"] = result.SourceLabel,
             ["source_label"] = result.SourceLabel,
@@ -233,6 +241,13 @@ public sealed class ScheduleService
             ["fallback_reason"] = result.FallbackReason,
             ["data_warnings"] = result.DataWarnings.Cast<object?>().ToList(),
         };
+
+        if (result.RawPayload.TryGetValue("term", out var term) && term is not null)
+        {
+            payload["term"] = term;
+        }
+
+        return payload;
     }
 
     private static string ResolveCurrentWeekLabel(JwScheduleFetchResult result)
@@ -365,11 +380,14 @@ public sealed class ScheduleService
         {
             ["student_id"] = profile.StudentId,
             ["name"] = string.IsNullOrWhiteSpace(profile.Name) ? profile.StudentId : profile.Name,
+            ["nickname"] = profile.Nickname,
+            ["use_nickname"] = profile.UseNickname,
             ["class_name"] = profile.ClassName,
             ["major_name"] = profile.MajorName,
             ["academy_name"] = profile.AcademyName,
             ["training_level"] = profile.TrainingLevel,
             ["campus_name"] = profile.CampusName,
+            ["updated_at"] = profile.UpdatedAt,
         };
     }
 
