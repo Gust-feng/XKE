@@ -12,6 +12,7 @@ internal static class ScheduleSectionNormalizer
     private static readonly Regex WeekQualifierPattern = new(@"[单双]周|每周", RegexOptions.Compiled);
     private static readonly Regex WeekdayPattern = new(@"星期[一二三四五六日天]|周[一二三四五六日天]", RegexOptions.Compiled);
     private static readonly Regex CompactSectionRangeWithSuffixPattern = new($@"(?<!\d)(\d{{1,2}})\s*{RangeSeparatorPattern}\s*(\d{{4,}})\s*(?:小?节)(?!\d)", RegexOptions.Compiled);
+    private static readonly Regex SectionHyphenListWithSuffixPattern = new(@"(?<!\d)((?:\d{1,2}\s*-\s*){2,}\d{1,2})\s*(?:小?节)(?!\d)", RegexOptions.Compiled);
     private static readonly Regex SectionRangeWithSuffixPattern = new($@"(?:第\s*)?(\d{{1,2}})\s*{RangeSeparatorPattern}\s*(\d{{1,2}})\s*(?:小?节)", RegexOptions.Compiled);
     private static readonly Regex SectionListWithSuffixPattern = new(@"(?<!\d)((?:\d{1,2}\s*[,，、]\s*)+\d{1,2})\s*(?:小?节)(?!\d)", RegexOptions.Compiled);
     private static readonly Regex CompactSectionWithSuffixPattern = new(@"(?<!\d)(\d{4,})\s*(?:小?节)(?!\d)", RegexOptions.Compiled);
@@ -40,6 +41,9 @@ internal static class ScheduleSectionNormalizer
             return [];
         }
 
+        var hyphenList = new List<int>();
+        AddListMatches(hyphenList, SectionHyphenListWithSuffixPattern.Matches(text));
+        if (hyphenList.Count > 0) return SortSections(hyphenList);
         var suffixed = new List<int>();
         AddCompactRangeMatches(suffixed, CompactSectionRangeWithSuffixPattern.Matches(text));
         AddRangeMatches(suffixed, SectionRangeWithSuffixPattern.Matches(text));

@@ -5,6 +5,7 @@
     <AssemblyName>Xke.Core</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="AngleSharp" Version="1.8.4" />
     <ProjectReference Include="..\Xke.Contracts\Xke.Contracts.csproj" />
     <ProjectReference Include="..\Xke.Storage\Xke.Storage.csproj" />
     <ProjectReference Include="..\Xke.Security\Xke.Security.csproj" />

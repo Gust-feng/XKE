@@ -182,6 +182,12 @@ public sealed class StudentProfileDocument
     [JsonPropertyName("training_level")]
     public string TrainingLevel { get; init; } = string.Empty;
 
+    [JsonPropertyName("program_duration_years")]
+    public int? ProgramDurationYears { get; init; }
+
+    [JsonPropertyName("enrollment_date")]
+    public string EnrollmentDate { get; init; } = string.Empty;
+
     [JsonPropertyName("campus_name")]
     public string CampusName { get; init; } = string.Empty;
 
