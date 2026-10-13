@@ -1,3 +1,4 @@
+using Xke.Contracts.Responses;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
@@ -14,22 +15,9 @@ public sealed class XkeScheduleStore
     };
     private static readonly string[] ScheduleCsvColumns =
     [
-        "week_label",
-        "weekday",
-        "section",
-        "time_text",
-        "time_range",
-        "block_time",
-        "small_section_1",
-        "small_section_2",
-        "break_minutes",
-        "course_name",
-        "teacher",
-        "room",
-        "weeks",
-        "credit",
+        "student_id", "academic_term", "week_label", "weekday", "course_name", "teacher", "room",
+        "section_numbers", "week_numbers", "time_segments", "weeks", "credit", "hours_text",
     ];
-
     private readonly XkeDataRoot _root;
     private readonly XkeStudentStore _studentStore;
     private readonly Func<DateOnly> _todayProvider;
@@ -43,6 +31,45 @@ public sealed class XkeScheduleStore
 
     public string SchedulesDirectory => _studentStore.SchedulesDirectory;
 
+    public SemesterScheduleData SaveSemesterSchedule(SemesterScheduleData payload)
+    {
+        var existing = LoadSemesterSchedule(payload.Term.AcademicTerm);
+        if (existing is not null && IsNewer(existing.UpdatedAt, payload.UpdatedAt)) return existing;
+        var directory = Path.Combine(_studentStore.SchedulesDirectory, XkeDataRoot.SanitizePathSegment(payload.Term.AcademicTerm), "semester");
+        var json = Path.Combine(directory, "semester_schedule.json");
+        var csv = Path.Combine(directory, "semester_schedule.csv");
+        payload = payload with { SavedFiles = [_root.RelativePath(json), _root.RelativePath(csv)], Cached = false };
+        var dictionary = JsonValueConverter.ToDictionary(JsonSerializer.SerializeToElement(payload));
+        WriteScheduleCsv(csv, dictionary);
+        AtomicFile.WriteText(json, JsonSerializer.Serialize(payload, JsonOptions));
+        return payload;
+    }
+
+    public SemesterScheduleData? LoadSemesterSchedule(string academicTerm = "")
+    {
+        if (!Directory.Exists(SchedulesDirectory)) return null;
+        var paths = string.IsNullOrWhiteSpace(academicTerm)
+            ? Directory.EnumerateFiles(SchedulesDirectory, "semester_schedule.json", SearchOption.AllDirectories)
+            : new[] { Path.Combine(SchedulesDirectory, XkeDataRoot.SanitizePathSegment(academicTerm), "semester", "semester_schedule.json") };
+        SemesterScheduleData? latest = null;
+        foreach (var path in paths)
+        {
+            if (!File.Exists(path)) continue;
+            SemesterScheduleData? payload;
+            try { payload = JsonSerializer.Deserialize<SemesterScheduleData>(File.ReadAllText(path), JsonOptions); }
+            catch (JsonException) { continue; }
+            if (payload is null || (!string.IsNullOrWhiteSpace(academicTerm) && payload.Term.AcademicTerm != academicTerm)) continue;
+            // Opening a historical term later must not make it the startup semester.
+            // Server term IDs are ordered YYYY-YYYY-N; capture time only compares the same term.
+            var termOrder = latest is null ? 1 : string.CompareOrdinal(payload.Term.AcademicTerm, latest.Term.AcademicTerm);
+            if (latest is null || termOrder > 0 || termOrder == 0 && IsNewer(payload.UpdatedAt, latest.UpdatedAt)) latest = payload;
+        }
+        return latest is null ? null : latest with { Cached = true };
+    }
+
+    private static bool IsNewer(string candidate, string previous)
+        => DateTimeOffset.TryParse(candidate, out var next) && DateTimeOffset.TryParse(previous, out var old) && next > old;
+
     public IReadOnlyList<string> SaveSourceSchedule(
         Dictionary<string, object?> payload,
         Dictionary<string, object?> rawPayload,
@@ -53,6 +80,7 @@ public sealed class XkeScheduleStore
         var resolvedWeekLabel = NormalizeWeekLabel(weekLabel);
         var weekDirectoryLabel = NormalizeWeekDirectoryLabel(resolvedWeekLabel);
         var termKey = ResolveTermKey(payload);
+        payload.TryAdd("student", new Dictionary<string, object?> { ["student_id"] = _studentStore.StudentId });
         var weekDirectory = Path.Combine(
             SchedulesDirectory,
             XkeDataRoot.SanitizePathSegment(termKey),
@@ -78,16 +106,17 @@ public sealed class XkeScheduleStore
         return savedFiles;
     }
 
-    public Dictionary<string, object?>? LoadLatestSourceSchedule(IReadOnlyList<string> sourceKeys)
+    public Dictionary<string, object?>? LoadLatestSourceSchedule(IReadOnlyList<string> sourceKeys, string academicTerm = "")
     {
-        if (!Directory.Exists(SchedulesDirectory))
+        var searchRoot = string.IsNullOrWhiteSpace(academicTerm) ? SchedulesDirectory : Path.Combine(SchedulesDirectory, XkeDataRoot.SanitizePathSegment(academicTerm));
+        if (!Directory.Exists(searchRoot))
         {
             return null;
         }
 
         var normalizedKeys = NormalizeSourceKeys(sourceKeys);
         var candidates = normalizedKeys
-            .SelectMany(key => Directory.EnumerateFiles(SchedulesDirectory, $"{key}.json", SearchOption.AllDirectories))
+            .SelectMany(key => Directory.EnumerateFiles(searchRoot, $"{key}.json", SearchOption.AllDirectories))
             .Where(path => !path.EndsWith("_raw.json", StringComparison.OrdinalIgnoreCase))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
@@ -95,9 +124,50 @@ public sealed class XkeScheduleStore
         return LoadLatestPayload(candidates);
     }
 
-    public Dictionary<string, object?>? LoadScheduleForWeek(string weekLabel, IReadOnlyList<string> sourceKeys)
+    /// <summary>Newest academic term, not the historical term most recently opened.</summary>
+    public Dictionary<string, object?>? LoadLatestTermSourceSchedule(IReadOnlyList<string> sourceKeys)
     {
-        if (!Directory.Exists(SchedulesDirectory))
+        if (!Directory.Exists(SchedulesDirectory)) return null;
+        foreach (var directory in Directory.EnumerateDirectories(SchedulesDirectory).OrderByDescending(Path.GetFileName, StringComparer.Ordinal))
+        {
+            var term = Path.GetFileName(directory);
+            var payload = LoadLatestSourceSchedule(sourceKeys, term);
+            if (payload?.GetValueOrDefault("term") is Dictionary<string, object?> metadata
+                && string.Equals(metadata.GetValueOrDefault("academic_term")?.ToString(), term, StringComparison.Ordinal))
+                return payload;
+        }
+        return null;
+    }
+
+    /// <summary>Recover only a dated anchor from this student's explicit semester, independently of course freshness.</summary>
+    public DateOnly? FindSemesterStartDate(string academicTerm, IReadOnlyList<string> sourceKeys)
+    {
+        if (string.IsNullOrWhiteSpace(academicTerm)) return null;
+        var directory = Path.Combine(SchedulesDirectory, XkeDataRoot.SanitizePathSegment(academicTerm));
+        if (!Directory.Exists(directory)) return null;
+        var paths = NormalizeSourceKeys(sourceKeys).SelectMany(key => Directory.EnumerateFiles(directory, $"{key}.json", SearchOption.AllDirectories));
+        var calendar = LoadLatestPayload(paths, payload =>
+            payload.GetValueOrDefault("term") is Dictionary<string, object?> term
+            && string.Equals(term.GetValueOrDefault("academic_term")?.ToString(), academicTerm, StringComparison.Ordinal)
+            && ReadSemesterStartDate(payload).HasValue);
+        return calendar is null ? null : ReadSemesterStartDate(calendar);
+    }
+
+    private static DateOnly? ReadSemesterStartDate(Dictionary<string, object?> payload)
+    {
+        var label = payload.GetValueOrDefault("week_label")?.ToString() ?? string.Empty;
+        if (DateOnly.TryParseExact(label, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _)) return null;
+        var week = ParseWeekNumber(label);
+        if (week is not > 0 || payload.GetValueOrDefault("week_dates") is not Dictionary<string, object?> dates) return null;
+        var monday = dates.GetValueOrDefault("星期一") ?? dates.GetValueOrDefault("周一") ?? dates.GetValueOrDefault("1");
+        return DateOnly.TryParseExact(monday?.ToString(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
+            && date.DayOfWeek == DayOfWeek.Monday ? date.AddDays(-(week.Value - 1) * 7) : null;
+    }
+
+    public Dictionary<string, object?>? LoadScheduleForWeek(string weekLabel, IReadOnlyList<string> sourceKeys, string academicTerm = "")
+    {
+        var searchRoot = string.IsNullOrWhiteSpace(academicTerm) ? SchedulesDirectory : Path.Combine(SchedulesDirectory, XkeDataRoot.SanitizePathSegment(academicTerm));
+        if (!Directory.Exists(searchRoot))
         {
             return null;
         }
@@ -112,7 +182,7 @@ public sealed class XkeScheduleStore
         foreach (var sourceKey in normalizedKeys)
         {
             var candidates = weekCandidates
-                .SelectMany(week => Directory.EnumerateFiles(SchedulesDirectory, $"{sourceKey}.json", SearchOption.AllDirectories)
+                .SelectMany(week => Directory.EnumerateFiles(searchRoot, $"{sourceKey}.json", SearchOption.AllDirectories)
                     .Where(path => IsWeekDirectoryMatch(path, week)))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
@@ -126,9 +196,10 @@ public sealed class XkeScheduleStore
         return null;
     }
 
-    public string FindScheduleWeekLabelForDate(DateOnly? targetDate, IReadOnlyList<string> sourceKeys)
+    public string FindScheduleWeekLabelForDate(DateOnly? targetDate, IReadOnlyList<string> sourceKeys, string academicTerm = "")
     {
-        if (!Directory.Exists(SchedulesDirectory))
+        var searchRoot = string.IsNullOrWhiteSpace(academicTerm) ? SchedulesDirectory : Path.Combine(SchedulesDirectory, XkeDataRoot.SanitizePathSegment(academicTerm));
+        if (!Directory.Exists(searchRoot))
         {
             return string.Empty;
         }
@@ -140,7 +211,7 @@ public sealed class XkeScheduleStore
 
         foreach (var sourceKey in normalizedKeys)
         {
-            foreach (var path in Directory.EnumerateFiles(SchedulesDirectory, $"{sourceKey}.json", SearchOption.AllDirectories))
+            foreach (var path in Directory.EnumerateFiles(searchRoot, $"{sourceKey}.json", SearchOption.AllDirectories))
             {
                 var payload = ReadJson(path);
                 if (payload?.GetValueOrDefault("week_dates") is not Dictionary<string, object?> rawWeekDates)
@@ -173,14 +244,14 @@ public sealed class XkeScheduleStore
         return matchedWeekLabel;
     }
 
-    private static Dictionary<string, object?>? LoadLatestPayload(IEnumerable<string> candidates)
+    private static Dictionary<string, object?>? LoadLatestPayload(IEnumerable<string> candidates, Func<Dictionary<string, object?>, bool>? include = null)
     {
         Dictionary<string, object?>? latestPayload = null;
         var latestSortKey = (Timestamp: DateTimeOffset.MinValue, FileTicks: 0L);
         foreach (var path in candidates)
         {
             var payload = ReadJson(path);
-            if (payload is null)
+            if (payload is null || include is not null && !include(payload))
             {
                 continue;
             }
@@ -409,8 +480,12 @@ public sealed class XkeScheduleStore
             return null;
         }
 
-        using var document = JsonDocument.Parse(File.ReadAllText(path));
-        return LegacyNoticeJson.ToDictionary(document.RootElement.Clone());
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            return JsonValueConverter.ToDictionary(document.RootElement.Clone());
+        }
+        catch (JsonException) { return null; }
     }
 
     private static void WriteJson(string path, Dictionary<string, object?> value)
@@ -421,7 +496,7 @@ public sealed class XkeScheduleStore
             Directory.CreateDirectory(directory);
         }
 
-        File.WriteAllText(path, JsonSerializer.Serialize(value, JsonOptions));
+        AtomicFile.WriteText(path, JsonSerializer.Serialize(value, JsonOptions));
     }
 
     private static void WriteScheduleCsv(string path, Dictionary<string, object?> payload)
@@ -440,14 +515,14 @@ public sealed class XkeScheduleStore
             Directory.CreateDirectory(directory);
         }
 
-        File.WriteAllText(path, builder.ToString(), Encoding.UTF8);
+        AtomicFile.WriteText(path, builder.ToString());
     }
 
     private static IEnumerable<Dictionary<string, object?>> EnumerateScheduleRows(object? value)
     {
         if (value is JsonElement element)
         {
-            value = LegacyNoticeJson.ToObject(element);
+            value = JsonValueConverter.ToObject(element);
         }
 
         if (value is not IEnumerable<object?> rows)
@@ -470,6 +545,10 @@ public sealed class XkeScheduleStore
         Dictionary<string, object?> payload,
         string column)
     {
+        if (column == "student_id") return CsvText(ToDictionary(payload.GetValueOrDefault("student")).GetValueOrDefault("student_id"));
+        if (column == "academic_term") return ResolveTermKey(payload);
+        if (row.TryGetValue(column, out var array) && array is System.Collections.IEnumerable sequence && array is not string)
+            return string.Join(";", sequence.Cast<object?>().Select(CsvText));
         if (row.TryGetValue(column, out var value) && value is not null)
         {
             return CsvText(value);
@@ -484,7 +563,7 @@ public sealed class XkeScheduleStore
     {
         if (value is JsonElement element)
         {
-            value = LegacyNoticeJson.ToObject(element);
+            value = JsonValueConverter.ToObject(element);
         }
 
         return value switch
@@ -499,7 +578,7 @@ public sealed class XkeScheduleStore
     {
         if (value is JsonElement element)
         {
-            value = LegacyNoticeJson.ToObject(element);
+            value = JsonValueConverter.ToObject(element);
         }
 
         return value switch

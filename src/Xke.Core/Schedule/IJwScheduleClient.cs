@@ -5,6 +5,9 @@ namespace Xke.Core.Schedule;
 
 public interface IJwScheduleClient
 {
+    Task<JwScheduleFetchResult> FetchSemesterAsync(string user, string password, string preloginMode,
+        string academicTerm, string sessionId, CancellationToken cancellationToken = default)
+        => throw new JwScheduleException("当前来源不提供学期课表", 501);
     Task<JwScheduleFetchResult> FetchPreferredAsync(
         string user,
         string password,
