@@ -13,6 +13,10 @@ public sealed class XkeWebHostService : IAsyncDisposable
         _options = options ?? new XkeWebHostOptions();
     }
 
+    public Xke.Core.Releases.AppUpdateService? AppUpdates => _options.AppUpdates;
+
+    public string? DesktopRequestToken => _options.DesktopRequestToken;
+
     public XkeWebHostLaunchResult? LaunchResult { get; private set; }
 
     public async Task<XkeWebHostLaunchResult> StartAsync(CancellationToken cancellationToken = default)
@@ -25,28 +29,27 @@ public sealed class XkeWebHostService : IAsyncDisposable
         var launchOptions = new XkeWebHostOptions
         {
             HostMode = _options.HostMode,
+            AppUpdates = _options.AppUpdates,
+            AllowedFrontendOrigins = _options.AllowedFrontendOrigins,
+            DesktopRequestToken = _options.DesktopRequestToken,
+            DesktopNotifier = _options.DesktopNotifier,
+            EnableBackgroundTasks = _options.EnableBackgroundTasks,
             RuntimeChannel = _options.RuntimeChannel,
             WebRootPath = _options.WebRootPath,
             AuthDataRootPath = _options.AuthDataRootPath,
             JwAuthClient = _options.JwAuthClient,
+            JwLoginProtocolFactory = _options.JwLoginProtocolFactory,
             UseLegacyMobileAuthentication = _options.UseLegacyMobileAuthentication,
             UseLegacyMobileScheduleForTests = _options.UseLegacyMobileScheduleForTests,
-            LocalOnly = _options.LocalOnly,
             JwScheduleClient = _options.JwScheduleClient,
-            CourseClient = _options.CourseClient,
-            NoticeRemoteSource = _options.NoticeRemoteSource,
-            NoticeSigningPublicKeyPem = _options.NoticeSigningPublicKeyPem,
-            TelemetryTransport = _options.TelemetryTransport,
-            TelemetryCloudEndpoint = _options.TelemetryCloudEndpoint,
-            FeedbackTransport = _options.FeedbackTransport,
-            FeedbackCloudEndpoint = _options.FeedbackCloudEndpoint,
+            ScheduleSnapshotSource = _options.ScheduleSnapshotSource,
+            ScheduleApiOptions = _options.ScheduleApiOptions,
             NetworkHttpMessageHandler = _options.NetworkHttpMessageHandler,
+            CampusSelfServiceOptions = _options.CampusSelfServiceOptions,
+            CampusSelfServiceClientFactory = _options.CampusSelfServiceClientFactory,
             NetworkCommandExecutor = _options.NetworkCommandExecutor,
             DesktopWindowController = _options.DesktopWindowController,
             DesktopStartupRegistrar = _options.DesktopStartupRegistrar,
-            UpdatePackageDownloader = _options.UpdatePackageDownloader,
-            UpdateVersionProvider = _options.UpdateVersionProvider,
-            MainExecutablePath = _options.MainExecutablePath,
             Urls = ResolveUrls(),
         };
 

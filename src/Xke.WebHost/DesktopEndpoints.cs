@@ -13,73 +13,32 @@ public static partial class XkeWebHostApplication
 
         desktop.MapGet("/settings", (DesktopSettingsService desktopSettingsService) =>
         {
-            try
-            {
-                var result = desktopSettingsService.GetSettings();
-                return Ok(result.Message, result.Payload);
-            }
-            catch (Exception ex)
-            {
-                return Results.Json(new { detail = ex.Message }, statusCode: StatusCodes.Status500InternalServerError);
-            }
+            var result = desktopSettingsService.GetSettings();
+            return Ok(result.Message, result.Payload);
         });
 
-        desktop.MapPost("/settings", (DesktopSettingsRequest request, DesktopSettingsService desktopSettingsService) =>
+        desktop.MapPost("/settings", (DesktopSettingsRequest request, DesktopSettingsService desktopSettingsService, Xke.Core.Releases.AppUpdateService updates) =>
         {
-            try
-            {
-                var result = desktopSettingsService.UpdateSettings(request);
-                return Ok(result.Message, result.Payload);
-            }
-            catch (Exception ex)
-            {
-                return Results.Json(new { detail = ex.Message }, statusCode: StatusCodes.Status500InternalServerError);
-            }
+            var result = desktopSettingsService.UpdateSettings(request);
+            updates.SetAutomaticEnabled(result.Payload.Settings.AutoUpdateEnabled);
+            return Ok(result.Message, result.Payload);
         });
 
         desktop.MapPost("/activate", (IDesktopWindowController desktopWindowController) =>
         {
-            try
-            {
-                var payload = desktopWindowController.Activate();
-                return Ok(payload.Activated ? "桌面窗口已激活" : "桌面窗口不可用", payload);
-            }
-            catch (Exception ex)
-            {
-                return Results.Json(new
-                {
-                    ok = false,
-                    msg = ex.Message,
-                    detail = ex.Message,
-                }, statusCode: StatusCodes.Status500InternalServerError);
-            }
+            var payload = desktopWindowController.Activate();
+            return Ok(payload.Activated ? "桌面窗口已激活" : "桌面窗口不可用", payload);
         });
 
         desktop.MapPost("/auth-bootstrap", (AuthService authService, XkeWebHostOptions options) =>
         {
-            try
+            if (!IsDesktopWebViewHostMode(options.HostMode))
             {
-                if (!IsDesktopWebViewHostMode(options.HostMode))
-                {
-                    return Results.Json(new { detail = "当前运行模式不支持桌面可信恢复" }, statusCode: StatusCodes.Status404NotFound);
-                }
+                return Error(StatusCodes.Status404NotFound, "当前运行模式不支持桌面可信恢复");
+            }
 
-                var result = authService.DesktopBootstrap();
-                return Ok(result.Message, new DesktopAuthBootstrapPayload(result.User, result.Payload));
-            }
-            catch (AuthException ex)
-            {
-                return AuthError(ex);
-            }
-            catch (Exception ex)
-            {
-                return Results.Json(new
-                {
-                    ok = false,
-                    msg = ex.Message,
-                    detail = ex.Message,
-                }, statusCode: StatusCodes.Status500InternalServerError);
-            }
+            var result = authService.DesktopBootstrap();
+            return Ok(result.Message, new DesktopAuthBootstrapPayload(result.User, result.Payload));
         });
     }
 

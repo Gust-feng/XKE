@@ -27,6 +27,7 @@ public sealed class DesktopSettingsService
         var current = _dataRoot.DesktopSettings().Load();
         var next = XkeDesktopSettingsStore.Normalize(new DesktopSettingsDocument
         {
+            AutoUpdateEnabled = request.AutoUpdateEnabled ?? current.AutoUpdateEnabled,
             LaunchAtStartup = request.LaunchAtStartup ?? current.LaunchAtStartup,
             SilentStartup = request.SilentStartup ?? current.SilentStartup,
             CloseToTray = request.CloseToTray ?? current.CloseToTray,

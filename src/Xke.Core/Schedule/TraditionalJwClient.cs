@@ -21,15 +21,6 @@ public sealed class TraditionalJwClient : IDisposable
     private static readonly Uri JwMainPageUri = new("http://jw.hnsoftedu.com/jsxsd/framework/xsMainV.jsp");
     private static readonly Uri JwMainNewPageUri = new("http://jw.hnsoftedu.com/jsxsd/framework/xsMainV_new.jsp?t1=1");
     private static readonly Uri JwScheduleLoadUri = new("http://jw.hnsoftedu.com/jsxsd/framework/mainV_index_loadkb.jsp");
-    private static readonly Uri JwCourseRoundsUri = new("http://jw.hnsoftedu.com/jsxsd/xsxk/xklc_list");
-    private static readonly Uri JwPreviewEntryBaseUri = new("http://jw.hnsoftedu.com/jsxsd/xsxk/yxxsxk_index");
-    private static readonly Uri JwPreviewComeInUri = new("http://jw.hnsoftedu.com/jsxsd/xsxkkc/yl_comeInGgxxkxk");
-    private static readonly Uri JwPreviewDataUri = new("http://jw.hnsoftedu.com/jsxsd/xsxkkc/yl_xsxkGgxxkxk?kcxx=&skls=&skxq=&skjc=&sfym=false&sfct=false&szjylb=&sfxx=true");
-    private const string DefaultPreviewPayload =
-        "sEcho=1&iColumns=11&sColumns=&iDisplayStart=0&iDisplayLength=100" +
-        "&mDataProp_0=kch&mDataProp_1=kcmc&mDataProp_2=xf&mDataProp_3=skls" +
-        "&mDataProp_4=sksj&mDataProp_5=skdd&mDataProp_6=xqmc&mDataProp_7=xkrs" +
-        "&mDataProp_8=syrs&mDataProp_9=ctsm&mDataProp_10=szkcflmc";
     private static readonly (string Key, string Value)[] UniversalCsrfPairs =
     [
         ("FzgxPikIetYDlXZM4lRG9taclVDa99lB", "7964f321f00366a3a287a133dd307ed0"),
@@ -123,6 +114,22 @@ public sealed class TraditionalJwClient : IDisposable
             throw new TraditionalJwSessionExpiredException("传统教务会话未完成 JW bootstrap，请重新输入验证码");
         }
 
+        if (!string.IsNullOrWhiteSpace(request.AcademicTerm))
+        {
+            var week = ScheduleService.ParseWeekNumber(request.ManualWeek);
+            TraditionalJwScheduleParams? currentContext = null;
+            if (week is null)
+            {
+                currentContext = await GetScheduleParamsAsync(new ScheduleRequest(), cancellationToken).ConfigureAwait(false);
+                if (request.AcademicTerm != currentContext.TermLabel)
+                    throw new JwScheduleException("历史学期的单周查询需要 manual_week，请指定周次或使用学期接口", 400);
+                week = ScheduleService.ParseWeekNumber(currentContext.CurrentWeekLabel);
+            }
+            if (week is null) throw new JwScheduleException("教务没有提供当前周次", 400);
+            var page = await FetchSemesterPageAsync(request.AcademicTerm, week.Value.ToString(), cancellationToken).ConfigureAwait(false);
+            return parser.Parse(page.Html, new ScheduleRequest { Mode = "manual", ManualWeek = week.Value.ToString(), AcademicTerm = page.Term, TermLabel = page.Term })
+                with { TermLabel = page.Term, CurrentWeekNumber = currentContext is null ? null : week, AvailableWeeks = currentContext?.AvailableWeeks ?? [], WeekDates = new Dictionary<string, string>() };
+        }
         var fetched = await FetchScheduleHtmlAsync(request, cancellationToken).ConfigureAwait(false);
         var parseRequest = new ScheduleRequest
         {
@@ -150,88 +157,68 @@ public sealed class TraditionalJwClient : IDisposable
                     ["label"] = fetched.Params.TermLabel,
                     ["academic_term"] = fetched.Params.TermLabel,
                 },
+                ["notes"] = parsed.RawPayload.GetValueOrDefault("notes"),
+                ["supplementary_courses"] = parsed.RawPayload.GetValueOrDefault("supplementary_courses"),
                 ["row_count"] = parsed.Rows.Count,
                 ["warning_count"] = parsed.DataWarnings.Count,
             },
         };
     }
 
-    public async Task<StudentProfileDocument> FetchStudentProfileAsync(CancellationToken cancellationToken = default)
+    public async Task<JwScheduleFetchResult> FetchSemesterScheduleAsync(string academicTerm, TraditionalJwScheduleHtmlParser parser,
+        CancellationToken cancellationToken = default)
     {
-        EnsureJwSessionForReadOnlyCourse();
-        var profileUris = new List<Uri>
-        {
-            new("http://jw.hnsoftedu.com/jsxsd/grxx/xsgrxx"),
-            new("http://jw.hnsoftedu.com/jsxsd/grxx/xsgrxx.jsp"),
-        };
-        using (var main = await SendAsync(
-            HttpMethod.Get,
-            JwMainPageUri,
-            new Dictionary<string, string> { ["Referer"] = "http://jw.hnsoftedu.com/" },
-            content: null,
-            cancellationToken,
-            stage: "jw_profile_index").ConfigureAwait(false))
-        {
-            if (main.IsSuccessStatusCode)
-            {
-                var mainHtml = await main.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                profileUris.AddRange(DiscoverProfileUris(mainHtml));
-            }
-        }
-
-        foreach (var uri in profileUris.DistinctBy(uri => uri.AbsoluteUri, StringComparer.OrdinalIgnoreCase))
-        {
-            using var response = await SendAsync(
-                HttpMethod.Get,
-                uri,
-                new Dictionary<string, string>
-                {
-                    ["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                    ["Referer"] = JwMainPageUri.ToString(),
-                },
-                content: null,
-                cancellationToken,
-                stage: "jw_profile").ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode)
-            {
-                continue;
-            }
-
-            var html = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            if (LooksLikeLoginPage(html))
-            {
-                throw new TraditionalJwSessionExpiredException("学生资料页返回登录页，当前 JW 会话已失效");
-            }
-
-            var parsed = ParseStudentProfile(html, _user);
-            if (!string.Equals(parsed.Name, _user, StringComparison.Ordinal) || HasProfileDetails(parsed))
-            {
-                return parsed;
-            }
-        }
-
-        return new StudentProfileDocument
-        {
-            StudentId = _user,
-            Name = _user,
-            UpdatedAt = DateTimeOffset.Now.ToString("O"),
-        };
+        var page = await FetchSemesterPageAsync(academicTerm, "", cancellationToken).ConfigureAwait(false);
+        var parsed = parser.ParseSemester(page.Html, page.Term);
+        parsed.RawPayload["available_terms"] = page.Terms;
+        parsed.RawPayload["mode"] = page.Mode;
+        return parsed with { TermLabel = page.Term };
     }
 
-    private static IEnumerable<Uri> DiscoverProfileUris(string html)
+    private async Task<(string Html, string Term, IReadOnlyList<Dictionary<string, object?>> Terms, string Mode)> FetchSemesterPageAsync(
+        string academicTerm, string week, CancellationToken cancellationToken)
     {
-        foreach (Match match in Regex.Matches(html ?? string.Empty, "(?:href|url)\\s*[=:]\\s*['\\\"](?<path>[^'\\\"]*(?:grxx|xsgrxx)[^'\\\"]*)", RegexOptions.IgnoreCase))
+        EnsureJwSession();
+        var uri = new Uri(JwMainPageUri, "/jsxsd/xskb/xskb_list.do");
+        async Task<string> Read(Uri address)
         {
-            var rawPath = WebUtility.HtmlDecode(match.Groups["path"].Value).Trim();
-            if (!Uri.TryCreate(JwMainPageUri, rawPath, out var uri)
-                || !string.Equals(uri.Host, JwMainPageUri.Host, StringComparison.OrdinalIgnoreCase)
-                || !uri.AbsolutePath.StartsWith("/jsxsd/", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            yield return uri;
+            using var response = await SendAsync(HttpMethod.Get, address,
+                new Dictionary<string, string> { ["Referer"] = JwMainNewPageUri.ToString() }, null, cancellationToken, "jw_semester").ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode) throw new JwScheduleException($"学期课表请求失败，状态码: {(int)response.StatusCode}");
+            JwHtml.EnsureAuthenticated(body);
+            return body;
         }
+        var html = await Read(uri).ConfigureAwait(false);
+        using var index = JwHtml.Parse(html);
+        var terms = JwScheduleContextParser.Options(index.QuerySelector("#xnxq01id"));
+        if (terms.Count == 0) throw new JwScheduleException("学期课表页面缺少学期目录");
+        var current = terms.FirstOrDefault(t => t["selected"] is true) ?? terms[0];
+        var term = string.IsNullOrWhiteSpace(academicTerm) ? current["value"]?.ToString() ?? "" : academicTerm.Trim();
+        if (!terms.Any(t => t["value"]?.ToString() == term)) throw new JwScheduleException("指定学期不在教务目录中", 404);
+        var modes = JwScheduleContextParser.Options(index.QuerySelector("#kbjcmsid"));
+        var mode = (modes.FirstOrDefault(m => m["selected"] is true) ?? modes.FirstOrDefault())?.GetValueOrDefault("value")?.ToString() ?? "";
+        if (mode.Length == 0) throw new JwScheduleException("学期课表页面缺少节次模式");
+        if (term != current["value"]?.ToString() || week.Length > 0)
+            html = await Read(AddQuery(uri, new Dictionary<string, string> { ["xnxq01id"] = term, ["zc"] = week, ["kbjcmsid"] = mode })).ConfigureAwait(false);
+        using var returned = JwHtml.Parse(html);
+        var returnedTerm = JwScheduleContextParser.Options(returned.QuerySelector("#xnxq01id")).FirstOrDefault(t => t["selected"] is true);
+        if (returnedTerm?.GetValueOrDefault("value")?.ToString() != term)
+            throw new JwScheduleException("教务返回的学期与请求不一致");
+        if (week.Length > 0 && JwScheduleContextParser.Options(returned.QuerySelector("#zc")).FirstOrDefault(w => w["selected"] is true)?.GetValueOrDefault("value")?.ToString() != week)
+            throw new JwScheduleException("教务返回的周次与请求不一致");
+        return (html, term, JwScheduleContextParser.Options(returned.QuerySelector("#xnxq01id")), mode);
+    }
+
+    public async Task<StudentProfileDocument> FetchStudentProfileAsync(CancellationToken cancellationToken = default)
+    {
+        EnsureJwSession();
+        using var response = await SendAsync(HttpMethod.Get, new Uri(JwMainPageUri, "/jsxsd/grxx/xsxx"),
+            new Dictionary<string, string> { ["Referer"] = JwMainPageUri.ToString() }, null, cancellationToken,
+            stage: "jw_profile").ConfigureAwait(false);
+        var html = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode) throw new JwScheduleException($"学生资料请求失败，状态码: {(int)response.StatusCode}");
+        return ParseStudentProfile(html, _user);
     }
 
     public bool HasBootstrappedJwSession => HasJwSessionCookie();
@@ -293,119 +280,6 @@ public sealed class TraditionalJwClient : IDisposable
             UpdatedAt = DateTimeOffset.Now.ToString("O"),
             Cookies = cookies,
         };
-    }
-
-    public async Task<IReadOnlyList<CourseRound>> FetchCourseRoundsAsync(CancellationToken cancellationToken = default)
-    {
-        EnsureJwSessionForReadOnlyCourse();
-        using var response = await SendAsync(
-            HttpMethod.Get,
-            JwCourseRoundsUri,
-            new Dictionary<string, string>
-            {
-                ["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-                ["Referer"] = JwMainPageUri.ToString(),
-                ["Upgrade-Insecure-Requests"] = "1",
-            },
-            content: null,
-            cancellationToken,
-            stage: "jw_course_rounds").ConfigureAwait(false);
-        var html = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new JwScheduleException($"选课轮次请求失败。阶段=jw_course_rounds, HTTP={(int)response.StatusCode}", statusCode: (int)response.StatusCode);
-        }
-
-        if (LooksLikeLoginPage(html))
-        {
-            throw new TraditionalJwSessionExpiredException("选课轮次页面返回登录页，当前 JW 会话已失效");
-        }
-
-        if (!html.Contains("jrxk(", StringComparison.OrdinalIgnoreCase) && !html.Contains("选课轮次", StringComparison.Ordinal))
-        {
-            throw new JwScheduleException("选课轮次页面内容异常。阶段=jw_course_rounds", statusCode: 400);
-        }
-
-        return ParseCourseRounds(html);
-    }
-
-    public async Task<IReadOnlyList<CourseItem>> FetchCoursePreviewAsync(string roundId, CancellationToken cancellationToken = default)
-    {
-        EnsureJwSessionForReadOnlyCourse();
-        var cleanedRoundId = (roundId ?? string.Empty).Trim();
-        if (string.IsNullOrWhiteSpace(cleanedRoundId))
-        {
-            throw new JwScheduleException("选课轮次不能为空", statusCode: 400);
-        }
-
-        var entryUri = AddQuery(JwPreviewEntryBaseUri, new Dictionary<string, string>
-        {
-            ["jx0502zbid"] = cleanedRoundId,
-        });
-        using (var entry = await SendAsync(
-            HttpMethod.Get,
-            entryUri,
-            new Dictionary<string, string>
-            {
-                ["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-                ["Referer"] = JwCourseRoundsUri.ToString(),
-                ["Upgrade-Insecure-Requests"] = "1",
-            },
-            content: null,
-            cancellationToken,
-            stage: "jw_preview_entry").ConfigureAwait(false))
-        {
-            if (!entry.IsSuccessStatusCode)
-            {
-                throw new JwScheduleException($"选课预览入口请求失败。阶段=jw_preview_entry, HTTP={(int)entry.StatusCode}", statusCode: (int)entry.StatusCode);
-            }
-        }
-
-        using (var comeIn = await SendAsync(
-            HttpMethod.Get,
-            JwPreviewComeInUri,
-            new Dictionary<string, string>
-            {
-                ["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-                ["Referer"] = entryUri.ToString(),
-                ["Upgrade-Insecure-Requests"] = "1",
-            },
-            content: null,
-            cancellationToken,
-            stage: "jw_preview_come_in").ConfigureAwait(false))
-        {
-            if (!comeIn.IsSuccessStatusCode)
-            {
-                throw new JwScheduleException($"进入课程预览失败。阶段=jw_preview_come_in, HTTP={(int)comeIn.StatusCode}", statusCode: (int)comeIn.StatusCode);
-            }
-        }
-
-        using var content = new StringContent(DefaultPreviewPayload, Encoding.UTF8, "application/x-www-form-urlencoded");
-        using var response = await SendAsync(
-            HttpMethod.Post,
-            JwPreviewDataUri,
-            new Dictionary<string, string>
-            {
-                ["Content-Type"] = "application/x-www-form-urlencoded; charset=UTF-8",
-                ["X-Requested-With"] = "XMLHttpRequest",
-                ["Referer"] = JwPreviewComeInUri.ToString(),
-                ["Accept"] = "*/*",
-            },
-            content,
-            cancellationToken,
-            stage: "jw_preview_courses").ConfigureAwait(false);
-        var text = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new JwScheduleException($"课程预览请求失败。阶段=jw_preview_courses, HTTP={(int)response.StatusCode}", statusCode: (int)response.StatusCode);
-        }
-
-        if (LooksLikeLoginPage(text))
-        {
-            throw new TraditionalJwSessionExpiredException("课程预览请求返回登录页，当前 JW 会话已失效");
-        }
-
-        return ParseCoursePreviewItems(text);
     }
 
     public void Dispose()
@@ -685,7 +559,7 @@ public sealed class TraditionalJwClient : IDisposable
         return new TraditionalJwFetchedSchedule(parameters, html);
     }
 
-    private void EnsureJwSessionForReadOnlyCourse()
+    private void EnsureJwSession()
     {
         if (!HasJwSessionCookie())
         {
@@ -722,163 +596,7 @@ public sealed class TraditionalJwClient : IDisposable
     }
 
     private static TraditionalJwScheduleParams ExtractScheduleParams(string html, ScheduleRequest request)
-    {
-        var modeMatches = Regex.Matches(html, @"<li(?<before>[^>]*)name\s*=\s*[""']kbjcmsid[""'](?<after>[^>]*)>(?<body>.*?)</li>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
-        if (modeMatches.Count == 0)
-        {
-            throw new JwScheduleException("首页课表页中未找到 kbjcmsid，无法构建课表请求");
-        }
-
-        var modes = new List<Dictionary<string, object?>>();
-        Dictionary<string, object?>? selectedMode = null;
-        foreach (Match match in modeMatches)
-        {
-            var attrs = $"{match.Groups["before"].Value} {match.Groups["after"].Value}";
-            var value = MatchAttribute(attrs, "data-value");
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                continue;
-            }
-
-            var item = new Dictionary<string, object?>(StringComparer.Ordinal)
-            {
-                ["value"] = value,
-                ["label"] = StripHtml(match.Groups["body"].Value),
-                ["selected"] = attrs.Contains("layui-this", StringComparison.OrdinalIgnoreCase),
-            };
-            modes.Add(item);
-            if (item.GetValueOrDefault("selected") is true && selectedMode is null)
-            {
-                selectedMode = item;
-            }
-        }
-
-        if (modes.Count == 0)
-        {
-            throw new JwScheduleException("首页课表页中的 kbjcmsid 结构异常，无法构建课表请求");
-        }
-
-        selectedMode ??= modes[0];
-        var weekSelectMatch = Regex.Match(html, @"<select[^>]*id\s*=\s*[""']week[""'][^>]*>(?<body>.*?)</select>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
-        if (!weekSelectMatch.Success)
-        {
-            throw new JwScheduleException("首页课表页中未找到 week 下拉框，无法构建课表请求");
-        }
-
-        var weekMatches = Regex.Matches(weekSelectMatch.Groups["body"].Value, @"<option(?<attrs>[^>]*)>(?<body>.*?)</option>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
-        if (weekMatches.Count == 0)
-        {
-            throw new JwScheduleException("首页课表页中未找到周次选项，无法构建课表请求");
-        }
-
-        var weeks = new List<Dictionary<string, object?>>();
-        Dictionary<string, object?>? currentWeek = null;
-        Dictionary<string, object?>? selectedWeek = null;
-        var cleanedPreferredRq = (request.CookieRq ?? string.Empty).Trim();
-        foreach (Match match in weekMatches)
-        {
-            var attrs = match.Groups["attrs"].Value;
-            var value = MatchAttribute(attrs, "value");
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                continue;
-            }
-
-            var label = StripHtml(match.Groups["body"].Value);
-            var isCurrent = attrs.Contains("selected", StringComparison.OrdinalIgnoreCase);
-            var item = new Dictionary<string, object?>(StringComparer.Ordinal)
-            {
-                ["value"] = value,
-                ["label"] = string.IsNullOrWhiteSpace(label) ? value : label,
-                ["selected"] = false,
-            };
-            weeks.Add(item);
-            if (isCurrent && currentWeek is null)
-            {
-                currentWeek = item;
-            }
-
-            if (!string.IsNullOrWhiteSpace(cleanedPreferredRq) && string.Equals(value, cleanedPreferredRq, StringComparison.Ordinal))
-            {
-                selectedWeek = item;
-            }
-        }
-
-        if (weeks.Count == 0)
-        {
-            throw new JwScheduleException("首页课表页中未找到有效周次选项，无法构建课表请求");
-        }
-
-        selectedWeek ??= ResolveRequestedScheduleWeek(request, currentWeek, weeks);
-        selectedWeek ??= currentWeek ?? weeks[0];
-        foreach (var week in weeks)
-        {
-            week["selected"] = ReferenceEquals(week, selectedWeek);
-        }
-
-        return new TraditionalJwScheduleParams(
-            Rq: selectedWeek.GetValueOrDefault("value")?.ToString() ?? string.Empty,
-            SjmsValue: selectedMode.GetValueOrDefault("value")?.ToString() ?? string.Empty,
-            TermLabel: ExtractTermLabel(html, request),
-            WeekLabel: selectedWeek.GetValueOrDefault("label")?.ToString() ?? "当前周",
-            CurrentWeekLabel: currentWeek?.GetValueOrDefault("label")?.ToString() ?? selectedWeek.GetValueOrDefault("label")?.ToString() ?? "当前周",
-            AvailableWeeks: weeks,
-            AvailableModes: modes);
-    }
-
-    private static string ExtractTermLabel(string html, ScheduleRequest request)
-    {
-        foreach (Match select in Regex.Matches(
-            html ?? string.Empty,
-            @"<select(?<attrs>[^>]*)>(?<body>.*?)</select>",
-            RegexOptions.IgnoreCase | RegexOptions.Singleline))
-        {
-            var attrs = select.Groups["attrs"].Value;
-            if (Regex.IsMatch(attrs, @"\b(?:id|name)\s*=\s*[""']week[""']", RegexOptions.IgnoreCase))
-            {
-                continue;
-            }
-
-            var options = Regex.Matches(
-                    select.Groups["body"].Value,
-                    @"<option(?<attrs>[^>]*)>(?<body>.*?)</option>",
-                    RegexOptions.IgnoreCase | RegexOptions.Singleline)
-                .Cast<Match>()
-                .Select(option => StripHtml(option.Groups["body"].Value))
-                .Where(label => !string.IsNullOrWhiteSpace(label) && !label.Contains("请选择", StringComparison.Ordinal))
-                .ToArray();
-            if (options.Length == 1)
-            {
-                return options[0];
-            }
-        }
-
-        return request.TermLabel?.Trim()
-            ?? request.AcademicTerm?.Trim()
-            ?? string.Empty;
-    }
-
-    private static Dictionary<string, object?>? ResolveRequestedScheduleWeek(
-        ScheduleRequest request,
-        Dictionary<string, object?>? currentWeek,
-        IReadOnlyList<Dictionary<string, object?>> weeks)
-    {
-        var mode = (request.Mode ?? string.Empty).Trim().ToLowerInvariant();
-        int? targetWeekNumber = mode switch
-        {
-            "manual" => ScheduleService.ParseWeekNumber(request.ManualWeek),
-            "next" => ScheduleService.ParseWeekNumber(currentWeek?.GetValueOrDefault("label")?.ToString()) + 1,
-            "current" => ScheduleService.ParseWeekNumber(currentWeek?.GetValueOrDefault("label")?.ToString()),
-            _ => null,
-        };
-        if (targetWeekNumber is null)
-        {
-            return null;
-        }
-
-        return weeks.FirstOrDefault(week =>
-            ScheduleService.ParseWeekNumber(week.GetValueOrDefault("label")?.ToString()) == targetWeekNumber.Value);
-    }
+        => JwScheduleContextParser.ParseHome(html, request);
 
     private async Task FollowRedirectsAsync(Uri startUri, string stage, CancellationToken cancellationToken)
     {
@@ -955,6 +673,11 @@ public sealed class TraditionalJwClient : IDisposable
         {
             var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseContentRead, timeoutCts.Token).ConfigureAwait(false);
             CaptureCookies(uri, response);
+            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized && uri.AbsolutePath.StartsWith("/jsxsd/", StringComparison.OrdinalIgnoreCase))
+            {
+                response.Dispose();
+                throw new TraditionalJwSessionExpiredException("教务请求返回401，当前JW会话已失效");
+            }
             return response;
         }
         catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -1277,346 +1000,10 @@ public sealed class TraditionalJwClient : IDisposable
         return WebUtility.HtmlDecode(text).Trim();
     }
 
-    private static IReadOnlyList<CourseRound> ParseCourseRounds(string html)
-    {
-        var tbodyMatch = Regex.Match(html ?? string.Empty, @"<tbody[^>]*>(?<body>.*?)</tbody>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
-        var body = tbodyMatch.Success ? tbodyMatch.Groups["body"].Value : html ?? string.Empty;
-        var rounds = new List<CourseRound>();
-        foreach (Match tr in Regex.Matches(body, @"<tr[^>]*>(?<row>.*?)</tr>", RegexOptions.IgnoreCase | RegexOptions.Singleline))
-        {
-            var rowHtml = tr.Groups["row"].Value;
-            var cells = Regex.Matches(rowHtml, @"<td[^>]*>(?<cell>.*?)</td>", RegexOptions.IgnoreCase | RegexOptions.Singleline)
-                .Cast<Match>()
-                .Select(match => CleanHtmlText(match.Groups["cell"].Value))
-                .ToArray();
-            if (cells.Length < 3)
-            {
-                continue;
-            }
-
-            var previewId = MatchCourseRoundId(rowHtml, "0");
-            var enterId = MatchCourseRoundId(rowHtml, "1");
-            var roundId = !string.IsNullOrWhiteSpace(previewId) ? previewId : enterId;
-            if (string.IsNullOrWhiteSpace(roundId))
-            {
-                continue;
-            }
-
-            rounds.Add(new CourseRound(
-                RoundId: roundId,
-                Name: cells.ElementAtOrDefault(1) ?? string.Empty,
-                Term: cells.ElementAtOrDefault(0) ?? string.Empty,
-                TimeRange: cells.ElementAtOrDefault(2) ?? string.Empty,
-                Status: cells.ElementAtOrDefault(3) ?? string.Empty));
-        }
-
-        return rounds;
-    }
-
-    private static string MatchCourseRoundId(string html, string mode)
-    {
-        var match = Regex.Match(html ?? string.Empty, $@"jrxk\(\s*['""]{Regex.Escape(mode)}['""]\s*,\s*['""](?<id>[^'""]+)['""]", RegexOptions.IgnoreCase);
-        return match.Success ? WebUtility.HtmlDecode(match.Groups["id"].Value).Trim() : string.Empty;
-    }
-
-    private static IReadOnlyList<CourseItem> ParseCoursePreviewItems(string json)
-    {
-        JsonDocument document;
-        try
-        {
-            document = JsonDocument.Parse(json);
-        }
-        catch (JsonException)
-        {
-            throw new JwScheduleException("课程预览返回非 JSON。阶段=jw_preview_courses", statusCode: 400);
-        }
-
-        using (document)
-        {
-            if (!document.RootElement.TryGetProperty("aaData", out var aaData) || aaData.ValueKind != JsonValueKind.Array)
-            {
-                throw new JwScheduleException("课程预览返回缺少 aaData。阶段=jw_preview_courses", statusCode: 400);
-            }
-
-            var courses = new List<CourseItem>();
-            foreach (var item in aaData.EnumerateArray())
-            {
-                courses.Add(ParseCoursePreviewItem(item));
-            }
-
-            return courses;
-        }
-    }
-
-    private static CourseItem ParseCoursePreviewItem(JsonElement item)
-    {
-        if (item.ValueKind == JsonValueKind.Array)
-        {
-            var elements = item.EnumerateArray().ToArray();
-            var values = elements.Select(JsonValueToCleanString).ToArray();
-            var rawValues = elements.Select(JsonValueToRawString).ToArray();
-            var (jx02Id, jx0404Id) = ResolveCoursePreviewIdsFromArray(values, rawValues);
-            return new CourseItem
-            {
-                Kch = values.ElementAtOrDefault(0) ?? string.Empty,
-                Kcmc = values.ElementAtOrDefault(1) ?? string.Empty,
-                Xf = values.ElementAtOrDefault(2) ?? string.Empty,
-                Skls = values.ElementAtOrDefault(3) ?? string.Empty,
-                Sksj = values.ElementAtOrDefault(4) ?? string.Empty,
-                Skdd = values.ElementAtOrDefault(5) ?? string.Empty,
-                Xqmc = values.ElementAtOrDefault(6) ?? string.Empty,
-                Xkrs = values.ElementAtOrDefault(7) ?? string.Empty,
-                Syrs = values.ElementAtOrDefault(8) ?? string.Empty,
-                Ctsm = values.ElementAtOrDefault(9) ?? string.Empty,
-                Szkcflmc = values.ElementAtOrDefault(10) ?? string.Empty,
-                Jx02Id = jx02Id,
-                Jx0404Id = jx0404Id,
-            };
-        }
-
-        return new CourseItem
-        {
-            Kch = GetJsonString(item, "kch"),
-            Kcmc = GetJsonString(item, "kcmc"),
-            Xf = GetJsonString(item, "xf"),
-            Skls = GetJsonString(item, "skls"),
-            Sksj = GetJsonString(item, "sksj"),
-            Skdd = GetJsonString(item, "skdd"),
-            Xqmc = GetJsonString(item, "xqmc"),
-            Xkrs = GetJsonString(item, "xkrs"),
-            Syrs = GetJsonString(item, "syrs"),
-            Ctsm = GetJsonString(item, "ctsm"),
-            Szkcflmc = GetJsonString(item, "szkcflmc"),
-            Jx02Id = GetJsonString(item, "jx02id", "jx02Id", "jx02_id"),
-            Jx0404Id = GetJsonString(item, "jx0404id", "jx0404Id", "jx0404_id"),
-        };
-    }
-
-    private static string GetJsonString(JsonElement item, params string[] names)
-    {
-        if (item.ValueKind != JsonValueKind.Object)
-        {
-            return string.Empty;
-        }
-
-        foreach (var property in item.EnumerateObject())
-        {
-            if (names.Any(name => string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase)))
-            {
-                return JsonValueToCleanString(property.Value);
-            }
-        }
-
-        return string.Empty;
-    }
-
-    private static string JsonValueToCleanString(JsonElement value)
-    {
-        return value.ValueKind switch
-        {
-            JsonValueKind.String => CleanHtmlText(value.GetString() ?? string.Empty),
-            JsonValueKind.Number => value.GetRawText(),
-            JsonValueKind.True => "true",
-            JsonValueKind.False => "false",
-            _ => string.Empty,
-        };
-    }
-
-    private static string JsonValueToRawString(JsonElement value)
-    {
-        return value.ValueKind switch
-        {
-            JsonValueKind.String => value.GetString() ?? string.Empty,
-            JsonValueKind.Number => value.GetRawText(),
-            JsonValueKind.True => "true",
-            JsonValueKind.False => "false",
-            _ => string.Empty,
-        };
-    }
-
-    private static (string Jx02Id, string Jx0404Id) ResolveCoursePreviewIdsFromArray(string[] values, string[] rawValues)
-    {
-        var raw = string.Join(" ", rawValues.Skip(10));
-        var jx02Id = ExtractNamedPreviewId(raw, "jx02id", "jx02Id", "jx02_id", "kcid");
-        var jx0404Id = ExtractNamedPreviewId(raw, "jx0404id", "jx0404Id", "jx0404_id");
-        if (string.IsNullOrWhiteSpace(jx02Id) || string.IsNullOrWhiteSpace(jx0404Id))
-        {
-            var actionIds = ExtractPreviewActionIds(raw);
-            if (string.IsNullOrWhiteSpace(jx02Id))
-            {
-                jx02Id = actionIds.ElementAtOrDefault(0) ?? string.Empty;
-            }
-
-            if (string.IsNullOrWhiteSpace(jx0404Id))
-            {
-                jx0404Id = actionIds.ElementAtOrDefault(1) ?? string.Empty;
-            }
-        }
-
-        if (string.IsNullOrWhiteSpace(jx02Id))
-        {
-            jx02Id = SafePreviewId(values.ElementAtOrDefault(11));
-        }
-
-        if (string.IsNullOrWhiteSpace(jx0404Id))
-        {
-            jx0404Id = SafePreviewId(values.ElementAtOrDefault(12));
-        }
-
-        return (jx02Id, jx0404Id);
-    }
-
-    private static string ExtractNamedPreviewId(string raw, params string[] names)
-    {
-        foreach (var name in names)
-        {
-            foreach (var pattern in new[]
-            {
-                $@"(?:[?&]|\b){Regex.Escape(name)}\s*=\s*[""']?(?<id>[A-Za-z0-9_.:-]+)",
-                $@"\b{Regex.Escape(name)}\b\s*[:=]\s*[""'](?<id>[^""']+)",
-                $@"name\s*=\s*[""']{Regex.Escape(name)}[""'][^>]*value\s*=\s*[""'](?<id>[^""']+)",
-                $@"value\s*=\s*[""'](?<id>[^""']+)[""'][^>]*name\s*=\s*[""']{Regex.Escape(name)}[""']",
-            })
-            {
-                var match = Regex.Match(raw ?? string.Empty, pattern, RegexOptions.IgnoreCase);
-                if (match.Success)
-                {
-                    var id = SafePreviewId(WebUtility.HtmlDecode(match.Groups["id"].Value));
-                    if (!string.IsNullOrWhiteSpace(id))
-                    {
-                        return id;
-                    }
-                }
-            }
-        }
-
-        return string.Empty;
-    }
-
-    private static IReadOnlyList<string> ExtractPreviewActionIds(string raw)
-    {
-        var ids = new List<string>();
-        foreach (Match call in Regex.Matches(raw ?? string.Empty, @"\b[A-Za-z_]\w*\s*\((?<args>[^)]*)\)"))
-        {
-            foreach (Match argument in Regex.Matches(call.Groups["args"].Value, @"[""'](?<id>[^""']+)[""']|(?<id>[A-Za-z0-9_.:-]+)"))
-            {
-                var id = SafePreviewId(argument.Groups["id"].Value);
-                if (!string.IsNullOrWhiteSpace(id) && !ids.Contains(id, StringComparer.Ordinal))
-                {
-                    ids.Add(id);
-                }
-            }
-        }
-
-        return ids;
-    }
-
-    private static string SafePreviewId(string? value)
-    {
-        var cleaned = (value ?? string.Empty).Trim();
-        if (cleaned.Equals("this", StringComparison.OrdinalIgnoreCase)
-            || cleaned.Equals("true", StringComparison.OrdinalIgnoreCase)
-            || cleaned.Equals("false", StringComparison.OrdinalIgnoreCase)
-            || cleaned.Equals("null", StringComparison.OrdinalIgnoreCase))
-        {
-            return string.Empty;
-        }
-
-        return Regex.IsMatch(cleaned, @"^[A-Za-z0-9_.:-]{3,80}$") ? cleaned : string.Empty;
-    }
-
-    private static string CleanHtmlText(string value)
-    {
-        return Regex.Replace(StripHtml(value), @"\s+", " ").Trim();
-    }
-
     private static StudentProfileDocument ParseStudentProfile(string html, string fallbackUser)
-    {
-        var fields = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (Match row in Regex.Matches(html ?? string.Empty, @"<tr[^>]*>(?<cells>.*?)</tr>", RegexOptions.IgnoreCase | RegexOptions.Singleline))
-        {
-            var cells = Regex.Matches(row.Groups["cells"].Value, @"<(?:th|td)[^>]*>(?<value>.*?)</(?:th|td)>", RegexOptions.IgnoreCase | RegexOptions.Singleline)
-                .Select(match => CleanHtmlText(WebUtility.HtmlDecode(match.Groups["value"].Value)))
-                .Where(value => !string.IsNullOrWhiteSpace(value))
-                .ToArray();
-            for (var index = 0; index + 1 < cells.Length; index += 2)
-            {
-                AddProfileField(fields, cells[index], cells[index + 1]);
-            }
-        }
+        => new JwStudentProfileParser().Parse(html, fallbackUser);
 
-        foreach (Match input in Regex.Matches(html ?? string.Empty, @"<input(?<attrs>[^>]*)>", RegexOptions.IgnoreCase | RegexOptions.Singleline))
-        {
-            var attributes = input.Groups["attrs"].Value;
-            var label = MatchAttribute(attributes, "name");
-            var value = MatchAttribute(attributes, "value");
-            AddProfileField(fields, label, value);
-        }
-
-        var studentId = ReadProfileField(fields, "学号", "学生号", "xh", "xuehao");
-        return new StudentProfileDocument
-        {
-            StudentId = string.IsNullOrWhiteSpace(studentId) ? fallbackUser : studentId,
-            Name = ReadProfileField(fields, ["姓名", "xm", "xingming"], fallbackUser),
-            ClassName = ReadProfileField(fields, "班级", "bj", "class"),
-            MajorName = ReadProfileField(fields, "专业", "zymc", "major"),
-            AcademyName = ReadProfileField(fields, "学院", "院系", "系别", "xymc", "academy"),
-            TrainingLevel = ReadProfileField(fields, "培养层次", "学历层次", "学生类别", "pycc", "level"),
-            CampusName = ReadProfileField(fields, "校区", "xq", "campus"),
-            UpdatedAt = DateTimeOffset.Now.ToString("O"),
-        };
-    }
-
-    private static void AddProfileField(Dictionary<string, string> fields, string label, string value)
-    {
-        var key = Regex.Replace(label ?? string.Empty, @"\s|：|:", string.Empty);
-        var cleaned = CleanHtmlText(value ?? string.Empty);
-        if (!string.IsNullOrWhiteSpace(key) && !string.IsNullOrWhiteSpace(cleaned) && !fields.ContainsKey(key))
-        {
-            fields[key] = cleaned;
-        }
-    }
-
-    private static string ReadProfileField(Dictionary<string, string> fields, params string[] names)
-    {
-        return ReadProfileField(fields, names, string.Empty);
-    }
-
-    private static string ReadProfileField(Dictionary<string, string> fields, string[] names, string fallback)
-    {
-        foreach (var name in names)
-        {
-            var normalized = Regex.Replace(name ?? string.Empty, @"\s|：|:", string.Empty);
-            if (fields.TryGetValue(normalized, out var exact) && !string.IsNullOrWhiteSpace(exact))
-            {
-                return exact;
-            }
-
-            var fuzzy = fields.FirstOrDefault(pair => pair.Key.Contains(normalized, StringComparison.OrdinalIgnoreCase));
-            if (!string.IsNullOrWhiteSpace(fuzzy.Value))
-            {
-                return fuzzy.Value;
-            }
-        }
-
-        return fallback;
-    }
-
-    private static bool HasProfileDetails(StudentProfileDocument profile)
-    {
-        return !string.IsNullOrWhiteSpace(profile.ClassName)
-               || !string.IsNullOrWhiteSpace(profile.MajorName)
-               || !string.IsNullOrWhiteSpace(profile.AcademyName)
-               || !string.IsNullOrWhiteSpace(profile.TrainingLevel)
-               || !string.IsNullOrWhiteSpace(profile.CampusName);
-    }
-
-    private static bool LooksLikeLoginPage(string html)
-    {
-        var text = html ?? string.Empty;
-        return text.Contains("login-page-flowkey", StringComparison.OrdinalIgnoreCase)
-               || (text.Contains("登录", StringComparison.Ordinal) && text.Contains("login", StringComparison.OrdinalIgnoreCase));
-    }
+    private static bool LooksLikeLoginPage(string html) => JwHtml.IsSessionExpired(html);
 
     private sealed record TraditionalPreloginRequest(
         string Method,

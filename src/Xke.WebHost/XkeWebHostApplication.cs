@@ -2,7 +2,10 @@ using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Logging;
 using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Xke.Contracts.Api;
 using Xke.Contracts.Enums;
@@ -10,16 +13,10 @@ using Xke.Contracts.Requests;
 using Xke.Contracts.Responses;
 using Xke.Core.Auth;
 using Xke.Core.Auth.Jw;
-using Xke.Core.CloudSync;
-using Xke.Core.Course;
 using Xke.Core.Desktop;
-using Xke.Core.Notice;
 using Xke.Core.Runtime;
 using Xke.Core.Schedule;
 using Xke.Core.Network;
-using Xke.Core.Telemetry;
-using Xke.Core.Feedback;
-using Xke.Core.Update;
 using Xke.Storage;
 
 namespace Xke.WebHost;
@@ -38,8 +35,6 @@ public static partial class XkeWebHostApplication
 
         var resolvedPaths = XkePathResolver.Resolve(hostOptions.WebRootPath);
         var dotNetRoot = ResolveDotNetWorkspaceRoot(resolvedPaths.AppBaseDirectory);
-        var privateCloudOptions = PrivateCloudEndpointOptions.Load();
-        var localOnly = hostOptions.LocalOnly || privateCloudOptions.LocalOnly;
         builder.Services.AddSingleton(hostOptions);
         builder.Services.AddSingleton(resolvedPaths);
         builder.Services.AddSingleton(XkeDataRootFactory.CreateDefault(
@@ -54,36 +49,36 @@ public static partial class XkeWebHostApplication
                 new HttpClient(),
                 _.GetRequiredService<TraditionalJwSessionRuntimeStore>(),
                 _.GetRequiredService<XkeDataRoot>()));
+        var scheduleApiOptions = hostOptions.ScheduleApiOptions ?? ScheduleApiOptions.Load(dotNetRoot);
+        builder.Services.AddSingleton(scheduleApiOptions);
+        var snapshotClient = scheduleApiOptions.Provider == "protocol"
+            ? builder.Services.AddHttpClient<IScheduleSnapshotSource, ProtocolScheduleApiClient>(client => client.Timeout = Timeout.InfiniteTimeSpan)
+            : builder.Services.AddHttpClient<IScheduleSnapshotSource, PersonalScheduleApiClient>(client => client.Timeout = Timeout.InfiniteTimeSpan);
+        snapshotClient.ConfigurePrimaryHttpMessageHandler(services => ScheduleApiTransport.CreateHandler(services.GetRequiredService<ScheduleApiOptions>()));
+        if (hostOptions.ScheduleSnapshotSource is not null)
+            builder.Services.AddSingleton<IScheduleSnapshotSource>(hostOptions.ScheduleSnapshotSource);
         builder.Services.AddSingleton<MobileSessionRuntimeStore>();
-        builder.Services.AddSingleton<ICourseClient>(_ =>
-            hostOptions.CourseClient ?? new TraditionalJwCourseClient(
-                _.GetRequiredService<TraditionalJwSessionRuntimeStore>()));
         builder.Services.AddSingleton(_ =>
             hostOptions.NetworkHttpMessageHandler is null
-                ? new HttpClient()
+                ? new HttpClient(NetworkHttpTransport.CreateHandler())
                 : new HttpClient(hostOptions.NetworkHttpMessageHandler, disposeHandler: false));
         builder.Services.AddSingleton<INetworkCommandExecutor>(_ =>
             hostOptions.NetworkCommandExecutor ?? new ProcessNetworkCommandExecutor());
-        builder.Services.AddSingleton(new NoticeServiceOptions
-        {
-            AppRoot = dotNetRoot,
-            PublicKeyPem = hostOptions.NoticeSigningPublicKeyPem,
-            DefaultChannel = "beta",
-        });
-        builder.Services.AddSingleton<INoticeRemoteSource>(_ =>
-            localOnly
-                ? new LocalOnlyNoticeRemoteSource()
-                : hostOptions.NoticeRemoteSource ?? new HttpNoticeRemoteSource(new HttpClient()));
-        builder.Services.AddSingleton<RemotePolicyService>();
-        builder.Services.AddSingleton<CloudFeedService>();
-        builder.Services.AddSingleton<NoticeService>();
         builder.Services.AddSingleton<IDesktopStartupRegistrar>(_ =>
             hostOptions.DesktopStartupRegistrar ?? new NoopDesktopStartupRegistrar());
         builder.Services.AddSingleton<DesktopSettingsService>();
+        builder.Services.AddSingleton(hostOptions.AppUpdates ?? new Xke.Core.Releases.AppUpdateService(
+            new Xke.Core.Releases.DisabledAppUpdateBackend(), TimeProvider.System));
+        builder.Services.AddSingleton<IDesktopNotifier>(_ => hostOptions.DesktopNotifier ?? new NoopDesktopNotifier());
         builder.Services.AddSingleton<IDesktopWindowController>(_ =>
             hostOptions.DesktopWindowController ?? new NoopDesktopWindowController());
-        builder.Services.AddSingleton<AuthService>();
-        builder.Services.AddSingleton<CourseService>();
+        builder.Services.AddSingleton(services => new AuthService(
+            services.GetRequiredService<XkeDataRoot>(),
+            services.GetRequiredService<IJwAuthClient>(),
+            services.GetRequiredService<ScheduleService>(),
+            services.GetRequiredService<MobileSessionRuntimeStore>(),
+            services.GetRequiredService<TraditionalJwSessionRuntimeStore>(),
+            hostOptions.JwLoginProtocolFactory));
         builder.Services.AddSingleton<JwCaptchaChallengeStore>();
         builder.Services.AddSingleton<IJwCaptchaSolver, ManualCaptchaSolver>();
         builder.Services.AddSingleton(_ => new ScheduleService(
@@ -92,36 +87,40 @@ public static partial class XkeWebHostApplication
             _.GetRequiredService<MobileSessionRuntimeStore>(),
             _.GetRequiredService<JwCaptchaChallengeStore>(),
             _.GetRequiredService<IJwCaptchaSolver>(),
-            hostOptions.UseLegacyMobileScheduleForTests));
-        builder.Services.AddSingleton<NetworkService>();
-        builder.Services.AddSingleton<ITelemetryTransport>(_ =>
-            localOnly
-                ? new LocalOnlyTelemetryTransport()
-                : hostOptions.TelemetryTransport
-                  ?? new HttpTelemetryTransport(new HttpClient(), hostOptions.TelemetryCloudEndpoint));
-        builder.Services.AddSingleton<TelemetryService>();
-        builder.Services.AddSingleton<IFeedbackTransport>(_ =>
-            localOnly
-                ? new LocalFeedbackOutboxTransport(_.GetRequiredService<XkeDataRoot>())
-                : hostOptions.FeedbackTransport
-                  ?? new HttpFeedbackTransport(
-                      _.GetRequiredService<XkeDataRoot>(),
-                      new HttpClient(),
-                      hostOptions.FeedbackCloudEndpoint));
-        builder.Services.AddSingleton<FeedbackService>();
-        builder.Services.AddSingleton<IUpdatePackageDownloader>(_ =>
-            localOnly
-                ? new LocalOnlyUpdatePackageDownloader()
-                : hostOptions.UpdatePackageDownloader ?? new HttpUpdatePackageDownloader(new HttpClient()));
-        builder.Services.AddSingleton<IUpdateVersionProvider>(_ =>
-            hostOptions.UpdateVersionProvider ?? new AssemblyUpdateVersionProvider());
-        builder.Services.AddSingleton<UpdateService>();
-
+            hostOptions.UseLegacyMobileScheduleForTests,
+            _.GetRequiredService<IScheduleSnapshotSource>(),
+            () => _.GetRequiredService<AuthService>().ActiveSessionId));
+        builder.Services.AddSingleton<IScheduleRefresh>(services => services.GetRequiredService<ScheduleService>());
+        builder.Services.AddSingleton<ScheduleRefreshScheduler>();
+        builder.Services.AddSingleton(services => new LessonReminderScheduler(
+            services.GetRequiredService<XkeDataRoot>(), services.GetRequiredService<TimeProvider>(),
+            services.GetRequiredService<IDesktopNotifier>(), () => services.GetRequiredService<AuthService>().ActiveSessionId));
+        builder.Services.AddSingleton(services =>
+        {
+            var auth = services.GetRequiredService<AuthService>();
+            return new NetworkService(services.GetRequiredService<XkeDataRoot>(), services.GetRequiredService<HttpClient>(),
+                services.GetRequiredService<INetworkCommandExecutor>(), () => auth.ActiveSessionId);
+        });
+        builder.Services.AddSingleton(hostOptions.CampusSelfServiceOptions ?? CampusSelfServiceOptions.Load(dotNetRoot));
+        builder.Services.AddSingleton(services => new CampusSelfServiceSummaryService(
+            services.GetRequiredService<XkeDataRoot>(),
+            services.GetRequiredService<CampusSelfServiceOptions>(),
+            services.GetRequiredService<TimeProvider>(),
+            hostOptions.CampusSelfServiceClientFactory));
+        builder.Services.AddSingleton<INetworkMaintenance>(services => services.GetRequiredService<NetworkService>());
+        builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
+        builder.Services.AddSingleton<NetworkMaintenanceScheduler>();
+        if (hostOptions.EnableBackgroundTasks)
+        {
+            builder.Services.AddHostedService<PersonalRuntimeWorker>();
+            builder.Services.AddHostedService<AppUpdateWorker>();
+        }
         builder.Services.AddCors(cors =>
         {
-            cors.AddPolicy("LoopbackOnly", policy =>
+            cors.AddPolicy("ExplicitFrontend", policy =>
             {
-                policy.SetIsOriginAllowed(IsLoopbackOrigin);
+                // Same-origin requests need no CORS. Cross-origin development is explicit.
+                policy.WithOrigins(hostOptions.AllowedFrontendOrigins.ToArray());
                 policy.AllowAnyHeader();
                 policy.AllowAnyMethod();
             });
@@ -129,25 +128,23 @@ public static partial class XkeWebHostApplication
 
         var app = builder.Build();
 
-        app.UseCors("LoopbackOnly");
+        app.Use(HandleApiErrors);
+        app.Use(async (context, next) =>
+        {
+            if (LocalApiAccessPolicy.ValidateRequest(context, hostOptions.HostMode,
+                hostOptions.AllowedFrontendOrigins, hostOptions.DesktopRequestToken))
+                await next();
+        });
+        app.UseWhen(context => context.Request.Headers.TryGetValue("Origin", out var origins)
+            && !LocalApiAccessPolicy.IsAllowedOrigin(context.Request, origins.ToString(), Array.Empty<string>()),
+            branch => branch.UseCors("ExplicitFrontend"));
         app.Use(ApplySessionHeaderCompatibility);
-        app.Use(ApplyBetaGuard);
         app.Use(ApplyNoCacheHeaders);
 
         ConfigureStaticFiles(app, resolvedPaths);
         MapShellRoutes(app);
 
         return app;
-    }
-
-    private static bool IsLoopbackOrigin(string origin)
-    {
-        if (string.IsNullOrWhiteSpace(origin) || !Uri.TryCreate(origin, UriKind.Absolute, out var uri))
-        {
-            return false;
-        }
-
-        return uri.IsLoopback;
     }
 
     private static Task ApplySessionHeaderCompatibility(HttpContext context, Func<Task> next)
@@ -168,28 +165,6 @@ public static partial class XkeWebHostApplication
         }
 
         return next();
-    }
-
-    private static async Task ApplyBetaGuard(HttpContext context, Func<Task> next)
-    {
-        if (context.Request.Path.StartsWithSegments(SessionConstants.ApiBasePath)
-            && context.Request.Path != "/api/config"
-            && context.Request.Path != "/api/health"
-            && !context.Request.Path.StartsWithSegments("/api/update", StringComparison.OrdinalIgnoreCase)
-            && WebHostRuntime.IsBetaExpired())
-        {
-            ApplyNoCacheHeaders(context.Response);
-            await Results.Json(new
-            {
-                ok = false,
-                msg = WebHostRuntime.BetaMessage(),
-                detail = WebHostRuntime.BetaMessage(),
-                beta = new HostBetaResponse(WebHostRuntime.BetaEnabled(), WebHostRuntime.BetaMessage()),
-            }, statusCode: StatusCodes.Status403Forbidden).ExecuteAsync(context);
-            return;
-        }
-
-        await next();
     }
 
     private static async Task ApplyNoCacheHeaders(HttpContext context, Func<Task> next)
@@ -217,6 +192,13 @@ public static partial class XkeWebHostApplication
             return;
         }
 
+        foreach (var asset in new[] { (Name: "favicon.ico", Type: "image/x-icon"), (Name: "manifest.webmanifest", Type: "application/manifest+json") })
+        {
+            var file = Path.Combine(resolvedPaths.WebRootPath, asset.Name);
+            var contentType = asset.Type;
+            app.MapGet("/" + asset.Name, () => File.Exists(file) ? Results.File(file, contentType) : Results.NotFound());
+        }
+
         var assetsRoot = Path.Combine(resolvedPaths.WebRootPath, "assets");
         if (!Directory.Exists(assetsRoot))
         {
@@ -236,7 +218,7 @@ public static partial class XkeWebHostApplication
 
     private static void MapShellRoutes(WebApplication app)
     {
-        app.MapGet("/api/health", (HttpContext context, XkeResolvedPaths paths, AuthService authService) =>
+        app.MapGet("/api/health", (HttpContext context, XkeResolvedPaths paths, AuthService authService, Xke.Core.Releases.AppUpdateService updates) =>
         {
             var frontendDiagnostics = BuildFrontendDiagnostics(paths);
             return Results.Json(new HostHealthResponse(
@@ -246,45 +228,27 @@ public static partial class XkeWebHostApplication
                 WebRoot: paths.WebRootPath ?? string.Empty,
                 BaseUrl: BuildBaseUrl(context),
                 FrontendBuild: frontendDiagnostics.FrontendBuild,
-                StaticAssetHashes: frontendDiagnostics.StaticAssetHashes));
+                StaticAssetHashes: frontendDiagnostics.StaticAssetHashes,
+                AppVersion: Xke.Core.Releases.AppRelease.Version,
+                UpdateSupported: updates.IsInstalled));
         });
 
-        app.MapGet("/api/config", async (HttpContext context, XkeResolvedPaths paths, XkeWebHostOptions options, NoticeService noticeService) =>
-        {
-            var version = ResolveQueryValue(context, "version");
-            var channel = ResolveQueryValue(context, "channel", "beta");
-            var feed = await noticeService.LoadFeedAsync(channel, version, "startup", cancellationToken: context.RequestAborted);
-            var warnings = ResolveWarnings(feed.GetValueOrDefault("warnings"));
-            var config = feed.GetValueOrDefault("config") as Dictionary<string, object?> ?? new Dictionary<string, object?>();
-            var sanitizedConfig = SanitizeFrontendRemotePayload(config) as IReadOnlyDictionary<string, object?>
-                                  ?? new Dictionary<string, object?>();
-
-            return Results.Json(new HostConfigResponse(
-                User: string.Empty,
-                Zbid: string.Empty,
+        app.MapGet("/api/config", (HttpContext context, XkeResolvedPaths paths, XkeWebHostOptions options) =>
+            Results.Json(new HostConfigResponse(
                 PreloginMode: AppOptions.DefaultPreloginMode,
-                Beta: new HostBetaResponse(WebHostRuntime.BetaEnabled(), WebHostRuntime.BetaMessage()),
                 Development: new HostDevelopmentResponse(
                     Channel: options.RuntimeChannel,
                     HostMode: options.HostMode,
                     BaseUrl: BuildBaseUrl(context),
                     WebRoot: paths.WebRootPath ?? string.Empty,
                     WebRootFound: paths.HasWebRoot),
-                Remote: new HostRemoteResponse(
-                    Source: feed.GetValueOrDefault("source")?.ToString() ?? string.Empty,
-                    Warnings: warnings,
-                    Config: sanitizedConfig)));
-        });
+                Defaults: AuthSettingsCatalog.CreateDefault())));
 
-        MapUpdatesRoutes(app);
-        MapUpdateRoutes(app);
+        MapAppUpdateRoutes(app);
         MapDesktopRoutes(app);
         MapAuthRoutes(app);
-        MapCourseRoutes(app);
         MapScheduleRoutes(app);
         MapNetworkRoutes(app);
-        MapTelemetryRoutes(app);
-        MapFeedbackRoutes(app);
 
         app.MapFallback(async (HttpContext context, XkeResolvedPaths paths) =>
         {
@@ -359,13 +323,24 @@ public static partial class XkeWebHostApplication
         }
 
         var assetHashes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var relativePath in new[]
-                 {
-                     "index.html",
-                     "assets/app.js",
-                     "assets/modules/profile.js",
-                     "assets/modules/http.js",
-                 })
+        var relativePaths = new List<string> { "index.html", "frontend-build.json" };
+        var assetsRoot = Path.Combine(paths.WebRootPath, "assets");
+        if (Directory.Exists(assetsRoot))
+        {
+            try
+            {
+                relativePaths.AddRange(Directory.EnumerateFiles(assetsRoot, "*", new EnumerationOptions
+                {
+                    RecurseSubdirectories = true,
+                    AttributesToSkip = FileAttributes.ReparsePoint,
+                    IgnoreInaccessible = true,
+                }).Select(path => Path.GetRelativePath(paths.WebRootPath, path).Replace('\\', '/')));
+            }
+            catch (IOException) { /* A build may replace assets during a health request. */ }
+            catch (UnauthorizedAccessException) { }
+        }
+
+        foreach (var relativePath in relativePaths.OrderBy(path => path, StringComparer.Ordinal))
         {
             var absolutePath = Path.Combine(paths.WebRootPath, relativePath.Replace('/', Path.DirectorySeparatorChar));
             if (!File.Exists(absolutePath))
@@ -375,7 +350,8 @@ public static partial class XkeWebHostApplication
 
             try
             {
-                var hash = SHA256.HashData(File.ReadAllBytes(absolutePath));
+                using var stream = File.OpenRead(absolutePath);
+                var hash = SHA256.HashData(stream);
                 assetHashes[relativePath] = Convert.ToHexString(hash).ToLowerInvariant();
             }
             catch (IOException)
@@ -388,11 +364,35 @@ public static partial class XkeWebHostApplication
             }
         }
 
-        return new FrontendDiagnostics(ResolveFrontendBuild(paths.WebRootPath), assetHashes);
+        var build = ResolveFrontendBuild(paths.WebRootPath);
+        if (string.IsNullOrWhiteSpace(build) && assetHashes.Count > 0)
+        {
+            var fingerprint = string.Join('\n', assetHashes.OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                .Select(pair => $"{pair.Key}:{pair.Value}"));
+            build = "sha256-" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(fingerprint))).ToLowerInvariant();
+        }
+        return new FrontendDiagnostics(build, assetHashes);
     }
 
     private static string ResolveFrontendBuild(string webRootPath)
     {
+        var metadataPath = Path.Combine(webRootPath, "frontend-build.json");
+        try
+        {
+            if (File.Exists(metadataPath))
+            {
+                using var metadata = JsonDocument.Parse(File.ReadAllText(metadataPath));
+                if (metadata.RootElement.ValueKind == JsonValueKind.Object
+                    && metadata.RootElement.TryGetProperty("build", out var build)
+                    && build.ValueKind == JsonValueKind.String
+                    && !string.IsNullOrWhiteSpace(build.GetString()))
+                    return build.GetString()!.Trim();
+            }
+        }
+        catch (JsonException) { /* Invalid optional metadata must not break the host. */ }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+
         var appJsPath = Path.Combine(webRootPath, "assets", "app.js");
         if (!File.Exists(appJsPath))
         {
@@ -415,95 +415,48 @@ public static partial class XkeWebHostApplication
         }
     }
 
+    private static async Task HandleApiErrors(HttpContext context, Func<Task> next)
+    {
+        try { await next(); }
+        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+        {
+            if (!context.Response.HasStarted) context.Response.StatusCode = 499;
+        }
+        catch (Exception ex) when (context.Request.Path.StartsWithSegments("/api") && !context.Response.HasStarted)
+        {
+            var status = ex switch
+            {
+                AuthException auth => auth.StatusCode,
+                ScheduleException schedule => schedule.StatusCode,
+                NetworkException network => network.StatusCode,
+                BadHttpRequestException request => request.StatusCode,
+                _ => StatusCodes.Status500InternalServerError,
+            };
+            var knownError = ex is AuthException or ScheduleException or NetworkException or BadHttpRequestException;
+            if (!knownError)
+            {
+                context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("Xke.WebHost.Api")
+                    .LogError(ex, "API request failed: {Path}", context.Request.Path.Value);
+            }
+            await Error(status, knownError ? ex.Message : "操作未完成，请重试").ExecuteAsync(context);
+        }
+    }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    private static IResult Error(int status, string detail)
+    {
+        return Results.Json(new ApiErrorResponse(detail, detail), statusCode: status);
+    }
 
     private static IResult Ok(string message, object? data = null)
     {
         return Results.Json(new ApiEnvelope(Msg: message, Data: data));
     }
 
-    private static IResult AuthError(AuthException ex)
-    {
-        return Results.Json(new
-        {
-            ok = false,
-            msg = ex.Detail,
-            detail = ex.Detail,
-        }, statusCode: ex.StatusCode);
-    }
 
-    private static IResult ScheduleError(ScheduleException ex)
-    {
-        return Results.Json(new
-        {
-            ok = false,
-            msg = ex.Detail,
-            detail = ex.Detail,
-        }, statusCode: ex.StatusCode);
-    }
 
-    private static IResult CourseError(CourseException ex)
-    {
-        return Results.Json(new
-        {
-            ok = false,
-            msg = ex.Detail,
-            detail = ex.Detail,
-            reason = ex.Reason,
-            data = ex.ErrorData,
-        }, statusCode: ex.StatusCode);
-    }
 
-    private static IResult NetworkError(NetworkException ex)
-    {
-        return Results.Json(new
-        {
-            ok = false,
-            msg = ex.Detail,
-            detail = ex.Detail,
-        }, statusCode: ex.StatusCode);
-    }
 
-    private static IResult TelemetryError(TelemetryException ex)
-    {
-        return Results.Json(new
-        {
-            ok = false,
-            msg = ex.Detail,
-            detail = ex.Detail,
-        }, statusCode: ex.StatusCode);
-    }
 
-    private static IResult FeedbackError(FeedbackException ex)
-    {
-        return Results.Json(new
-        {
-            ok = false,
-            msg = ex.Detail,
-            detail = ex.Detail,
-        }, statusCode: ex.StatusCode);
-    }
-
-    private static IResult BlockedError(BlockedAccessException ex)
-    {
-        return Results.Json(new { detail = ex.Detail }, statusCode: StatusCodes.Status403Forbidden);
-    }
 
     private static string ResolveSessionId(HttpContext context)
     {
@@ -517,196 +470,6 @@ public static partial class XkeWebHostApplication
         return context.Request.Query.TryGetValue(key, out var queryValue)
             ? queryValue.ToString().Trim()
             : fallback;
-    }
-
-    private static IReadOnlyList<string> ResolveWarnings(object? value)
-    {
-        if (value is string)
-        {
-            return Array.Empty<string>();
-        }
-
-        return value is System.Collections.IEnumerable rawValues
-            ? rawValues.Cast<object?>()
-                .Select(item => (item ?? string.Empty).ToString() ?? string.Empty)
-                .Where(item => !string.IsNullOrWhiteSpace(item))
-                .ToArray()
-            : Array.Empty<string>();
-    }
-
-    private static async Task EnsureStudentAllowedAsync(NoticeService noticeService, string studentId, string trigger, CancellationToken cancellationToken)
-    {
-        var resolvedStudentId = (studentId ?? string.Empty).Trim();
-        if (string.IsNullOrWhiteSpace(resolvedStudentId))
-        {
-            return;
-        }
-
-        var decision = await noticeService.ResolveStudentAccessDecisionAsync(resolvedStudentId, trigger, cancellationToken).ConfigureAwait(false);
-        if (decision.GetValueOrDefault("blocked") is true)
-        {
-            decision["reason"] = "access-policy-blocked";
-            throw new BlockedAccessException(noticeService.BuildBlockedDetail(resolvedStudentId, decision));
-        }
-    }
-
-    private static async Task EnsureSessionAllowedAsync(AuthService authService, NoticeService noticeService, string sessionId, CancellationToken cancellationToken)
-    {
-        var resolvedStudentId = authService.ResolveSessionStudentId(sessionId);
-        await EnsureStudentAllowedAsync(noticeService, resolvedStudentId, "view", cancellationToken).ConfigureAwait(false);
-    }
-
-    private static async Task EnsureCourseFeatureAllowedAsync(
-        NoticeService noticeService,
-        string studentId,
-        string featureKey,
-        string featureLabel,
-        CancellationToken cancellationToken)
-    {
-        var feed = await noticeService.LoadFeedAsync("beta", string.Empty, "view", studentId, cancellationToken).ConfigureAwait(false);
-        if (!IsRemoteFeatureDisabled(feed, featureKey))
-        {
-            return;
-        }
-
-        throw new CourseException(
-            StatusCodes.Status403Forbidden,
-            $"{featureLabel}已被远程策略禁用",
-            "remote-policy-feature-disabled",
-            new Dictionary<string, object?>(StringComparer.Ordinal)
-            {
-                ["feature"] = featureKey,
-                ["message"] = $"{featureLabel}已被远程策略禁用",
-            });
-    }
-
-    private static bool IsRemoteFeatureDisabled(Dictionary<string, object?> feed, string featureKey)
-    {
-        if (TryResolveRawFeatureFlag(feed.GetValueOrDefault("policy"), featureKey, out var rawEnabled))
-        {
-            return !rawEnabled;
-        }
-
-        if (string.Equals(featureKey, "course_grab", StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        var config = GetObjectDictionary(feed.GetValueOrDefault("config"));
-        var featureFlags = GetObjectDictionary(config.GetValueOrDefault("feature_flags"));
-        return TryReadBoolean(featureFlags, featureKey, out var normalizedEnabled) && !normalizedEnabled;
-    }
-
-    private static bool TryResolveRawFeatureFlag(object? rawPolicy, string featureKey, out bool enabled)
-    {
-        enabled = false;
-        var policy = GetObjectDictionary(rawPolicy);
-        if (TryReadBoolean(GetObjectDictionary(policy.GetValueOrDefault("feature_flags")), featureKey, out enabled))
-        {
-            return true;
-        }
-
-        var versionPolicy = GetObjectDictionary(policy.GetValueOrDefault("version_policy"));
-        if (TryReadBoolean(GetObjectDictionary(versionPolicy.GetValueOrDefault("feature_flags")), featureKey, out enabled))
-        {
-            return true;
-        }
-
-        foreach (var item in GetObjectList(versionPolicy.GetValueOrDefault("versions")))
-        {
-            var version = GetObjectDictionary(item);
-            if (TryReadBoolean(GetObjectDictionary(version.GetValueOrDefault("feature_flags")), featureKey, out enabled))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static bool TryReadBoolean(Dictionary<string, object?> values, string key, out bool value)
-    {
-        value = false;
-        if (!values.TryGetValue(key, out var raw))
-        {
-            return false;
-        }
-
-        if (raw is bool boolean)
-        {
-            value = boolean;
-            return true;
-        }
-
-        return bool.TryParse(raw?.ToString(), out value);
-    }
-
-    private static Dictionary<string, object?> GetObjectDictionary(object? value)
-    {
-        return value as Dictionary<string, object?> ?? [];
-    }
-
-    private static IReadOnlyList<object?> GetObjectList(object? value)
-    {
-        return value switch
-        {
-            List<object?> list => list,
-            object[] array => array,
-            IEnumerable<object?> enumerable => enumerable.ToArray(),
-            _ => Array.Empty<object?>(),
-        };
-    }
-
-    private static object? SanitizeFrontendRemotePayload(object? value)
-    {
-        if (value is Dictionary<string, object?> dictionary)
-        {
-            var result = new Dictionary<string, object?>(StringComparer.Ordinal);
-            foreach (var (key, item) in dictionary)
-            {
-                if (IsHiddenUpdateField(key))
-                {
-                    continue;
-                }
-
-                result[key] = SanitizeFrontendRemotePayload(item);
-            }
-
-            return result;
-        }
-
-        if (value is IReadOnlyDictionary<string, object?> readOnlyDictionary)
-        {
-            var result = new Dictionary<string, object?>(StringComparer.Ordinal);
-            foreach (var (key, item) in readOnlyDictionary)
-            {
-                if (IsHiddenUpdateField(key))
-                {
-                    continue;
-                }
-
-                result[key] = SanitizeFrontendRemotePayload(item);
-            }
-
-            return result;
-        }
-
-        if (value is List<object?> list)
-        {
-            return list.Select(SanitizeFrontendRemotePayload).ToList();
-        }
-
-        if (value is object[] array)
-        {
-            return array.Select(SanitizeFrontendRemotePayload).ToArray();
-        }
-
-        return value;
-    }
-
-    private static bool IsHiddenUpdateField(string key)
-    {
-        return key is "download_url" or "package_sha256" or "package_size" or "package_type" or "release_notes_url";
     }
 
     private static string GetAvatarContentType(string path)
@@ -733,16 +496,6 @@ public static partial class XkeWebHostApplication
         }
 
         return Path.GetFullPath(startDirectory);
-    }
-
-    private sealed class BlockedAccessException : Exception
-    {
-        public BlockedAccessException(Dictionary<string, object?> detail)
-        {
-            Detail = detail;
-        }
-
-        public Dictionary<string, object?> Detail { get; }
     }
 
     private sealed record FrontendDiagnostics(

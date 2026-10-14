@@ -1,13 +1,8 @@
 using System.Text.Json;
 using Xke.Core.Auth.Jw;
-using Xke.Core.Course;
 using Xke.Core.Desktop;
-using Xke.Core.Feedback;
 using Xke.Core.Network;
-using Xke.Core.Notice;
 using Xke.Core.Schedule;
-using Xke.Core.Telemetry;
-using Xke.Core.Update;
 using Xke.WebHost;
 
 namespace Xke.WebHost.Tests;
@@ -62,11 +57,15 @@ internal sealed class TemporaryWebRoot : IDisposable
 
 internal sealed class StartedWebHost : IAsyncDisposable
 {
-    public StartedWebHost(XkeWebHostService service, XkeWebHostLaunchResult launchResult)
+    private readonly TemporaryDirectory? _ownedDataRoot;
+
+    public StartedWebHost(XkeWebHostService service, XkeWebHostLaunchResult launchResult, TemporaryDirectory? ownedDataRoot = null)
     {
+        _ownedDataRoot = ownedDataRoot;
         Service = service;
         LaunchResult = launchResult;
         Client = new HttpClient { BaseAddress = new Uri(launchResult.BaseUrl) };
+        if (service.DesktopRequestToken is { } token) Client.DefaultRequestHeaders.Add(LocalApiAccessPolicy.DesktopTokenHeaderName, token);
     }
 
     public XkeWebHostService Service { get; }
@@ -77,6 +76,7 @@ internal sealed class StartedWebHost : IAsyncDisposable
     {
         Client.Dispose();
         await Service.DisposeAsync();
+        _ownedDataRoot?.Dispose();
     }
 }
 
@@ -88,18 +88,10 @@ internal static class WebHostTestServer
         string hostMode = "test-host",
         IJwAuthClient? jwAuthClient = null,
         IJwScheduleClient? jwScheduleClient = null,
-        ICourseClient? courseClient = null,
-        INoticeRemoteSource? noticeRemoteSource = null,
-        string noticeSigningPublicKeyPem = "",
         HttpMessageHandler? networkHttpMessageHandler = null,
         INetworkCommandExecutor? networkCommandExecutor = null,
-        ITelemetryTransport? telemetryTransport = null,
-        IFeedbackTransport? feedbackTransport = null,
         IDesktopWindowController? desktopWindowController = null,
-        IDesktopStartupRegistrar? desktopStartupRegistrar = null,
-        IUpdatePackageDownloader? updatePackageDownloader = null,
-        IUpdateVersionProvider? updateVersionProvider = null,
-        string? mainExecutablePath = null)
+        IDesktopStartupRegistrar? desktopStartupRegistrar = null)
     {
         return await StartAsync(
             webRoot.RootPath,
@@ -107,18 +99,10 @@ internal static class WebHostTestServer
             hostMode,
             jwAuthClient,
             jwScheduleClient,
-            courseClient,
-            noticeRemoteSource,
-            noticeSigningPublicKeyPem,
             networkHttpMessageHandler,
             networkCommandExecutor,
-            telemetryTransport,
-            feedbackTransport,
             desktopWindowController,
-            desktopStartupRegistrar,
-            updatePackageDownloader,
-            updateVersionProvider,
-            mainExecutablePath);
+            desktopStartupRegistrar);
     }
 
     public static async Task<StartedWebHost> StartAsync(
@@ -127,44 +111,38 @@ internal static class WebHostTestServer
         string hostMode = "test-host",
         IJwAuthClient? jwAuthClient = null,
         IJwScheduleClient? jwScheduleClient = null,
-        ICourseClient? courseClient = null,
-        INoticeRemoteSource? noticeRemoteSource = null,
-        string noticeSigningPublicKeyPem = "",
         HttpMessageHandler? networkHttpMessageHandler = null,
         INetworkCommandExecutor? networkCommandExecutor = null,
-        ITelemetryTransport? telemetryTransport = null,
-        IFeedbackTransport? feedbackTransport = null,
         IDesktopWindowController? desktopWindowController = null,
-        IDesktopStartupRegistrar? desktopStartupRegistrar = null,
-        IUpdatePackageDownloader? updatePackageDownloader = null,
-        IUpdateVersionProvider? updateVersionProvider = null,
-        string? mainExecutablePath = null)
+        IDesktopStartupRegistrar? desktopStartupRegistrar = null)
     {
+        var ownedDataRoot = dataRoot is null ? new TemporaryDirectory() : null;
         var service = new XkeWebHostService(new XkeWebHostOptions
         {
             HostMode = hostMode,
+            DesktopRequestToken = hostMode == "desktop-webview" ? "synthetic-desktop-capability" : null,
             RuntimeChannel = "dotnet8-test",
             WebRootPath = webRootPath,
-            AuthDataRootPath = dataRoot?.RootPath ?? string.Empty,
+            EnableBackgroundTasks = false,
+            ScheduleApiOptions = new Xke.Core.Schedule.ScheduleApiOptions(),
+            AuthDataRootPath = (dataRoot ?? ownedDataRoot!).RootPath,
             JwAuthClient = jwAuthClient,
             UseLegacyMobileAuthentication = true,
             UseLegacyMobileScheduleForTests = true,
             JwScheduleClient = jwScheduleClient,
-            CourseClient = courseClient,
-            NoticeRemoteSource = noticeRemoteSource ?? new MissingNoticeRemoteSource(),
-            NoticeSigningPublicKeyPem = noticeSigningPublicKeyPem,
-            TelemetryTransport = telemetryTransport ?? new LocalOnlyTelemetryTransport(),
-            FeedbackTransport = feedbackTransport ?? new LocalFeedbackOutboxTransport(new Xke.Storage.XkeDataRoot(dataRoot?.RootPath ?? Path.GetTempPath())),
             NetworkHttpMessageHandler = networkHttpMessageHandler,
             NetworkCommandExecutor = networkCommandExecutor,
             DesktopWindowController = desktopWindowController,
             DesktopStartupRegistrar = desktopStartupRegistrar,
-            UpdatePackageDownloader = updatePackageDownloader,
-            UpdateVersionProvider = updateVersionProvider,
-            MainExecutablePath = mainExecutablePath,
             Urls = new[] { "http://127.0.0.1:0" },
         });
-        return new StartedWebHost(service, await service.StartAsync());
+        try { return new StartedWebHost(service, await service.StartAsync(), ownedDataRoot); }
+        catch
+        {
+            await service.DisposeAsync();
+            ownedDataRoot?.Dispose();
+            throw;
+        }
     }
 }
 

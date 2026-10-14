@@ -9,12 +9,9 @@ const backendRoots = [
   "tests",
   "tools",
 ];
-const webRoots = [
-  "web/assets",
-  "web/tests",
-];
-const includeWeb = process.argv.includes("--include-web");
-const roots = includeWeb ? [...backendRoots, ...webRoots] : backendRoots;
+const frontendRoots = ["frontend/src", "frontend/tests", "frontend/build"];
+const includeFrontend = process.argv.includes("--include-frontend");
+const roots = includeFrontend ? [...backendRoots, ...frontendRoots] : backendRoots;
 const ignoredDirectories = new Set([
   ".git",
   ".runtime",
@@ -22,9 +19,11 @@ const ignoredDirectories = new Set([
   "obj",
   "node_modules",
   "dist",
+  "dist-preview",
+  "preview",
   "coverage",
 ]);
-const sourceExtensions = /\.(cs|js|mjs|ps1|html|css|json|md)$/i;
+const sourceExtensions = /\.(cs|ts|tsx|js|mjs|ps1|html|css|json|md)$/i;
 const deferredPattern =
   /deferred|暂未|后置|后续|占位|placeholder|NotImplemented|Status501|501|验证码|OCR|云上传|抢课/i;
 const legacyPattern =
@@ -134,7 +133,7 @@ for (const [term, hits] of duplicateTerms.entries()) {
 const report = {
   ok: sensitiveHits.length === 0,
   scanned_at: new Date().toISOString(),
-  mode: includeWeb ? "backend-plus-web" : "backend",
+  mode: includeFrontend ? "backend-plus-frontend" : "backend",
   scope: roots,
   totals: {
     files: files.length,
@@ -146,9 +145,9 @@ const report = {
   remaining_deferred_top_files: byFileCount(deferredHits).slice(0, 15),
   duplicate_test_support: duplicateSummary,
   allowed_legacy_boundaries: [
-    "src/Xke.Storage/LegacyNotice* remains active for notice cache format compatibility",
-    "src/Xke.Storage/NoticeCompatibility.cs remains active for notice normalize/fail-closed projection",
-    "LegacyDataRoot*/LegacyStudent* must stay reference-only and must not be wired into active runtime services",
+    "Retired mobile authentication and schedule paths remain test-only seams",
+    "Production Auth/Schedule use the JW form protocol; old cloud and Updater modules are retired",
+    "Core/Releases and DesktopHost/Updates implement the currently authorized GitHub updates",
   ],
   legacy_reference_samples: legacyHits.slice(0, 20),
   sensitive_hits: sensitiveHits,

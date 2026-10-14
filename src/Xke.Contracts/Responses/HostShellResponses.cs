@@ -9,12 +9,9 @@ public sealed record HostHealthResponse(
     [property: JsonPropertyName("web_root")] string WebRoot,
     [property: JsonPropertyName("base_url")] string BaseUrl,
     [property: JsonPropertyName("frontend_build")] string FrontendBuild = "",
-    [property: JsonPropertyName("static_asset_hashes")] IReadOnlyDictionary<string, string>? StaticAssetHashes = null
-);
-
-public sealed record HostBetaResponse(
-    [property: JsonPropertyName("enabled")] bool Enabled,
-    [property: JsonPropertyName("message")] string Message
+    [property: JsonPropertyName("static_asset_hashes")] IReadOnlyDictionary<string, string>? StaticAssetHashes = null,
+    [property: JsonPropertyName("app_version")] string AppVersion = "",
+    [property: JsonPropertyName("update_supported")] bool UpdateSupported = false
 );
 
 public sealed record HostDevelopmentResponse(
@@ -25,19 +22,10 @@ public sealed record HostDevelopmentResponse(
     [property: JsonPropertyName("web_root_found")] bool WebRootFound
 );
 
-public sealed record HostRemoteResponse(
-    [property: JsonPropertyName("source")] string Source,
-    [property: JsonPropertyName("warnings")] IReadOnlyList<string> Warnings,
-    [property: JsonPropertyName("config")] IReadOnlyDictionary<string, object?> Config
-);
-
 public sealed record HostConfigResponse(
-    [property: JsonPropertyName("user")] string User,
-    [property: JsonPropertyName("zbid")] string Zbid,
     [property: JsonPropertyName("prelogin_mode")] string PreloginMode,
-    [property: JsonPropertyName("beta")] HostBetaResponse Beta,
     [property: JsonPropertyName("development")] HostDevelopmentResponse Development,
-    [property: JsonPropertyName("remote")] HostRemoteResponse Remote
+    [property: JsonPropertyName("defaults")] Xke.Contracts.Models.AppSettingsDocument Defaults
 );
 
 public sealed record DesktopActivatePayload(

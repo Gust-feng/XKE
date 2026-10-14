@@ -8,7 +8,6 @@ using Xke.Contracts.Api;
 using Xke.Contracts.Models;
 using Xke.Contracts.Requests;
 using Xke.Core.Auth.Jw;
-using Xke.Core.Notice;
 using Xke.Core.Schedule;
 using Xke.Security;
 using Xke.Storage;
@@ -267,12 +266,12 @@ public sealed class ScheduleWebHostTests
                 HostMode = "test-schedule",
                 RuntimeChannel = "dotnet8-test",
                 WebRootPath = webRoot.RootPath,
+                ScheduleApiOptions = new Xke.Core.Schedule.ScheduleApiOptions(),
                 AuthDataRootPath = dataRoot.RootPath,
                 JwAuthClient = fakeAuth,
                 UseLegacyMobileAuthentication = true,
                 UseLegacyMobileScheduleForTests = true,
                 JwScheduleClient = scheduleClient,
-                NoticeRemoteSource = new MissingNoticeRemoteSource(),
                 Urls = new[] { "http://127.0.0.1:0" },
             });
             await service.StartAsync();
@@ -538,12 +537,12 @@ public sealed class ScheduleWebHostTests
         var row = Assert.Single(result.Rows);
         Assert.Equal("第1-2节", row["section"]);
         Assert.Equal("08:00-09:40", row["time_range"]);
-        Assert.Equal("08:00-08:45", row["small_section_1"]);
-        Assert.Equal("08:55-09:40", row["small_section_2"]);
+        Assert.Equal(string.Empty, row["small_section_1"]);
+        Assert.Equal(string.Empty, row["small_section_2"]);
     }
 
     [Fact]
-    public void TraditionalJwScheduleHtmlParser_MergesDuplicateRoomsAndWarns()
+    public void TraditionalJwScheduleHtmlParser_PreservesDistinctLocations()
     {
         var html = """
             <table><tbody>
@@ -574,14 +573,11 @@ public sealed class ScheduleWebHostTests
             ManualWeek = "8",
         });
 
-        var row = Assert.Single(result.Rows);
-        Assert.Equal("东操场 / 西操场", row["room"]);
-        var conflict = Assert.IsType<Dictionary<string, object?>>(row["conflict"]);
-        Assert.Equal("room_conflict", conflict["kind"]);
-        Assert.Contains(result.DataWarnings, warning =>
-            string.Equals(warning.GetValueOrDefault("type")?.ToString(), "duplicate_slot", StringComparison.Ordinal));
+        Assert.Equal(2, result.Rows.Count);
+        Assert.Contains(result.Rows, row => row["room"]?.ToString() == "东操场");
+        Assert.Contains(result.Rows, row => row["room"]?.ToString() == "西操场");
+        Assert.DoesNotContain(result.DataWarnings, warning => warning.GetValueOrDefault("type")?.ToString() == "duplicate_slot");
     }
-
     [Fact]
     public void TraditionalJwScheduleHtmlParser_DoesNotMergeSameCourseAcrossDifferentSections()
     {
@@ -658,12 +654,17 @@ public sealed class ScheduleWebHostTests
         var data = GetData(await ReadJsonAsync(refresh));
 
         Assert.Equal(HttpStatusCode.OK, refresh.StatusCode);
-        var row = Assert.Single(data.GetProperty("rows").EnumerateArray());
+        var normalizedRows = data.GetProperty("rows").EnumerateArray().ToArray();
+        Assert.Equal(3, normalizedRows.Length);
+        var row = normalizedRows[0];
         Assert.Equal("星期一", row.GetProperty("weekday").GetString());
         Assert.Equal("第1-2节", row.GetProperty("section").GetString());
         Assert.Equal("线性代数", row.GetProperty("course_name").GetString());
-        Assert.Equal("1-202 / 超星网络教学平台2", row.GetProperty("room").GetString());
-        Assert.Equal("room_conflict", row.GetProperty("conflict").GetProperty("kind").GetString());
+        Assert.Equal("1-202", row.GetProperty("room").GetString());
+        Assert.Equal("超星网络教学平台2", normalizedRows[1].GetProperty("room").GetString());
+        Assert.Equal("1-202", normalizedRows[2].GetProperty("room").GetString());
+        Assert.Equal(Enumerable.Range(1, 8), row.GetProperty("week_numbers").EnumerateArray().Select(value => value.GetInt32()));
+        Assert.Equal(Enumerable.Range(9, 8), normalizedRows[2].GetProperty("week_numbers").EnumerateArray().Select(value => value.GetInt32()));
         Assert.Contains(data.GetProperty("data_warnings").EnumerateArray(), warning =>
             warning.GetProperty("type").GetString() == "schedule-row-invalid");
         var duplicateWarnings = data.GetProperty("data_warnings")
@@ -676,11 +677,11 @@ public sealed class ScheduleWebHostTests
             .Select(item => item.GetProperty("room").GetString())
             .ToArray();
         Assert.Contains("手工导入平台", discardedRooms);
-        Assert.Contains("超星网络教学平台2", discardedRooms);
+        Assert.DoesNotContain("超星网络教学平台2", discardedRooms);
 
         var local = await client.GetAsync($"/api/schedule/local?session_id={sessionId}&source=cookie");
         var localData = GetData(await ReadJsonAsync(local));
-        Assert.Single(localData.GetProperty("rows").EnumerateArray());
+        Assert.Equal(3, localData.GetProperty("rows").GetArrayLength());
     }
 
     [Fact]
@@ -823,48 +824,6 @@ public sealed class ScheduleWebHostTests
     }
 
     [Fact]
-    public async Task BlockedStudent_ScheduleEndpointReturns403Detail()
-    {
-        using var webRoot = new TemporaryWebRoot();
-        using var dataRoot = new TemporaryDirectory("xke-schedule-webhost-blocked");
-        var fixture = CreateBlockedNoticeFixture("20269999");
-        var root = new XkeDataRoot(dataRoot.RootPath, dataRoot.RootPath);
-        root.Credentials().Save(new StoredCredentialDocument
-        {
-            User = "20269999",
-            Password = "secret",
-            StudentId = "20269999",
-            TrustedLoginToken = "trusted-token",
-            UpdatedAt = "2026-04-23T12:00:00Z",
-        });
-        root.ForStudent("20269999").SaveProfile(new StudentProfileDocument
-        {
-            StudentId = "20269999",
-            Name = "受限学生",
-            UpdatedAt = "2026-04-23T12:00:00Z",
-        });
-        var session = root.Sessions().Create("20269999", "20269999", "capture");
-
-        await using var host = await WebHostTestServer.StartAsync(
-            webRoot,
-            dataRoot,
-            hostMode: "test-schedule",
-            jwAuthClient: new FakeJwAuthClient(),
-            jwScheduleClient: new FakeJwScheduleClient(),
-            noticeRemoteSource: fixture.Source,
-            noticeSigningPublicKeyPem: fixture.PublicKeyPem);
-        var client = host.Client;
-        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/schedule/local?source=preferred");
-        request.Headers.Add(SessionConstants.SessionHeaderName, session.SessionId);
-        var response = await client.SendAsync(request);
-        var document = await ReadJsonAsync(response);
-
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-        Assert.True(document.RootElement.GetProperty("detail").GetProperty("blocked").GetBoolean());
-        Assert.Equal("20269999", document.RootElement.GetProperty("detail").GetProperty("student_id").GetString());
-    }
-
-    [Fact]
     public async Task ScheduleEndpoints_ExposeWarningsFromNormalizedMobilePayload()
     {
         using var webRoot = new TemporaryWebRoot();
@@ -924,158 +883,6 @@ public sealed class ScheduleWebHostTests
 
         throw new FileNotFoundException($"Fixture not found: {relativePath}");
     }
-
-    private static NoticeFixture CreateBlockedNoticeFixture(string blockedStudentId)
-    {
-        const string updatedAt = "2026-04-23T12:00:00Z";
-        var noticeDirectory = new Dictionary<string, object?>
-        {
-            ["schema_version"] = "1",
-            ["updated_at"] = updatedAt,
-            ["manifests"] = new List<object?>
-            {
-                new Dictionary<string, object?>
-                {
-                    ["id"] = "beta",
-                    ["path"] = "notice/beta.json",
-                    ["updated_at"] = updatedAt,
-                    ["sha256"] = NoticeHash.Sha256Hex(NoticeCanonicalJson.Serialize(new Dictionary<string, object?>
-                    {
-                        ["schema_version"] = "1",
-                        ["manifest_id"] = "beta",
-                        ["updated_at"] = updatedAt,
-                        ["bundles"] = new List<object?>(),
-                    })),
-                },
-            },
-        };
-
-        var manifest = new Dictionary<string, object?>
-        {
-            ["schema_version"] = "1",
-            ["manifest_id"] = "beta",
-            ["updated_at"] = updatedAt,
-            ["bundles"] = new List<object?>(),
-        };
-
-        var versionPolicy = new Dictionary<string, object?>
-        {
-            ["schema_version"] = "1",
-            ["updated_at"] = updatedAt,
-            ["versions"] = new List<object?>
-            {
-                new Dictionary<string, object?>
-                {
-                    ["id"] = "beta",
-                    ["version"] = "1.0.0",
-                    ["enabled"] = true,
-                    ["updated_at"] = updatedAt,
-                    ["app_control"] = new Dictionary<string, object?>
-                    {
-                        ["state"] = "normal",
-                        ["reason"] = string.Empty,
-                    },
-                    ["feature_flags"] = new Dictionary<string, object?>(),
-                    ["feature_limits"] = new Dictionary<string, object?>(),
-                    ["runtime_policy"] = new Dictionary<string, object?>(),
-                    ["telemetry_enabled"] = false,
-                },
-            },
-        };
-
-        var updateInfo = new Dictionary<string, object?>
-        {
-            ["schema_version"] = "1",
-            ["updated_at"] = updatedAt,
-            ["latest_version"] = "1.0.0",
-        };
-
-        var accessPolicy = new Dictionary<string, object?>
-        {
-            ["schema_version"] = 1,
-            ["updated_at"] = updatedAt,
-            ["default_message"] = "该账号当前不可用",
-            ["blocked_students"] = new List<object?>
-            {
-                new Dictionary<string, object?>
-                {
-                    ["student_id_hash"] = NoticeHash.Sha256Hex(Encoding.UTF8.GetBytes(blockedStudentId)),
-                    ["message"] = "该账号当前不可用",
-                },
-            },
-        };
-
-        var index = new Dictionary<string, object?>
-        {
-            ["schema_version"] = 1,
-            ["updated_at"] = updatedAt,
-            ["notice"] = new Dictionary<string, object?>
-            {
-                ["path"] = "notice/directory.json",
-                ["updated_at"] = updatedAt,
-                ["sha256"] = NoticeHash.Sha256Hex(NoticeCanonicalJson.Serialize(noticeDirectory)),
-            },
-            ["version_policy"] = new Dictionary<string, object?>
-            {
-                ["path"] = "config/version_policy.json",
-                ["updated_at"] = updatedAt,
-                ["sha256"] = NoticeHash.Sha256Hex(NoticeCanonicalJson.Serialize(versionPolicy)),
-            },
-            ["update_info"] = new Dictionary<string, object?>
-            {
-                ["path"] = "config/update_info.json",
-                ["updated_at"] = updatedAt,
-                ["sha256"] = NoticeHash.Sha256Hex(NoticeCanonicalJson.Serialize(updateInfo)),
-            },
-            ["access_policy"] = new Dictionary<string, object?>
-            {
-                ["path"] = "config/access_policy.json",
-                ["updated_at"] = updatedAt,
-                ["sha256"] = NoticeHash.Sha256Hex(NoticeCanonicalJson.Serialize(accessPolicy)),
-            },
-        };
-
-        var cloudFeed = new Dictionary<string, object?>
-        {
-            ["schema_version"] = "1",
-            ["updated_at"] = updatedAt,
-            ["announcement"] = new Dictionary<string, object?>
-            {
-                ["items"] = new List<object?>(),
-            },
-            ["policy"] = new Dictionary<string, object?>
-            {
-                ["version_policy"] = versionPolicy,
-                ["access_policy"] = accessPolicy,
-            },
-            ["update_info"] = updateInfo,
-        };
-
-        using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP521);
-        var files = new Dictionary<string, byte[]>(StringComparer.Ordinal)
-        {
-            ["cloud-feed.json"] = SerializeJson(cloudFeed),
-            ["index.json"] = SerializeJson(index),
-            ["index.sig"] = Encoding.UTF8.GetBytes(Convert.ToBase64String(ecdsa.SignData(NoticeCanonicalJson.Serialize(index), HashAlgorithmName.SHA512)).TrimEnd('=')),
-            ["notice/directory.json"] = SerializeJson(noticeDirectory),
-            ["notice/beta.json"] = SerializeJson(manifest),
-            ["config/version_policy.json"] = SerializeJson(versionPolicy),
-            ["config/update_info.json"] = SerializeJson(updateInfo),
-            ["config/access_policy.json"] = SerializeJson(accessPolicy),
-        };
-
-        return new NoticeFixture(new MemoryNoticeRemoteSource(files), ecdsa.ExportSubjectPublicKeyInfoPem());
-    }
-
-    private static byte[] SerializeJson(object payload)
-    {
-        return JsonSerializer.SerializeToUtf8Bytes(payload, new JsonSerializerOptions
-        {
-            WriteIndented = true,
-        });
-    }
-
-    private sealed record NoticeFixture(MemoryNoticeRemoteSource Source, string PublicKeyPem);
 
     private sealed class FakeJwAuthClient : IJwAuthClient
     {
@@ -1225,6 +1032,7 @@ public sealed class ScheduleWebHostTests
                         ["course_name"] = "线性代数",
                         ["teacher"] = "教师：李老师",
                         ["room"] = "1-202",
+                        ["weeks"] = "1-8周",
                     },
                     new Dictionary<string, object?>
                     {
@@ -1234,6 +1042,18 @@ public sealed class ScheduleWebHostTests
                         ["section"] = "第1-2节",
                         ["course_name"] = "线性代数",
                         ["teacher"] = "李老师",
+                        ["room"] = "超星网络教学平台2",
+                    },
+                    new Dictionary<string, object?>
+                    {
+                        ["source"] = "Cookie", ["week_label"] = weekLabel, ["weekday"] = "星期一",
+                        ["section"] = "第1-2节", ["course_name"] = "线性代数", ["teacher"] = "李老师",
+                        ["room"] = "1-202", ["weeks"] = "9-16周",
+                    },
+                    new Dictionary<string, object?>
+                    {
+                        ["source"] = "Cookie", ["week_label"] = weekLabel, ["weekday"] = "星期一",
+                        ["section"] = "第1-2节", ["course_name"] = "线性代数", ["teacher"] = "李老师",
                         ["room"] = "超星网络教学平台2",
                     },
                     new Dictionary<string, object?>

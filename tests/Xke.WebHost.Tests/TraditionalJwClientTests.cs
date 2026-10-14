@@ -3,7 +3,6 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Xke.Contracts.Requests;
 using Xke.Core.Auth.Jw;
-using Xke.Core.Course;
 using Xke.Core.Schedule;
 using Xke.Storage;
 using Xunit;
@@ -12,6 +11,22 @@ namespace Xke.WebHost.Tests;
 
 public sealed class TraditionalJwClientTests
 {
+    [Fact]
+    public async Task NativeJwScheduleClient_BackgroundRefreshNeverStartsCaptchaWithoutStoredSession()
+    {
+        using var data = new TemporaryDirectory();
+        var handler = new TraditionalJwFakeHandler();
+        using var http = new HttpClient(handler);
+        using var sessions = new TraditionalJwSessionRuntimeStore();
+        var client = new NativeJwScheduleClient(http, sessions, new XkeDataRoot(data.RootPath));
+
+        var error = await Assert.ThrowsAsync<JwScheduleException>(() => client.FetchExistingSessionAsync(
+            "20260001", "test-password", "auto", new ScheduleRequest { Mode = "current" }, "session", default));
+
+        Assert.Equal(401, error.StatusCode);
+        Assert.Empty(handler.Requests);
+    }
+
     [Fact]
     public async Task TraditionalJwClient_AutoManualCaptchaCompletesBootstrapAndFetchesScheduleWithoutCapture()
     {
@@ -62,7 +77,7 @@ public sealed class TraditionalJwClientTests
             options.DataRootPath,
             "students",
             XkeDataRoot.SanitizePathSegment("20260001"),
-            LegacyDataPaths.DefaultPreloginCaptureName);
+            "prelogin_capture.xml");
         Assert.False(File.Exists(historicalCapturePath));
     }
 
@@ -352,44 +367,6 @@ public sealed class TraditionalJwClientTests
         Assert.DoesNotContain(exported.Cookies, item => item.Name == "third-party");
     }
 
-    [Fact]
-    public async Task TraditionalJwCourseClient_LoadsReadOnlyRoundsAndPreviewWithoutGrabRequest()
-    {
-        using var dataRoot = new TemporaryDirectory("xke-traditional-jw-course-preview");
-        var handler = new TraditionalJwFakeHandler();
-        using var http = new HttpClient(handler);
-        var runtimeStore = new TraditionalJwSessionRuntimeStore();
-        using var traditional = new TraditionalJwClient("20260001", "secret-pass", "auto", new TraditionalJwOptions
-        {
-            DataRootPath = dataRoot.RootPath,
-        }, http);
-
-        await traditional.BeginLoginAsync();
-        await traditional.CompleteLoginAndFetchScheduleAsync(
-            "2468",
-            new ScheduleRequest
-            {
-                CookieRq = "2026-04-20",
-            },
-            new TraditionalJwScheduleHtmlParser());
-        runtimeStore.Store("session-1", traditional);
-
-        var course = new TraditionalJwCourseClient(runtimeStore);
-        await course.ConnectAsync("session-1", "20260001");
-        var rounds = await course.LoadRoundsAsync("session-1", "20260001", refresh: true);
-        var preview = await course.LoadPreviewAsync("session-1", "20260001", rounds.Rounds[0].RoundId, refresh: true);
-
-        Assert.Equal("round-1", rounds.Rounds[0].RoundId);
-        Assert.Equal("公共选修课第一轮", rounds.Rounds[0].Name);
-        Assert.Equal("大学美育", preview.Courses[0].Kcmc);
-        Assert.Equal("course-1001", preview.Courses[0].Jx02Id);
-        Assert.Equal("section-2002", preview.Courses[0].Jx0404Id);
-        Assert.Equal(1, handler.CourseRoundRequests);
-        Assert.Equal(1, handler.PreviewEntryRequests);
-        Assert.Equal(1, handler.PreviewDataRequests);
-        Assert.DoesNotContain(handler.Requests, request => request.Uri.AbsolutePath.Contains("ggxxkxkOper", StringComparison.OrdinalIgnoreCase));
-    }
-
     private sealed class TraditionalJwFakeHandler : HttpMessageHandler
     {
         private static readonly byte[] CaptchaImage = Encoding.UTF8.GetBytes("<svg xmlns=\"http://www.w3.org/2000/svg\"><text>2468</text></svg>");
@@ -525,7 +502,7 @@ public sealed class TraditionalJwClientTests
                 return Text(HttpStatusCode.OK, "main");
             }
 
-            if (uri.Host == "jw.hnsoftedu.com" && uri.AbsolutePath == "/jsxsd/grxx/xsgrxx")
+            if (uri.Host == "jw.hnsoftedu.com" && uri.AbsolutePath == "/jsxsd/grxx/xsxx")
             {
                 return Text(HttpStatusCode.OK, """
                 <table>
@@ -558,7 +535,7 @@ public sealed class TraditionalJwClientTests
                 <table>
                 <tr>
                 <td>上午<br/>第1-2节<br/>08:00-09:35</td>
-                <td><font title="高等数学"></font><font title="张老师"></font><font title="1-101"></font><font title="第8周"></font></td>
+                <td>高等数学<br><font title="教师">张老师</font><font title="教室">1-101</font><font title="周次(节次)">8(周)[01-02节]</font></td>
                 <td></td><td></td><td></td><td></td><td></td><td></td>
                 </tr>
                 </table>

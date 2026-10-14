@@ -1,3 +1,4 @@
+using AngleSharp.Html.Parser;
 using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -10,67 +11,58 @@ using Xke.Storage;
 
 namespace Xke.Core.Network;
 
-public sealed class NetworkService
+public sealed class NetworkService : INetworkMaintenance, IDisposable
 {
-    private const string PortalHost = "10.199.199.199";
-    private const string PortalBaseUrl = $"http://{PortalHost}";
-    private const string PortalLoginUrl = $"{PortalBaseUrl}/drcom/login";
-    private static readonly string[] ProviderKeys = ["telecom", "unicom", "mobile"];
-    private static readonly string[] ExternalCheckUrls = ["https://www.baidu.com/", "https://www.qq.com/"];
+    private static readonly string[] ProviderKeys = ["campus", "telecom", "unicom", "mobile"];
     private static readonly Regex IpConfigHeaderPattern = new(@"^(?<prefix>.*?(?:adapter|适配器))\s+(?<name>[^:]+):\s*$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+    private readonly SemaphoreSlim _maintenanceGate = new(1, 1);
     private readonly XkeDataRoot _dataRoot;
     private readonly HttpClient _httpClient;
     private readonly INetworkCommandExecutor _commandExecutor;
+    private readonly Func<string?>? _activeSession;
 
-    public NetworkService(XkeDataRoot dataRoot, HttpClient httpClient, INetworkCommandExecutor commandExecutor)
+    public NetworkService(XkeDataRoot dataRoot, HttpClient httpClient, INetworkCommandExecutor commandExecutor, Func<string?>? activeSession = null)
     {
         _dataRoot = dataRoot;
         _httpClient = httpClient;
         _commandExecutor = commandExecutor;
+        _activeSession = activeSession;
     }
 
     public (string Message, NetworkConfigPayload Payload) GetConfig(string sessionId)
     {
         var context = LoadContext(sessionId);
+        var credentials = BuildCredentialBundle(context.StudentStore);
         return (
             "校园网配置已加载",
             new NetworkConfigPayload(
                 Settings: context.Settings.Network,
-                Credentials: BuildCredentialBundle(context.StudentStore),
-                ApplyResult: null,
-                CampusAccount: context.Session.User,
+                Credentials: credentials,
+                CampusAccount: credentials["campus"].Account,
                 StorageDir: context.StudentStore.RelativeDirectory()));
     }
 
-    public async Task<(string Message, NetworkConfigPayload Payload)> SaveConfigAsync(
+    public (string Message, NetworkConfigPayload Payload) SaveConfig(
         string sessionId,
-        NetworkConfigRequest request,
-        CancellationToken cancellationToken = default)
+        NetworkConfigRequest request)
     {
         var context = LoadContext(sessionId);
+        if (request.HeartbeatIntervalMinutes is < 1 or > 1440)
+            throw new NetworkException(400, "心跳间隔须为1到1440分钟");
         var updatedSettings = AuthSettingsCatalog.Apply(
             context.Settings,
             new PreferencesRequest { Network = request });
         context.StudentStore.SavePreferences(updatedSettings);
         SaveProviderCredentials(context.StudentStore, request);
 
-        var applyResult = await BuildApplyResultAsync(updatedSettings.Network, cancellationToken).ConfigureAwait(false);
-        var message = "校园网配置已保存";
-        if (applyResult is not null && !applyResult.Applied)
-        {
-            message = applyResult.RequiresElevation
-                ? "校园网配置已保存，但当前进程未以管理员权限运行，未实际修改本机 IP"
-                : $"校园网配置已保存，但本机 IP 未同步：{applyResult.Error}";
-        }
-
+        var credentials = BuildCredentialBundle(context.StudentStore);
         return (
-            message,
+            "校园网配置已保存",
             new NetworkConfigPayload(
                 Settings: updatedSettings.Network,
-                Credentials: BuildCredentialBundle(context.StudentStore),
-                ApplyResult: applyResult,
-                CampusAccount: context.Session.User,
+                Credentials: credentials,
+                CampusAccount: credentials["campus"].Account,
                 StorageDir: context.StudentStore.RelativeDirectory()));
     }
 
@@ -83,25 +75,58 @@ public sealed class NetworkService
         return ("校园网状态已刷新", status);
     }
 
-    public async Task<(string Message, NetworkStatusPayload Payload)> MaintainAsync(
-        string sessionId,
-        NetworkActionRequest request,
-        CancellationToken cancellationToken = default)
+    public Task<(string Message, NetworkStatusPayload Payload)> MaintainAsync(
+        string sessionId, NetworkActionRequest request, CancellationToken cancellationToken = default)
+        => RunMaintenanceAsync(sessionId, request, background: false, cancellationToken);
+
+    public Task<(string Message, NetworkStatusPayload Payload)> MaintainInBackgroundAsync(
+        string sessionId, CancellationToken cancellationToken = default)
+        => RunMaintenanceAsync(sessionId, new NetworkActionRequest { Force = false }, background: true, cancellationToken);
+
+    private async Task<(string Message, NetworkStatusPayload Payload)> RunMaintenanceAsync(
+        string sessionId, NetworkActionRequest request, bool background, CancellationToken cancellationToken)
+    {
+        await _maintenanceGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try { return await MaintainCoreAsync(sessionId, request, background, cancellationToken).ConfigureAwait(false); }
+        finally { _maintenanceGate.Release(); }
+    }
+
+    public void Dispose() => _maintenanceGate.Dispose();
+
+    private async Task<(string Message, NetworkStatusPayload Payload)> MaintainCoreAsync(
+        string sessionId, NetworkActionRequest request, bool background, CancellationToken cancellationToken)
     {
         var context = LoadContext(sessionId);
         var settings = context.Settings.Network;
         var provider = NormalizeProvider(settings.Provider);
+        var revision = ConfigurationRevision(context, background);
+        void Validate(NetworkLoginCredentials? expectedCredentials = null)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var current = LoadContext(sessionId); // Logout invalidates work that has not sent its next request.
+            if (background && _activeSession is not null && _activeSession() != sessionId
+                || current.StudentStore.StudentId != context.StudentStore.StudentId
+                || background && !current.Settings.Network.HeartbeatEnabled
+                || ConfigurationRevision(current, background) != revision)
+                throw new NetworkException(409, "网络设置已变更，本次维护已取消");
+            if (expectedCredentials is not null)
+            {
+                var currentCredentials = ResolveLoginCredentials(current, provider);
+                if (currentCredentials.Account != expectedCredentials.Account || currentCredentials.Password != expectedCredentials.Password)
+                    throw new NetworkException(409, "网络凭据已变更，本次维护已取消");
+            }
+        }
+        Validate();
         var status = await DetectStatusAsync(settings, cancellationToken).ConfigureAwait(false);
+        Validate();
         status = WithMaintainFields(status, provider, "none", [], string.Empty);
-
         if (!status.CampusConnected)
         {
-            var message = "当前未接入校园网，未发送心跳";
-            status = WithMaintainFields(status, provider, "none", [], message);
+            var message = "未接入校园网或认证门户不可达，未发送账号密码";
+            status = WithMaintainFields(status, provider, "none", [], message) with { OperationError = message };
             RecordNetworkAuth(context.StudentStore, provider, context.Session.User, false, status, [], message);
             return (message, status);
         }
-
         if (status.InternetConnected && !request.Force)
         {
             var message = "校园网认证正常，无需补发心跳";
@@ -109,29 +134,58 @@ public sealed class NetworkService
             RecordNetworkAuth(context.StudentStore, provider, context.Session.User, true, status, [], message);
             return (message, status);
         }
-
-        var credentials = ResolveHeartbeatCredentials(context, provider);
+        var credentials = ResolveLoginCredentials(context, provider);
         var attempts = new List<Dictionary<string, object?>>();
+        var failedMessage = "认证已提交，但外网仍不可用";
         foreach (var username in credentials.Usernames)
         {
-            var loginResult = await SendLoginRequestAsync(username, credentials.Password, cancellationToken).ConfigureAwait(false);
-            attempts.Add(loginResult);
-
-            var external = await CheckExternalConnectivityAsync(cancellationToken).ConfigureAwait(false);
-            if (external.GetValueOrDefault("connected") is true)
+            Validate(credentials); // Recheck immediately before sending a password, including suffix retries.
+            CampusPortalLoginResult loginResult;
+            try { loginResult = await SendLoginRequestAsync(settings, username, credentials.Password, cancellationToken).ConfigureAwait(false); }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            { loginResult = new(false, 0, "transport_error", "认证服务连接超时，请确认已接入校园网"); }
+            catch (HttpRequestException)
+            { loginResult = new(false, 0, "transport_error", "无法连接认证服务，请检查当前网络"); }
+            Validate(credentials);
+            attempts.Add(new Dictionary<string, object?>
             {
-                var refreshed = await DetectStatusAsync(settings, cancellationToken).ConfigureAwait(false);
-                var message = "校园网心跳已补发，外网访问已恢复";
-                refreshed = WithMaintainFields(refreshed, provider, "heartbeat", attempts, message);
-                RecordNetworkAuth(context.StudentStore, provider, credentials.Account, true, refreshed, attempts, message);
-                return (message, refreshed);
+                ["username"] = MaskSecret(username), ["status_code"] = loginResult.StatusCode,
+                ["accepted"] = loginResult.Accepted, ["error_kind"] = loginResult.ErrorKind, ["message"] = loginResult.Message,
+            });
+            if (!loginResult.Accepted)
+            {
+                failedMessage = loginResult.Message;
+                if (loginResult.ErrorKind != "auth_rejected") break;
+                continue;
             }
+            // One final snapshot is the only success authority. Do not label a failed snapshot as restored.
+            status = await DetectStatusAsync(settings, cancellationToken).ConfigureAwait(false);
+            Validate(credentials);
+            if (status.CampusConnected && status.InternetConnected)
+            {
+                var message = "校园网心跳已补发，外网访问已恢复";
+                status = WithMaintainFields(status, provider, "heartbeat", attempts, message);
+                RecordNetworkAuth(context.StudentStore, provider, credentials.Account, true, status, attempts, message);
+                return (message, status);
+            }
+            break; // An accepted account must not be logged in again using another suffix.
         }
-
-        var failedMessage = "校园网心跳已发送，但外网仍未恢复";
-        status = WithMaintainFields(status, provider, "heartbeat", attempts, failedMessage);
+        Validate(credentials);
+        status = WithMaintainFields(status, provider, "heartbeat", attempts, failedMessage) with { OperationError = failedMessage };
         RecordNetworkAuth(context.StudentStore, provider, credentials.Account, false, status, attempts, failedMessage);
         return (failedMessage, status);
+    }
+
+    private static string ConfigurationRevision(NetworkContext context, bool background)
+    {
+        var settings = context.Settings.Network;
+        return JsonSerializer.Serialize(new
+        {
+            settings.Provider, settings.PortalUrl, settings.ConnectivityCheckUrls,
+            Enabled = background && settings.HeartbeatEnabled,
+            Interval = background ? settings.HeartbeatIntervalMinutes : 0,
+            Credentials = context.StudentStore.NetworkCredentials().GetRevision(settings.Provider),
+        });
     }
 
     public static IReadOnlyList<Dictionary<string, object?>> ParseIpConfigOutput(string text)
@@ -214,84 +268,16 @@ public sealed class NetworkService
         return adapters;
     }
 
-    private async Task<NetworkApplyResult?> BuildApplyResultAsync(NetworkSettingsDocument settings, CancellationToken cancellationToken)
-    {
-        if (!string.Equals(NormalizeProvider(settings.Provider), "campus", StringComparison.Ordinal)
-            || string.IsNullOrWhiteSpace(settings.CampusIp))
-        {
-            return null;
-        }
-
-        try
-        {
-            return await ApplyCampusIpSettingsAsync(settings, cancellationToken).ConfigureAwait(false);
-        }
-        catch (NetworkException ex)
-        {
-            var requiresElevation = LooksLikeElevationFailure(ex.Detail);
-            return new NetworkApplyResult(false, ex.Detail, requiresElevation, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, []);
-        }
-        catch (Exception ex)
-        {
-            return new NetworkApplyResult(false, ex.Message, false, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, []);
-        }
-    }
-
-    private async Task<NetworkApplyResult> ApplyCampusIpSettingsAsync(NetworkSettingsDocument settings, CancellationToken cancellationToken)
-    {
-        var currentInterface = await LoadLocalNetworkSnapshotAsync(settings.CampusIp, cancellationToken).ConfigureAwait(false);
-        var interfaceName = Text(currentInterface.GetValueOrDefault("name"));
-        if (string.IsNullOrWhiteSpace(interfaceName))
-        {
-            throw new NetworkException(500, "未识别到可用网卡，无法应用校园网 IP 设置");
-        }
-
-        var subnetMask = PrefixToMask(settings.CampusSubnetPrefix);
-        var gateway = string.IsNullOrWhiteSpace(settings.CampusGateway)
-            ? Text(currentInterface.GetValueOrDefault("default_gateway"))
-            : settings.CampusGateway;
-        var dns = string.IsNullOrWhiteSpace(settings.CampusDns)
-            ? FirstString(currentInterface.GetValueOrDefault("dns_servers"))
-            : settings.CampusDns;
-
-        // Controlled system side effect: only this method invokes netsh, and failures are returned as apply_result.
-        var addressResult = await _commandExecutor.RunAsync(
-            "netsh",
-            ["interface", "ip", "set", "address", $"name={interfaceName}", "static", settings.CampusIp, subnetMask, string.IsNullOrWhiteSpace(gateway) ? "none" : gateway, "1"],
-            TimeSpan.FromSeconds(8),
-            cancellationToken).ConfigureAwait(false);
-        if (addressResult.ExitCode != 0)
-        {
-            throw new NetworkException(500, NormalizeCommandError(addressResult, "设置网卡 IP 失败，请确认程序是否以管理员权限运行"));
-        }
-
-        var dnsArguments = new List<string> { "interface", "ip", "set", "dns", $"name={interfaceName}", string.IsNullOrWhiteSpace(dns) ? "dhcp" : "static" };
-        if (!string.IsNullOrWhiteSpace(dns))
-        {
-            dnsArguments.Add(dns);
-            dnsArguments.Add("primary");
-        }
-
-        var dnsResult = await _commandExecutor.RunAsync("netsh", dnsArguments, TimeSpan.FromSeconds(8), cancellationToken).ConfigureAwait(false);
-        if (dnsResult.ExitCode != 0)
-        {
-            throw new NetworkException(500, NormalizeCommandError(dnsResult, "设置 DNS 失败，请确认程序是否以管理员权限运行"));
-        }
-
-        var refreshedInterface = await LoadLocalNetworkSnapshotAsync(settings.CampusIp, cancellationToken).ConfigureAwait(false);
-        return new NetworkApplyResult(true, string.Empty, false, interfaceName, settings.CampusIp, subnetMask, gateway, dns, refreshedInterface);
-    }
-
     private async Task<NetworkStatusPayload> DetectStatusAsync(NetworkSettingsDocument settings, CancellationToken cancellationToken)
     {
-        var campusConnected = await PingPortalAsync(cancellationToken).ConfigureAwait(false);
+        var campusConnected = await PingPortalAsync(settings, cancellationToken).ConfigureAwait(false);
         var portal = campusConnected
-            ? await FetchPortalSnapshotAsync(cancellationToken).ConfigureAwait(false)
+            ? await FetchPortalSnapshotAsync(settings, cancellationToken).ConfigureAwait(false)
             : BuildEmptyPortal();
         var localIp = Text(portal.GetValueOrDefault("local_ip"));
         var networkInterface = await LoadLocalNetworkSnapshotAsync(localIp, cancellationToken).ConfigureAwait(false);
         var external = campusConnected
-            ? await CheckExternalConnectivityAsync(cancellationToken).ConfigureAwait(false)
+            ? await CheckExternalConnectivityAsync(settings, cancellationToken).ConfigureAwait(false)
             : new Dictionary<string, object?>(StringComparer.Ordinal)
             {
                 ["connected"] = false,
@@ -306,7 +292,7 @@ public sealed class NetworkService
             CampusConnected: campusConnected,
             InternetConnected: internetConnected,
             NeedsHeartbeat: campusConnected && !internetConnected,
-            PortalHost: PortalHost,
+            PortalHost: new Uri(settings.PortalUrl).Host,
             Portal: portal,
             Interface: networkInterface,
             External: external,
@@ -318,13 +304,13 @@ public sealed class NetworkService
             Message: string.Empty);
     }
 
-    private async Task<bool> PingPortalAsync(CancellationToken cancellationToken)
+    private async Task<bool> PingPortalAsync(NetworkSettingsDocument settings, CancellationToken cancellationToken)
     {
         try
         {
             var ping = await _commandExecutor.RunAsync(
                 "ping",
-                ["-n", "1", "-w", "1200", PortalHost],
+                ["-n", "1", "-w", "1200", new Uri(settings.PortalUrl).Host],
                 TimeSpan.FromSeconds(3),
                 cancellationToken).ConfigureAwait(false);
             if (ping.ExitCode == 0)
@@ -332,6 +318,7 @@ public sealed class NetworkService
                 return true;
             }
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch
         {
             // Fall through to HTTP probing; status detection should stay best-effort.
@@ -339,21 +326,22 @@ public sealed class NetworkService
 
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, PortalBaseUrl);
+            using var request = new HttpRequestMessage(HttpMethod.Get, settings.PortalUrl);
             using var response = await SendAsync(request, TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
             return response.IsSuccessStatusCode || response.StatusCode is HttpStatusCode.Redirect or HttpStatusCode.Found;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch
         {
             return false;
         }
     }
 
-    private async Task<Dictionary<string, object?>> FetchPortalSnapshotAsync(CancellationToken cancellationToken)
+    private async Task<Dictionary<string, object?>> FetchPortalSnapshotAsync(NetworkSettingsDocument settings, CancellationToken cancellationToken)
     {
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, PortalBaseUrl);
+            using var request = new HttpRequestMessage(HttpMethod.Get, settings.PortalUrl);
             using var response = await SendAsync(request, TimeSpan.FromSeconds(4), cancellationToken).ConfigureAwait(false);
             var text = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             return new Dictionary<string, object?>(StringComparer.Ordinal)
@@ -368,45 +356,49 @@ public sealed class NetworkService
                 ["used_flow_bytes"] = ExtractInt(@"flow='(\d+)", text),
             };
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch
         {
             return BuildEmptyPortal();
         }
     }
 
-    private async Task<Dictionary<string, object?>> CheckExternalConnectivityAsync(CancellationToken cancellationToken)
+    private async Task<Dictionary<string, object?>> CheckExternalConnectivityAsync(NetworkSettingsDocument settings, CancellationToken cancellationToken)
     {
         var lastError = string.Empty;
-        foreach (var url in ExternalCheckUrls)
+        foreach (var url in settings.ConnectivityCheckUrls)
         {
             try
             {
                 using var request = new HttpRequestMessage(HttpMethod.Get, url);
                 using var response = await SendAsync(request, TimeSpan.FromSeconds(4), cancellationToken).ConfigureAwait(false);
                 var text = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                var finalHost = response.RequestMessage?.RequestUri?.Host ?? string.Empty;
-                var preview = text.Length > 240 ? text[..240] : text;
-                if (finalHost.Contains(PortalHost, StringComparison.OrdinalIgnoreCase)
-                    || preview.Contains("Dr.COM", StringComparison.OrdinalIgnoreCase)
-                    || preview.Contains("注销页", StringComparison.Ordinal))
+                var target = new Uri(url);
+                var finalUri = response.RequestMessage?.RequestUri ?? target;
+                if (!string.Equals(finalUri.Host, target.Host, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(finalUri.Host, new Uri(settings.PortalUrl).Host, StringComparison.OrdinalIgnoreCase)
+                    || text.Contains("Dr.COM", StringComparison.OrdinalIgnoreCase)
+                    || text.Contains("注销页", StringComparison.Ordinal)
+                    || IsAuthenticationPage(text, target))
                 {
-                    lastError = "请求被校园网门户接管";
+                    lastError = "探测请求返回认证页面，未认定外网已连通";
                     continue;
                 }
-
-                if ((int)response.StatusCode < 500)
+                // A target's own 4xx response still proves reachability; do not reauthenticate for a missing page.
+                // Proxy authentication is different: it does not establish external connectivity.
+                var code = (int)response.StatusCode;
+                if (response.IsSuccessStatusCode || code is >= 400 and < 500 && response.StatusCode != HttpStatusCode.ProxyAuthenticationRequired)
                 {
                     return new Dictionary<string, object?>(StringComparer.Ordinal)
                     {
-                        ["connected"] = true,
-                        ["checked_url"] = response.RequestMessage?.RequestUri?.ToString() ?? url,
-                        ["status_code"] = (int)response.StatusCode,
-                        ["detail"] = "外网访问正常",
+                        ["connected"] = true, ["checked_url"] = finalUri.ToString(),
+                        ["status_code"] = code, ["detail"] = response.IsSuccessStatusCode ? "外网访问正常" : $"外网目标已响应（HTTP {code}）",
                     };
                 }
 
                 lastError = $"状态码 {(int)response.StatusCode}";
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (Exception ex)
             {
                 lastError = ex.Message;
@@ -416,10 +408,20 @@ public sealed class NetworkService
         return new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["connected"] = false,
-            ["checked_url"] = ExternalCheckUrls[0],
+            ["checked_url"] = settings.ConnectivityCheckUrls[0],
             ["status_code"] = 0,
             ["detail"] = string.IsNullOrWhiteSpace(lastError) ? "外网访问失败" : lastError,
         };
+    }
+
+    private static bool IsAuthenticationPage(string text, Uri target)
+    {
+        // Inspect actual forms, not JavaScript strings containing login UI templates.
+        using var document = new HtmlParser().ParseDocument(text);
+        return document.QuerySelectorAll("form").Any(form =>
+            form.QuerySelector("input[type=password]") is not null
+            || Uri.TryCreate(target, form.GetAttribute("action"), out var action)
+                && Regex.IsMatch(action.AbsolutePath, @"/(?:login|signin|sign-in|auth|sso)(?:[/?#._-]|$)", RegexOptions.IgnoreCase));
     }
 
     private async Task<Dictionary<string, object?>> LoadLocalNetworkSnapshotAsync(string localIp = "", CancellationToken cancellationToken = default)
@@ -453,13 +455,14 @@ public sealed class NetworkService
                 ["media_state"] = Text(selected.GetValueOrDefault("media_state")),
             };
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch
         {
             return [];
         }
     }
 
-    private async Task<Dictionary<string, object?>> SendLoginRequestAsync(string username, string password, CancellationToken cancellationToken)
+    private async Task<CampusPortalLoginResult> SendLoginRequestAsync(NetworkSettingsDocument settings, string username, string password, CancellationToken cancellationToken)
     {
         var callback = $"dr{Random.Shared.Next(1000, 9999)}";
         var query = new Dictionary<string, string>
@@ -479,16 +482,11 @@ public sealed class NetworkService
             ["jsVersion"] = "4.2",
             ["v"] = Random.Shared.Next(1000, 9999).ToString(),
         };
-        var url = $"{PortalLoginUrl}?{string.Join("&", query.Select(pair => $"{Uri.EscapeDataString(pair.Key)}={Uri.EscapeDataString(pair.Value)}"))}";
+        var url = $"{new Uri(new Uri(settings.PortalUrl), "drcom/login")}?{string.Join("&", query.Select(pair => $"{Uri.EscapeDataString(pair.Key)}={Uri.EscapeDataString(pair.Value)}"))}";
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         using var response = await SendAsync(request, TimeSpan.FromSeconds(4), cancellationToken).ConfigureAwait(false);
         var text = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        return new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            ["username"] = username,
-            ["status_code"] = (int)response.StatusCode,
-            ["preview"] = BuildPreview(text),
-        };
+        return CampusPortalLoginResult.Parse(text, (int)response.StatusCode, username, password);
     }
 
     private async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, TimeSpan timeout, CancellationToken cancellationToken)
@@ -508,12 +506,10 @@ public sealed class NetworkService
 
         var session = _dataRoot.Sessions().Load(cleaned)
             ?? throw new AuthException(401, "会话不存在或已过期，请重新登录");
-        var credentials = _dataRoot.Credentials().Load(session.User)
-            ?? throw new AuthException(401, "本地凭据不存在，请重新登录");
         var studentId = string.IsNullOrWhiteSpace(session.StudentId) ? session.User : session.StudentId;
         var studentStore = _dataRoot.ForStudent(studentId);
         var settings = AuthSettingsCatalog.Normalize(studentStore.LoadPreferences() ?? AuthSettingsCatalog.CreateDefault());
-        return new NetworkContext(session, credentials, studentStore, settings);
+        return new NetworkContext(session, studentStore, settings);
     }
 
     private static Dictionary<string, NetworkProviderCredential> BuildCredentialBundle(XkeStudentStore studentStore)
@@ -532,6 +528,7 @@ public sealed class NetworkService
 
     private static void SaveProviderCredentials(XkeStudentStore studentStore, NetworkConfigRequest request)
     {
+        SaveProviderCredential(studentStore, "campus", request.CampusAccount, request.CampusPassword);
         SaveProviderCredential(studentStore, "telecom", request.TelecomAccount, request.TelecomPassword);
         SaveProviderCredential(studentStore, "unicom", request.UnicomAccount, request.UnicomPassword);
         SaveProviderCredential(studentStore, "mobile", request.MobileAccount, request.MobilePassword);
@@ -541,18 +538,17 @@ public sealed class NetworkService
     {
         var current = studentStore.NetworkCredentials().Load(provider);
         var normalizedAccount = string.IsNullOrWhiteSpace(account) ? current?.Account ?? string.Empty : account.Trim();
-        var rawPassword = (password ?? string.Empty).Trim();
-        var preservePassword = ShouldPreservePassword(rawPassword)
-            && string.Equals(normalizedAccount, current?.Account ?? string.Empty, StringComparison.Ordinal);
-        var normalizedPassword = preservePassword
-            ? current?.Password ?? string.Empty
-            : ShouldPreservePassword(rawPassword) ? string.Empty : rawPassword;
+        var rawPassword = password ?? string.Empty;
+        var unchangedPassword = rawPassword.Length == 0 || rawPassword == MaskSecret(current?.Password ?? string.Empty);
+        var normalizedPassword = unchangedPassword
+            ? normalizedAccount == current?.Account ? current.Password : string.Empty
+            : rawPassword;
         if (string.IsNullOrWhiteSpace(normalizedAccount) && string.IsNullOrWhiteSpace(normalizedPassword) && current is null)
         {
             return;
         }
 
-        // Operator passwords are DPAPI protected at rest; API responses only expose masked values.
+        // Network passwords are independent from teaching-system credentials and DPAPI protected.
         studentStore.NetworkCredentials().Save(new StoredNetworkCredentialDocument
         {
             Provider = provider,
@@ -562,40 +558,24 @@ public sealed class NetworkService
         });
     }
 
-    private static bool ShouldPreservePassword(string value)
+    private NetworkLoginCredentials ResolveLoginCredentials(NetworkContext context, string provider)
     {
-        var cleaned = (value ?? string.Empty).Trim();
-        return string.IsNullOrWhiteSpace(cleaned) || cleaned.Contains('*', StringComparison.Ordinal);
-    }
-
-    private HeartbeatCredentials ResolveHeartbeatCredentials(NetworkContext context, string provider)
-    {
-        if (provider == "campus")
-        {
-            if (string.IsNullOrWhiteSpace(context.Session.User) || string.IsNullOrWhiteSpace(context.Credentials.Password))
-            {
-                throw new NetworkException(400, "当前会话缺少校园网登录所需的学号或密码");
-            }
-
-            return new HeartbeatCredentials(context.Session.User, context.Credentials.Password, [context.Session.User]);
-        }
-
         var stored = context.StudentStore.NetworkCredentials().Load(provider);
         if (stored is null || string.IsNullOrWhiteSpace(stored.Account) || string.IsNullOrWhiteSpace(stored.Password))
         {
             throw new NetworkException(400, $"未配置{ProviderLabel(provider)}账号或密码");
         }
 
-        if (stored.Account.Contains('@', StringComparison.Ordinal))
+        if (provider == "campus" || stored.Account.Contains('@', StringComparison.Ordinal))
         {
-            return new HeartbeatCredentials(stored.Account, stored.Password, [stored.Account]);
+            return new NetworkLoginCredentials(stored.Account, stored.Password, [stored.Account]);
         }
 
         var usernames = ProviderSuffixes(provider)
             .Select(suffix => $"{stored.Account}{suffix}")
             .Distinct(StringComparer.Ordinal)
             .ToArray();
-        return new HeartbeatCredentials(stored.Account, stored.Password, usernames.Length == 0 ? [stored.Account] : usernames);
+        return new NetworkLoginCredentials(stored.Account, stored.Password, usernames.Length == 0 ? [stored.Account] : usernames);
     }
 
     private void RecordNetworkAuth(
@@ -645,6 +625,7 @@ public sealed class NetworkService
             ["action"] = status.Action,
             ["attempts"] = status.Attempts,
             ["message"] = status.Message,
+            ["operation_error"] = status.OperationError,
         };
     }
 
@@ -678,7 +659,7 @@ public sealed class NetworkService
             "telecom" => "中国电信",
             "unicom" => "中国联通",
             "mobile" => "中国移动",
-            _ => "校园账号",
+            _ => "校园网",
         };
     }
 
@@ -792,34 +773,6 @@ public sealed class NetworkService
         };
     }
 
-    private static string PrefixToMask(int prefix)
-    {
-        var normalized = Math.Clamp(prefix, 1, 32);
-        var mask = uint.MaxValue << (32 - normalized);
-        return string.Join(".", new[]
-        {
-            (mask >> 24) & 255,
-            (mask >> 16) & 255,
-            (mask >> 8) & 255,
-            mask & 255,
-        }.Select(part => part.ToString()));
-    }
-
-    private static bool LooksLikeElevationFailure(string message)
-    {
-        var resolved = message ?? string.Empty;
-        var lower = resolved.ToLowerInvariant();
-        return lower.Contains("administrator", StringComparison.Ordinal)
-            || lower.Contains("elevation", StringComparison.Ordinal)
-            || resolved.Contains("管理员权限", StringComparison.Ordinal);
-    }
-
-    private static string NormalizeCommandError(NetworkCommandResult result, string fallback)
-    {
-        var message = string.IsNullOrWhiteSpace(result.Stderr) ? result.Stdout : result.Stderr;
-        return string.IsNullOrWhiteSpace(message) ? fallback : message.Trim();
-    }
-
     private static string ExtractFirst(string pattern, string text)
     {
         var match = Regex.Match(text ?? string.Empty, pattern, RegexOptions.Singleline);
@@ -831,17 +784,10 @@ public sealed class NetworkService
         return int.TryParse(ExtractFirst(pattern, text), out var value) ? value : null;
     }
 
-    private static string BuildPreview(string text)
-    {
-        var normalized = Regex.Replace(text ?? string.Empty, @"\s+", " ");
-        return normalized[..Math.Min(220, normalized.Length)];
-    }
-
     private sealed record NetworkContext(
         StoredSessionDocument Session,
-        StoredCredentialDocument Credentials,
         XkeStudentStore StudentStore,
         AppSettingsDocument Settings);
 
-    private sealed record HeartbeatCredentials(string Account, string Password, IReadOnlyList<string> Usernames);
+    private sealed record NetworkLoginCredentials(string Account, string Password, IReadOnlyList<string> Usernames);
 }

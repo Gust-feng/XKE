@@ -1,90 +1,81 @@
 <Window x:Class="Xke.DesktopHost.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         Title="XKE·软大课务"
         Icon="Assets/app.ico"
         Height="720"
         Width="1180"
-        MinHeight="640"
-        MinWidth="980"
-        Background="#FFF6F3EC"
+        MinHeight="656"
+        MinWidth="1100"
+        WindowStyle="None"
+        ResizeMode="CanResize"
+        Background="#FFF2F1EC"
         Closing="Window_Closing"
         StateChanged="Window_StateChanged"
         IsVisibleChanged="Window_IsVisibleChanged">
-    <Grid Background="#FFF6F3EC">
-        <wv2:WebView2 x:Name="Browser"
-                      NavigationCompleted="Browser_NavigationCompleted" />
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="0"
+                            GlassFrameThickness="0"
+                            ResizeBorderThickness="8"
+                            CornerRadius="0"
+                            UseAeroCaptionButtons="False" />
+    </shell:WindowChrome.WindowChrome>
+    <!-- Keep a WPF-owned perimeter outside WebView2's child HWND for native resize hit testing.
+         Retain the inset when maximized: WindowChrome clips the native resize frame. -->
+    <Border Background="#FFF2F1EC"
+            Padding="{Binding Path=(shell:WindowChrome.WindowChrome).ResizeBorderThickness, RelativeSource={RelativeSource AncestorType={x:Type Window}}}">
+        <Grid Background="#FFF2F1EC">
+            <wv2:WebView2 x:Name="Browser"
+                          Visibility="Hidden"
+                          NavigationCompleted="Browser_NavigationCompleted" />
 
-        <Border x:Name="LoadingOverlay"
-                Background="#EAF7F0E8">
-            <StackPanel MaxWidth="420"
-                        HorizontalAlignment="Center"
-                        VerticalAlignment="Center">
-                <TextBlock FontSize="32"
-                           FontWeight="SemiBold"
-                           HorizontalAlignment="Center"
-                           Text="XKE·软大课务" />
-                <TextBlock Margin="0,16,0,0"
-                           FontSize="16"
-                           FontWeight="SemiBold"
-                           HorizontalAlignment="Center"
-                           Text="正在加载界面..." />
-                <TextBlock x:Name="LoadingMessageText"
-                           Margin="0,12,0,0"
-                           Foreground="#8C4F4A40"
-                           Text="首次打开时会初始化本地服务，请稍候。"
-                           TextAlignment="Center"
-                           TextWrapping="Wrap" />
-                <ProgressBar Margin="0,24,0,0"
-                             Height="6"
-                             IsIndeterminate="True" />
-            </StackPanel>
-        </Border>
-
-        <Border x:Name="ErrorPanel"
-                Visibility="Collapsed"
-                Margin="24"
-                Padding="28"
-                MaxWidth="560"
-                HorizontalAlignment="Center"
-                VerticalAlignment="Center"
-                Background="#FFF9F5EE"
-                BorderBrush="#FFD3D0C7"
-                BorderThickness="1"
-                CornerRadius="12">
-            <StackPanel>
-                <TextBlock x:Name="ErrorTitleText"
-                           FontSize="28"
-                           FontWeight="SemiBold"
-                           Text="界面加载失败" />
-                <TextBlock x:Name="ErrorDetailText"
-                           Margin="0,14,0,0"
-                           Text="请重试，或暂时用浏览器打开本地界面。"
-                           TextWrapping="Wrap" />
-                <StackPanel Margin="0,24,0,0"
-                            Orientation="Horizontal">
-                    <Button x:Name="RetryButton"
-                            Width="120"
-                            Padding="12,8"
-                            Content="重新加载"
-                            Click="RetryHost_Click" />
-                    <Button x:Name="OpenBrowserButton"
-                            Margin="12,0,0,0"
-                            Width="140"
-                            Padding="12,8"
-                            Content="浏览器打开"
-                            Click="OpenBrowser_Click"
-                            IsEnabled="False" />
-                    <Button x:Name="CopyAddressButton"
-                            Margin="12,0,0,0"
-                            Width="140"
-                            Padding="12,8"
-                            Content="复制地址"
-                            Click="CopyAddress_Click"
-                            IsEnabled="False" />
+            <Border x:Name="ErrorPanel"
+                    Visibility="Collapsed"
+                    Margin="24"
+                    Padding="28"
+                    MaxWidth="560"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Background="#FFF9F5EE"
+                    BorderBrush="#FFD3D0C7"
+                    BorderThickness="1"
+                    CornerRadius="12">
+                <StackPanel>
+                    <TextBlock x:Name="ErrorTitleText"
+                               FontSize="28"
+                               FontWeight="SemiBold"
+                               Text="界面加载失败" />
+                    <TextBlock x:Name="ErrorDetailText"
+                               Margin="0,14,0,0"
+                               Text="请重试，或暂时用浏览器打开本地界面。"
+                               TextWrapping="Wrap" />
+                    <StackPanel Margin="0,24,0,0"
+                                Orientation="Horizontal">
+                        <Button x:Name="RetryButton"
+                                Width="120"
+                                Padding="12,8"
+                                Content="重新加载"
+                                Click="RetryHost_Click" />
+                        <Button x:Name="OpenBrowserButton"
+                                Margin="12,0,0,0"
+                                Width="140"
+                                Padding="12,8"
+                                Content="浏览器打开"
+                                Click="OpenBrowser_Click"
+                                IsEnabled="False" />
+                    </StackPanel>
                 </StackPanel>
-            </StackPanel>
-        </Border>
-    </Grid>
+            </Border>
+
+            <Button x:Name="FallbackExitButton"
+                    Margin="12"
+                    Padding="12,6"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Top"
+                    Content="退出"
+                    Click="FallbackExit_Click" />
+        </Grid>
+    </Border>
 </Window>

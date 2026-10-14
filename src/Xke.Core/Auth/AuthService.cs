@@ -9,8 +9,12 @@ using Xke.Storage;
 
 namespace Xke.Core.Auth;
 
-public sealed class AuthService
+public sealed class AuthService : IDisposable
 {
+    private readonly Func<string, string, DirectJwLoginProtocol> _protocolFactory;
+    private string? _activeSessionId;
+    public string? ActiveSessionId => Volatile.Read(ref _activeSessionId);
+
     private readonly XkeDataRoot _dataRoot;
     private readonly IJwAuthClient _jwClient;
     private readonly ScheduleService _scheduleService;
@@ -20,13 +24,14 @@ public sealed class AuthService
     private readonly object _connectedSessionsGate = new();
     private readonly HashSet<string> _connectedSessions = new(StringComparer.Ordinal);
 
-    public AuthService(XkeDataRoot dataRoot, IJwAuthClient jwClient, ScheduleService scheduleService, MobileSessionRuntimeStore mobileSessionRuntime, TraditionalJwSessionRuntimeStore traditionalJwSessions)
+    public AuthService(XkeDataRoot dataRoot, IJwAuthClient jwClient, ScheduleService scheduleService, MobileSessionRuntimeStore mobileSessionRuntime, TraditionalJwSessionRuntimeStore traditionalJwSessions, Func<string, string, DirectJwLoginProtocol>? protocolFactory = null)
     {
         _dataRoot = dataRoot;
         _jwClient = jwClient;
         _scheduleService = scheduleService;
         _mobileSessionRuntime = mobileSessionRuntime;
         _traditionalJwSessions = traditionalJwSessions;
+        _protocolFactory = protocolFactory ?? ((user, password) => new DirectJwLoginProtocol(user, password));
     }
 
     public async Task<(string Message, object Payload)> BeginProtocolLoginAsync(LoginRequest request, bool forceRemote = false, CancellationToken cancellationToken = default)
@@ -35,25 +40,26 @@ public sealed class AuthService
         var user = NormalizeRequired(request.User, "账号不能为空");
         var password = NormalizeRequired(request.Password, "密码不能为空");
         var existing = _dataRoot.Credentials().Load(user);
-        if (existing is not null && !forceRemote && !RequiresProtocolProfileRefresh(existing))
+        if (existing is not null && !forceRemote)
         {
             if (!string.Equals(existing.Password, password, StringComparison.Ordinal))
             {
                 throw new AuthException(401, "本地账号或密码不正确");
             }
 
-            var restored = RestoreTrustedWorkspace(existing, NormalizePreloginMode(request.PreloginMode));
-            if (await TryRestorePersistedJwSessionAsync(restored.Payload.SessionId, existing, cancellationToken).ConfigureAwait(false))
+            try
             {
-                var refreshed = GetSession(restored.Payload.SessionId);
-                return ("登录成功（已复用本地 JW 会话）", refreshed.Payload);
+                var restored = RestoreTrustedWorkspace(existing, NormalizePreloginMode(request.PreloginMode));
+                return ("登录成功（已恢复本地工作区）", restored.Payload);
             }
-
-            _dataRoot.Sessions().Remove(restored.Payload.SessionId);
-            MarkSessionDisconnected(restored.Payload.SessionId);
+            catch (AuthException ex) when (ex.StatusCode == 409)
+            {
+                // Saved credentials alone do not constitute an initialized workspace.
+                // Rebuild through the school protocol instead of trapping the login form.
+            }
         }
 
-        var protocol = new DirectJwLoginProtocol(user, password);
+        var protocol = _protocolFactory(user, password);
         try
         {
             var image = await protocol.BeginAsync(cancellationToken).ConfigureAwait(false);
@@ -115,6 +121,7 @@ public sealed class AuthService
                 throw;
             }
 
+            var previousJwSession = _dataRoot.JwSessions().Load(pending.User);
             var store = _dataRoot.ForStudent(profile.StudentId);
             using var snapshot = StudentInitializationSnapshot.Capture(_dataRoot, store);
             var credentials = new StoredCredentialDocument
@@ -131,13 +138,14 @@ public sealed class AuthService
             try
             {
                 store.SaveProfile(profile);
-                var settings = AuthSettingsCatalog.WithPreloginMode(AuthSettingsCatalog.CreateDefault(), pending.PreloginMode);
+                var settings = AuthSettingsCatalog.WithPreloginMode(store.LoadPreferences() ?? AuthSettingsCatalog.CreateDefault(), pending.PreloginMode);
                 store.SavePreferences(settings);
                 _dataRoot.Credentials().Save(credentials);
                 sessionId = _dataRoot.Sessions().Create(pending.User, profile.StudentId, pending.PreloginMode).SessionId;
                 _traditionalJwSessions.Store(sessionId, jwSession);
                 _dataRoot.JwSessions().Save(jwSession.ExportStoredSession());
                 var schedule = await _scheduleService.FetchCookieAsync(sessionId, new ScheduleRequest { Mode = "current" }, cancellationToken).ConfigureAwait(false);
+                // A successfully parsed empty week is a valid initial schedule.
                 _dataRoot.JwSessions().Save(jwSession.ExportStoredSession());
                 return ("首次登录成功，已使用教务系统协议完成本地初始化", BuildPayload(sessionId, profile, store, settings, credentials.TrustedLoginToken, schedule.Payload, connected: true));
             }
@@ -145,7 +153,8 @@ public sealed class AuthService
             {
                 if (!string.IsNullOrWhiteSpace(sessionId)) { _dataRoot.Sessions().Remove(sessionId); _traditionalJwSessions.Remove(sessionId); }
                 else { jwSession.Dispose(); }
-                _dataRoot.JwSessions().Remove(pending.User);
+                if (previousJwSession is null) _dataRoot.JwSessions().Remove(pending.User);
+                else _dataRoot.JwSessions().Save(previousJwSession);
                 if (pending.PreviousCredentials is null) { _dataRoot.Credentials().Remove(pending.User); }
                 else { _dataRoot.Credentials().Save(pending.PreviousCredentials); }
                 snapshot.Restore();
@@ -232,13 +241,17 @@ public sealed class AuthService
 
     public (string Message, string User, AuthPayload Payload) DesktopBootstrap()
     {
+        if (ActiveSessionId is { } active && _dataRoot.Sessions().Load(active) is { } current)
+        {
+            var result = GetSession(active);
+            return ("已恢复桌面本地可信状态", current.User, result.Payload);
+        }
+
         var credentialStore = _dataRoot.Credentials();
         var orderedCandidates = credentialStore.LoadAll()
             .Where(document => !string.IsNullOrWhiteSpace(document.User) && !string.IsNullOrWhiteSpace(document.Password))
             .OrderByDescending(document => ParseCredentialUpdatedAt(document.UpdatedAt))
             .ThenBy(document => document.User, StringComparer.OrdinalIgnoreCase);
-        AuthException? lastRecoverableError = null;
-
         foreach (var candidate in orderedCandidates)
         {
             try
@@ -248,13 +261,8 @@ public sealed class AuthService
             }
             catch (AuthException ex) when (ex.StatusCode == 409)
             {
-                lastRecoverableError = ex;
+                // No complete local workspace: the desktop should show authentication.
             }
-        }
-
-        if (lastRecoverableError is not null)
-        {
-            throw lastRecoverableError;
         }
 
         throw new AuthException(404, "当前设备尚未建立可信登录环境，请先手动登录一次");
@@ -265,7 +273,24 @@ public sealed class AuthService
         var context = LoadContext(sessionId);
         var touchedCredentials = TouchCredentialUsage(context.Credentials, _dataRoot.Credentials());
         var cachedSchedule = LoadRequiredCachedSchedule(sessionId);
-        return ("会话有效", BuildPayload(sessionId, context.Profile, context.StudentStore, context.Settings, touchedCredentials.TrustedLoginToken, cachedSchedule, connected: false));
+        return ("会话有效", BuildPayload(sessionId, context.Profile, context.StudentStore, context.Settings, touchedCredentials.TrustedLoginToken, cachedSchedule, connected: _traditionalJwSessions.TryGet(sessionId, out _)));
+    }
+
+    public async Task<(string Message, object Payload)> ConnectProtocolAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        var context = LoadContext(sessionId);
+        if (_traditionalJwSessions.TryGet(sessionId, out _)
+            || await TryRestorePersistedJwSessionAsync(sessionId, context.Credentials, cancellationToken).ConfigureAwait(false))
+        {
+            var result = GetSession(sessionId);
+            return ("教务会话已连接", result.Payload);
+        }
+        return await BeginProtocolLoginAsync(new LoginRequest
+        {
+            User = context.Session.User,
+            Password = context.Credentials.Password,
+            PreloginMode = context.Session.PreloginMode,
+        }, forceRemote: true, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<(string Message, AuthPayload Payload)> ConnectAsync(string sessionId, ConnectRequest request, CancellationToken cancellationToken = default)
@@ -380,6 +405,8 @@ public sealed class AuthService
             AcademyName = context.Profile.AcademyName,
             TrainingLevel = context.Profile.TrainingLevel,
             CampusName = context.Profile.CampusName,
+            ProgramDurationYears = context.Profile.ProgramDurationYears,
+            EnrollmentDate = context.Profile.EnrollmentDate,
             UpdatedAt = DateTimeOffset.Now.ToString("O"),
         };
         context.StudentStore.SaveProfile(updatedProfile);
@@ -425,6 +452,7 @@ public sealed class AuthService
     public string Logout(string sessionId)
     {
         var session = EnsureSessionExists(sessionId);
+        Interlocked.CompareExchange(ref _activeSessionId, null, sessionId);
         _dataRoot.Sessions().Remove(sessionId);
         MarkSessionDisconnected(sessionId);
         _traditionalJwSessions.Remove(sessionId);
@@ -473,21 +501,7 @@ public sealed class AuthService
         return AuthSettingsCatalog.NormalizePreloginMode(value);
     }
 
-    private bool RequiresProtocolProfileRefresh(StoredCredentialDocument credentials)
-    {
-        var profile = _dataRoot.ForStudent(ResolveStudentId(credentials.User, credentials.StudentId)).LoadProfile();
-        if (profile is null)
-        {
-            return true;
-        }
 
-        return string.IsNullOrWhiteSpace(profile.Name)
-               || string.Equals(profile.Name, "教务用户", StringComparison.Ordinal)
-               || string.Equals(profile.Name, credentials.User, StringComparison.Ordinal)
-               || string.IsNullOrWhiteSpace(profile.AcademyName)
-               || string.IsNullOrWhiteSpace(profile.MajorName)
-               || string.IsNullOrWhiteSpace(profile.TrainingLevel);
-    }
 
     private async Task<bool> TryRestorePersistedJwSessionAsync(
         string sessionId,
@@ -687,7 +701,6 @@ public sealed class AuthService
             MarkSessionConnected(createdSessionId, mobileToken);
             var cachedSchedule = await InitializeCurrentScheduleAsync(
                 createdSessionId,
-                $"{failurePrefix}：移动教务课表未包含可用课程行",
                 cancellationToken).ConfigureAwait(false);
 
             return (
@@ -726,6 +739,7 @@ public sealed class AuthService
         bool connected)
     {
         var normalizedSettings = AuthSettingsCatalog.Normalize(settings);
+        Volatile.Write(ref _activeSessionId, sessionId);
         return new AuthPayload(
             SessionId: sessionId,
             Student: BuildStudentSummary(profile, ResolveAvatarUrl(sessionId, studentStore)),
@@ -735,11 +749,10 @@ public sealed class AuthService
             Connected: connected,
             PreloginMode: normalizedSettings.Auth.PreloginMode,
             CachedSchedule: cachedSchedule,
-            TrustedLoginToken: trustedLoginToken,
-            CourseGrabState: new AuthCourseGrabState(Status: "idle", Running: false));
+            TrustedLoginToken: trustedLoginToken);
     }
 
-    private async Task<Dictionary<string, object?>> InitializeCurrentScheduleAsync(string sessionId, string emptyRowsMessage, CancellationToken cancellationToken)
+    private async Task<Dictionary<string, object?>> InitializeCurrentScheduleAsync(string sessionId, CancellationToken cancellationToken)
     {
         var result = await _scheduleService.FetchPreferredAsync(
             sessionId,
@@ -748,7 +761,7 @@ public sealed class AuthService
                 Mode = "current",
             },
             cancellationToken).ConfigureAwait(false);
-        EnsureScheduleHasRows(result.Payload, emptyRowsMessage);
+        // Source clients distinguish an empty week from failed parsing.
         return result.Payload;
     }
 
@@ -767,7 +780,7 @@ public sealed class AuthService
                 "本地初始化数据不完整：缺少可用的本地课表缓存，请重新初始化或修复本地数据");
         }
 
-        EnsureScheduleHasRows(cachedSchedule, "本地初始化数据不完整：本地课表缓存为空，请重新初始化或修复本地数据");
+        // A successful persisted week can legitimately contain no classes.
         return cachedSchedule;
     }
 
@@ -821,7 +834,9 @@ public sealed class AuthService
             TrainingLevel: profile.TrainingLevel,
             CampusName: profile.CampusName,
             AvatarUrl: avatarUrl,
-            UpdatedAt: profile.UpdatedAt);
+            UpdatedAt: profile.UpdatedAt,
+            ProgramDurationYears: profile.ProgramDurationYears,
+            EnrollmentDate: profile.EnrollmentDate);
     }
 
     private static StudentProfileDocument EnsureRemoteProfile(StudentProfileDocument profile, string errorMessage)
@@ -854,21 +869,6 @@ public sealed class AuthService
         }
 
         throw new AuthException(409, "本地初始化数据不完整：缺少可用身份信息，请重新初始化或修复本地数据");
-    }
-
-    private static void EnsureScheduleHasRows(Dictionary<string, object?> payload, string errorMessage)
-    {
-        if (payload.GetValueOrDefault("rows") is IEnumerable<object?> rows && rows.Any())
-        {
-            return;
-        }
-
-        if (payload.GetValueOrDefault("rows") is System.Collections.IEnumerable enumerable && enumerable.Cast<object?>().Any())
-        {
-            return;
-        }
-
-        throw new AuthException(409, errorMessage);
     }
 
     private string ResolveAvatarUrl(string sessionId, XkeStudentStore store)
@@ -1031,6 +1031,14 @@ public sealed class AuthService
     private sealed record RestoredTrustedWorkspace(
         string User,
         AuthPayload Payload);
+
+    public void Dispose()
+    {
+        foreach (var pair in _protocolLogins)
+        {
+            if (_protocolLogins.TryRemove(pair.Key, out var pending)) pending.Protocol.Dispose();
+        }
+    }
 
     private sealed record PendingProtocolLogin(string User, string Password, string PreloginMode, StoredCredentialDocument? PreviousCredentials, DirectJwLoginProtocol Protocol, DateTimeOffset ExpiresAt);
 }

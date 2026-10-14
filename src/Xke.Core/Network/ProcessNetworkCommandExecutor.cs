@@ -1,10 +1,24 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace Xke.Core.Network;
 
 public sealed class ProcessNetworkCommandExecutor : INetworkCommandExecutor
 {
+    private static readonly Encoding OutputEncoding = ResolveOutputEncoding();
+
+    // These Windows tools emit OEM console text, not UTF-8. Read the system code page, not the UI culture.
+    private static Encoding ResolveOutputEncoding()
+    {
+        if (!OperatingSystem.IsWindows()) return Encoding.UTF8;
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        return Encoding.GetEncoding(checked((int)GetOEMCP()));
+    }
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetOEMCP();
+
     public async Task<NetworkCommandResult> RunAsync(
         string fileName,
         IReadOnlyList<string> arguments,
@@ -20,8 +34,8 @@ public sealed class ProcessNetworkCommandExecutor : INetworkCommandExecutor
             CreateNoWindow = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8,
+            StandardOutputEncoding = OutputEncoding,
+            StandardErrorEncoding = OutputEncoding,
         };
         foreach (var argument in arguments)
         {

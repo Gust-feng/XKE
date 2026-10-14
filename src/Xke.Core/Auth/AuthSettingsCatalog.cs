@@ -1,4 +1,3 @@
-using System.Net;
 using Xke.Contracts.Enums;
 using Xke.Contracts.Models;
 using Xke.Contracts.Requests;
@@ -31,7 +30,7 @@ public static class AuthSettingsCatalog
                 AutoRefreshDailyTime = "20:00",
                 AutoRefreshIntervalHours = 4,
                 LessonReminderEnabled = false,
-                LessonReminderMinutes = 15,
+                LessonReminderMinutes = 30,
                 WeekendAutoSwitchEnabled = false,
                 IgnoredWeekendBlocks = new IgnoredWeekendBlocksDocument(),
             },
@@ -44,10 +43,6 @@ public static class AuthSettingsCatalog
                 Provider = "campus",
                 HeartbeatEnabled = false,
                 HeartbeatIntervalMinutes = 5,
-                CampusIp = string.Empty,
-                CampusSubnetPrefix = 24,
-                CampusGateway = string.Empty,
-                CampusDns = string.Empty,
             },
             Ui = new UiSettingsDocument
             {
@@ -86,9 +81,9 @@ public static class AuthSettingsCatalog
                 AutoRefreshEnabled = raw.Schedule?.AutoRefreshEnabled ?? defaults.Schedule.AutoRefreshEnabled,
                 AutoRefreshMode = NormalizeOption(raw.Schedule?.AutoRefreshMode, AppOptions.AutoRefreshModes, defaults.Schedule.AutoRefreshMode),
                 AutoRefreshDailyTime = NormalizeDailyTime(raw.Schedule?.AutoRefreshDailyTime, defaults.Schedule.AutoRefreshDailyTime),
-                AutoRefreshIntervalHours = NormalizeAllowedNumber(raw.Schedule?.AutoRefreshIntervalHours, AppOptions.AutoRefreshIntervalHours, defaults.Schedule.AutoRefreshIntervalHours),
+                AutoRefreshIntervalHours = NormalizePositiveNumber(raw.Schedule?.AutoRefreshIntervalHours, defaults.Schedule.AutoRefreshIntervalHours, 8760),
                 LessonReminderEnabled = raw.Schedule?.LessonReminderEnabled ?? defaults.Schedule.LessonReminderEnabled,
-                LessonReminderMinutes = NormalizeAllowedNumber(raw.Schedule?.LessonReminderMinutes, AppOptions.ReminderMinutes, defaults.Schedule.LessonReminderMinutes),
+                LessonReminderMinutes = Math.Max(15, NormalizePositiveNumber(raw.Schedule?.LessonReminderMinutes, defaults.Schedule.LessonReminderMinutes)),
                 WeekendAutoSwitchEnabled = raw.Schedule?.WeekendAutoSwitchEnabled ?? defaults.Schedule.WeekendAutoSwitchEnabled,
                 IgnoredWeekendBlocks = NormalizeIgnoredWeekendBlocks(raw.Schedule?.IgnoredWeekendBlocks),
             },
@@ -98,16 +93,16 @@ public static class AuthSettingsCatalog
             },
             Network = new NetworkSettingsDocument
             {
+                PortalUrl = NormalizeHttpUrl(raw.Network?.PortalUrl, defaults.Network.PortalUrl),
+                ConnectivityCheckUrls = NormalizeCheckUrls(raw.Network?.ConnectivityCheckUrls, defaults.Network.ConnectivityCheckUrls),
                 Provider = NormalizeOption(raw.Network?.Provider, AppOptions.NetworkProviders, defaults.Network.Provider),
                 HeartbeatEnabled = raw.Network?.HeartbeatEnabled ?? defaults.Network.HeartbeatEnabled,
-                HeartbeatIntervalMinutes = NormalizeAllowedNumber(raw.Network?.HeartbeatIntervalMinutes, AppOptions.NetworkHeartbeatIntervals, defaults.Network.HeartbeatIntervalMinutes),
-                CampusIp = NormalizeIpv4(raw.Network?.CampusIp),
-                CampusSubnetPrefix = NormalizeSubnetPrefix(raw.Network?.CampusSubnetPrefix, defaults.Network.CampusSubnetPrefix),
-                CampusGateway = NormalizeIpv4(raw.Network?.CampusGateway),
-                CampusDns = NormalizeIpv4(raw.Network?.CampusDns),
+                HeartbeatIntervalMinutes = NormalizePositiveNumber(raw.Network?.HeartbeatIntervalMinutes, defaults.Network.HeartbeatIntervalMinutes),
             },
             Ui = new UiSettingsDocument
             {
+                ShowWeekend = raw.Ui?.ShowWeekend ?? defaults.Ui.ShowWeekend,
+                InactiveCourseMode = NormalizeOption(raw.Ui?.InactiveCourseMode, ["dim", "hide"], defaults.Ui.InactiveCourseMode),
                 Panels = new UiPanelsDocument
                 {
                     Schedule = raw.Ui?.Panels?.Schedule ?? defaults.Ui.Panels.Schedule,
@@ -139,25 +134,25 @@ public static class AuthSettingsCatalog
                 Source = NormalizeOption(request.Schedule.Source, AppOptions.ScheduleSources, schedule.Source),
                 DeveloperMode = request.Schedule.DeveloperMode ?? schedule.DeveloperMode,
                 WeekMode = NormalizeOption(request.Schedule.WeekMode, AppOptions.WeekModes, schedule.WeekMode),
-                ManualWeek = request.Schedule.ManualWeek.Trim(),
-                CookieRq = request.Schedule.CookieRq.Trim(),
-                TermLabel = request.Schedule.TermLabel.Trim(),
-                AcademicTerm = request.Schedule.AcademicTerm.Trim(),
-                MockDay = request.Schedule.MockDay.Trim(),
-                MockTime = request.Schedule.MockTime.Trim(),
+                ManualWeek = request.Schedule.ManualWeek?.Trim() ?? schedule.ManualWeek,
+                CookieRq = request.Schedule.CookieRq?.Trim() ?? schedule.CookieRq,
+                TermLabel = request.Schedule.TermLabel?.Trim() ?? schedule.TermLabel,
+                AcademicTerm = request.Schedule.AcademicTerm?.Trim() ?? schedule.AcademicTerm,
+                MockDay = request.Schedule.MockDay?.Trim() ?? schedule.MockDay,
+                MockTime = request.Schedule.MockTime?.Trim() ?? schedule.MockTime,
                 AutoRefreshEnabled = request.Schedule.AutoRefreshEnabled ?? schedule.AutoRefreshEnabled,
                 AutoRefreshMode = NormalizeOption(request.Schedule.AutoRefreshMode, AppOptions.AutoRefreshModes, schedule.AutoRefreshMode),
                 AutoRefreshDailyTime = NormalizeDailyTime(request.Schedule.AutoRefreshDailyTime, schedule.AutoRefreshDailyTime),
-                AutoRefreshIntervalHours = NormalizeAllowedNumber(request.Schedule.AutoRefreshIntervalHours, AppOptions.AutoRefreshIntervalHours, schedule.AutoRefreshIntervalHours),
+                AutoRefreshIntervalHours = NormalizePositiveNumber(request.Schedule.AutoRefreshIntervalHours, schedule.AutoRefreshIntervalHours, 8760),
                 LessonReminderEnabled = request.Schedule.LessonReminderEnabled ?? schedule.LessonReminderEnabled,
-                LessonReminderMinutes = NormalizeAllowedNumber(request.Schedule.LessonReminderMinutes, AppOptions.ReminderMinutes, schedule.LessonReminderMinutes),
+                LessonReminderMinutes = Math.Max(15, NormalizePositiveNumber(request.Schedule.LessonReminderMinutes, schedule.LessonReminderMinutes)),
                 WeekendAutoSwitchEnabled = request.Schedule.WeekendAutoSwitchEnabled ?? schedule.WeekendAutoSwitchEnabled,
                 IgnoredWeekendBlocks = request.Schedule.IgnoredWeekendBlocks is null
                     ? schedule.IgnoredWeekendBlocks
                     : NormalizeIgnoredWeekendBlocks(new IgnoredWeekendBlocksDocument
                     {
-                        Saturday = request.Schedule.IgnoredWeekendBlocks.TryGetValue("saturday", out var saturday) ? saturday : Array.Empty<int>(),
-                        Sunday = request.Schedule.IgnoredWeekendBlocks.TryGetValue("sunday", out var sunday) ? sunday : Array.Empty<int>(),
+                        Saturday = request.Schedule.IgnoredWeekendBlocks.TryGetValue("saturday", out var saturday) && saturday is not null ? saturday : schedule.IgnoredWeekendBlocks.Saturday,
+                        Sunday = request.Schedule.IgnoredWeekendBlocks.TryGetValue("sunday", out var sunday) && sunday is not null ? sunday : schedule.IgnoredWeekendBlocks.Sunday,
                     }),
             };
         }
@@ -176,13 +171,11 @@ public static class AuthSettingsCatalog
         {
             network = new NetworkSettingsDocument
             {
+                PortalUrl = NormalizeHttpUrl(request.Network.PortalUrl, network.PortalUrl),
+                ConnectivityCheckUrls = NormalizeCheckUrls(request.Network.ConnectivityCheckUrls, network.ConnectivityCheckUrls),
                 Provider = NormalizeOption(request.Network.Provider, AppOptions.NetworkProviders, network.Provider),
                 HeartbeatEnabled = request.Network.HeartbeatEnabled ?? network.HeartbeatEnabled,
-                HeartbeatIntervalMinutes = NormalizeAllowedNumber(request.Network.HeartbeatIntervalMinutes, AppOptions.NetworkHeartbeatIntervals, network.HeartbeatIntervalMinutes),
-                CampusIp = NormalizeOptionalText(request.Network.CampusIp, NormalizeIpv4, network.CampusIp),
-                CampusSubnetPrefix = NormalizeSubnetPrefix(request.Network.CampusSubnetPrefix, network.CampusSubnetPrefix),
-                CampusGateway = NormalizeOptionalText(request.Network.CampusGateway, NormalizeIpv4, network.CampusGateway),
-                CampusDns = NormalizeOptionalText(request.Network.CampusDns, NormalizeIpv4, network.CampusDns),
+                HeartbeatIntervalMinutes = NormalizePositiveNumber(request.Network.HeartbeatIntervalMinutes, network.HeartbeatIntervalMinutes),
             };
         }
 
@@ -208,6 +201,8 @@ public static class AuthSettingsCatalog
             Network = network,
             Ui = new UiSettingsDocument
             {
+                ShowWeekend = request.Ui?.ShowWeekend ?? normalized.Ui.ShowWeekend,
+                InactiveCourseMode = NormalizeOption(request.Ui?.InactiveCourseMode, ["dim", "hide"], normalized.Ui.InactiveCourseMode),
                 Panels = panels,
             },
         });
@@ -240,15 +235,12 @@ public static class AuthSettingsCatalog
 
     private static string NormalizeTheme(string? value, string fallback)
     {
-        return NormalizeOption(value, AppOptions.ThemeIds, fallback);
+        return string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
     }
 
     public static string NormalizePreloginMode(string? value)
     {
-        var cleaned = (value ?? string.Empty).Trim().ToLowerInvariant();
-        return cleaned is "" or "auto" or "capture" or "coded"
-            ? AppOptions.DefaultPreloginMode
-            : AppOptions.DefaultPreloginMode;
+        return AppOptions.DefaultPreloginMode;
     }
 
     private static string NormalizeOption(string? value, IReadOnlyCollection<string> allowed, string fallback)
@@ -262,9 +254,27 @@ public static class AuthSettingsCatalog
         return allowed.Contains(cleaned, StringComparer.Ordinal) ? cleaned : fallback;
     }
 
-    private static int NormalizeAllowedNumber(int? value, IReadOnlyCollection<int> allowed, int fallback)
+
+
+    private static string NormalizeHttpUrl(string? value, string fallback)
     {
-        return value.HasValue && allowed.Contains(value.Value) ? value.Value : fallback;
+        return Uri.TryCreate(value?.Trim(), UriKind.Absolute, out var uri)
+               && uri.Scheme is "http" or "https" && string.IsNullOrEmpty(uri.UserInfo)
+            ? uri.AbsoluteUri
+            : fallback;
+    }
+
+    private static IReadOnlyList<string> NormalizeCheckUrls(IReadOnlyList<string>? urls, IReadOnlyList<string> fallback)
+    {
+        if (urls is null) return fallback;
+        var normalized = urls.Select(value => NormalizeHttpUrl(value, string.Empty))
+            .Where(value => !string.IsNullOrWhiteSpace(value)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        return normalized.Length > 0 ? normalized : fallback;
+    }
+
+    private static int NormalizePositiveNumber(int? value, int fallback, int maximum = 1440)
+    {
+        return value is > 0 && value <= maximum ? value.Value : fallback;
     }
 
     private static string NormalizeDailyTime(string? value, string fallback)
@@ -288,27 +298,10 @@ public static class AuthSettingsCatalog
         return $"{hours:00}:{minutes:00}";
     }
 
-    private static int NormalizeSubnetPrefix(int? value, int fallback)
-    {
-        return value.HasValue && value.Value is >= 1 and <= 32 ? value.Value : fallback;
-    }
-
-    private static string NormalizeIpv4(string? value)
-    {
-        var cleaned = (value ?? string.Empty).Trim();
-        if (string.IsNullOrWhiteSpace(cleaned))
-        {
-            return string.Empty;
-        }
-
-        return IPAddress.TryParse(cleaned, out var address) && address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork
-            ? address.ToString()
-            : string.Empty;
-    }
-
     private static string NormalizeOptionalText(string? raw, Func<string?, string> normalizer, string fallback)
     {
-        var cleaned = raw ?? string.Empty;
+        if (raw is null) return fallback;
+        var cleaned = raw;
         if (string.IsNullOrWhiteSpace(cleaned))
         {
             return string.Empty;

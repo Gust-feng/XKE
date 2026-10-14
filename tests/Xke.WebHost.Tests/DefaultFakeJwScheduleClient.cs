@@ -7,8 +7,10 @@ namespace Xke.WebHost.Tests;
 internal sealed class DefaultFakeJwScheduleClient : IJwScheduleClient
 {
     public bool FailPreferred { get; set; }
+    public Exception? CookieException { get; set; }
     public Exception? PreferredException { get; set; }
     public int PreferredCalls { get; private set; }
+    public int CookieCalls { get; private set; }
 
     public Task<JwScheduleFetchResult> FetchPreferredAsync(
         string user,
@@ -43,6 +45,8 @@ internal sealed class DefaultFakeJwScheduleClient : IJwScheduleClient
         MobileJwEncryptedCredentialDocument? mobileJw = null,
         string sessionId = "")
     {
+        CookieCalls++;
+        if (CookieException is not null) throw CookieException;
         return Task.FromResult(BuildResult(user, sourceKey: "jw_schedule", sourceLabel: "教务系统课表", sourceType: "jw", weekNumber: 8));
     }
 

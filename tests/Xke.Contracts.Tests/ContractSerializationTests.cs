@@ -54,10 +54,7 @@ public sealed class ContractSerializationTests
             Provider = "campus",
             HeartbeatEnabled = true,
             HeartbeatIntervalMinutes = 15,
-            CampusIp = "10.0.0.2",
-            CampusSubnetPrefix = 24,
-            CampusGateway = "10.0.0.1",
-            CampusDns = "223.5.5.5",
+            CampusAccount = "campus-user", CampusPassword = "campus-pass",
             TelecomAccount = "telecom-user",
             TelecomPassword = "telecom-pass",
         };
@@ -65,12 +62,10 @@ public sealed class ContractSerializationTests
         var json = JsonSerializer.Serialize(payload);
 
         Assert.Contains("\"provider\":\"campus\"", json);
+        Assert.Contains("\"campus_account\":\"campus-user\"", json);
+        Assert.Contains("\"campus_password\":\"campus-pass\"", json);
         Assert.Contains("\"heartbeat_enabled\":true", json);
         Assert.Contains("\"heartbeat_interval_minutes\":15", json);
-        Assert.Contains("\"campus_ip\":\"10.0.0.2\"", json);
-        Assert.Contains("\"campus_subnet_prefix\":24", json);
-        Assert.Contains("\"campus_gateway\":\"10.0.0.1\"", json);
-        Assert.Contains("\"campus_dns\":\"223.5.5.5\"", json);
         Assert.Contains("\"telecom_account\":\"telecom-user\"", json);
         Assert.Contains("\"telecom_password\":\"telecom-pass\"", json);
         Assert.DoesNotContain("\"Provider\":", json);
@@ -136,8 +131,7 @@ public sealed class ContractSerializationTests
                 {
                     Provider = "campus",
                     HeartbeatIntervalMinutes = 5,
-                    CampusSubnetPrefix = 24,
-                },
+                    },
                 Ui = new UiSettingsDocument
                 {
                     Panels = new UiPanelsDocument
@@ -152,8 +146,7 @@ public sealed class ContractSerializationTests
             Connected: false,
             PreloginMode: "auto",
             CachedSchedule: null,
-            TrustedLoginToken: "trusted-token",
-            CourseGrabState: new AuthCourseGrabState(Status: "idle", Running: false));
+            TrustedLoginToken: "trusted-token");
 
         var json = JsonSerializer.Serialize(payload);
 
@@ -164,7 +157,6 @@ public sealed class ContractSerializationTests
         Assert.Contains("\"storage_dir\":\".runtime/data/students/20260001\"", json);
         Assert.Contains("\"prelogin_mode\":\"auto\"", json);
         Assert.Contains("\"ignored_weekend_blocks\":", json);
-        Assert.Contains("\"course_grab_state\":", json);
         Assert.DoesNotContain("\"SessionId\":", json);
         Assert.DoesNotContain("\"StudentId\":", json);
     }
@@ -208,22 +200,6 @@ public sealed class ContractSerializationTests
         Assert.Contains("\"window_state\":", json);
         Assert.Contains("\"available\":true", json);
         Assert.DoesNotContain("\"WindowState\":", json);
-    }
-
-    [Fact]
-    public void UpdatesFeedPayload_UsesSnakeCaseForStudentId()
-    {
-        var payload = new UpdatesFeedPayload(
-            Feed: new Dictionary<string, object?>
-            {
-                ["source"] = "local-cache",
-            },
-            StudentId: "20260001");
-
-        var json = JsonSerializer.Serialize(payload);
-
-        Assert.Contains("\"student_id\":\"20260001\"", json);
-        Assert.Contains("\"feed\":", json);
     }
 
     [Fact]
@@ -326,12 +302,15 @@ public sealed class ContractSerializationTests
             Cached: true,
             DataOrigin: "local_cache",
             UpdatedAt: "2026-04-23T12:00:00Z",
-            FileUpdatedAt: "2026-04-23T12:00:01Z");
+            FileUpdatedAt: "2026-04-23T12:00:01Z",
+            SourceKey: "mobile_schedule");
 
         var json = JsonSerializer.Serialize(payload);
 
         Assert.Contains("\"source_label\":", json);
         Assert.Contains("\"source_type\":\"mobile\"", json);
+        Assert.Contains("\"source_key\":\"mobile_schedule\"", json);
+        Assert.Equal("mobile_schedule", JsonSerializer.Deserialize<ScheduleData>(json)!.SourceKey);
         Assert.Contains("\"week_label\":", json);
         Assert.Contains("\"available_weeks\":", json);
         Assert.Contains("\"current_week_number\":7", json);
@@ -345,122 +324,30 @@ public sealed class ContractSerializationTests
     }
 
     [Fact]
-    public void CourseRequests_UseSnakeCaseForRoundAndGrabFields()
+    public void PreferencesRequest_OmittedAndNullStringsAreOptionalWhileEmptyStringsAreExplicit()
     {
-        var preview = new CoursePreviewRequest
-        {
-            RoundId = "round-2026-1",
-            Refresh = true,
-        };
-        var grab = new CourseGrabStartRequest
-        {
-            RoundId = "round-2026-1",
-            CourseId = "course-1001",
-            SectionId = "section-2002",
-            Interval = 0.8,
-        };
-
-        var previewJson = JsonSerializer.Serialize(preview);
-        var grabJson = JsonSerializer.Serialize(grab);
-
-        Assert.Contains("\"round_id\":\"round-2026-1\"", previewJson);
-        Assert.Contains("\"refresh\":true", previewJson);
-        Assert.Contains("\"course_id\":\"course-1001\"", grabJson);
-        Assert.Contains("\"section_id\":\"section-2002\"", grabJson);
-        Assert.Contains("\"interval\":0.8", grabJson);
-        Assert.DoesNotContain("\"RoundId\":", previewJson);
-        Assert.DoesNotContain("\"CourseId\":", grabJson);
+        var omitted = JsonSerializer.Deserialize<PreferencesRequest>("""
+            {"schedule":{"auto_refresh_enabled":true},"network":{"heartbeat_enabled":true},"ui":{}}
+            """)!;
+        Assert.Null(omitted.Schedule!.AcademicTerm);
+        Assert.Null(omitted.Schedule.ManualWeek);
+        Assert.Null(omitted.Ui!.ShowWeekend);
+        Assert.Null(omitted.Ui.InactiveCourseMode);
+        var explicitValues = JsonSerializer.Deserialize<PreferencesRequest>("""
+            {"schedule":{"academic_term":"","manual_week":null},"ui":{"show_weekend":false,"inactive_course_mode":"dim"}}
+            """)!;
+        Assert.Equal(string.Empty, explicitValues.Schedule!.AcademicTerm);
+        Assert.Null(explicitValues.Schedule.ManualWeek);
+        var json = JsonSerializer.Serialize(explicitValues.Ui);
+        Assert.Contains("\"show_weekend\":false", json);
+        Assert.Contains("\"inactive_course_mode\":\"dim\"", json);
+        var defaults = JsonSerializer.Deserialize<AppSettingsDocument>("{\"ui\":{\"panels\":{}}}")!;
+        Assert.True(defaults.Ui.ShowWeekend);
+        Assert.Equal("dim", defaults.Ui.InactiveCourseMode);
     }
 
     [Fact]
-    public void CourseResponses_UseSnakeCaseForStatusRoundsPreviewAndDeferredState()
-    {
-        var status = new CourseStatusPayload(
-            StudentId: "20260001",
-            StorageDir: ".runtime/data/students/20260001/course",
-            CourseConnection: new CourseConnectionState(
-                Connected: false,
-                Status: "deferred",
-                Reason: "traditional-jw-captcha-deferred",
-                Message: "选课中心框架已接入，传统教务验证码连接后置",
-                UpdatedAt: "2026-04-23T12:00:00Z"),
-            Features: new CourseFeatureState(
-                Rounds: true,
-                Preview: true,
-                Grab: false,
-                GrabReason: "course-grab-deferred"),
-            GrabState: new CourseGrabDeferredState(
-                Status: "deferred",
-                Running: false,
-                Deferred: true,
-                Reason: "course-grab-deferred",
-                Message: "选课中心框架已接入，快速抢课后续单独开发"));
-        var rounds = new CourseRoundsPayload(
-            Rounds:
-            [
-                new CourseRound(
-                    RoundId: "round-1",
-                    Name: "公共选修课第一轮",
-                    Term: "2025-2026-2",
-                    TimeRange: "2026-04-23 ~ 2026-04-25",
-                    Status: "open"),
-            ],
-            Count: 1,
-            Cached: false,
-            UpdatedAt: "2026-04-23T12:05:00Z",
-            Warnings: ["fixture-source"]);
-        var preview = new CoursePreviewPayload(
-            RoundId: "round-1",
-            Courses:
-            [
-                new CourseItem
-                {
-                    Kch = "A1001",
-                    Kcmc = "大学美育",
-                    Xf = "2",
-                    Skls = "李老师",
-                    Sksj = "周一 1-2 节",
-                    Skdd = "教学楼 101",
-                    Xqmc = "主校区",
-                    Xkrs = "30",
-                    Syrs = "12",
-                    Ctsm = string.Empty,
-                    Szkcflmc = "公共选修",
-                    Jx02Id = "course-1001",
-                    Jx0404Id = "section-2002",
-                },
-            ],
-            Count: 1,
-            Cached: true,
-            UpdatedAt: "2026-04-23T12:06:00Z",
-            Warnings: []);
-        var deferred = new CourseDeferredPayload(
-            Reason: "course-grab-deferred",
-            GrabState: status.GrabState);
-
-        var statusJson = JsonSerializer.Serialize(status);
-        var roundsJson = JsonSerializer.Serialize(rounds);
-        var previewJson = JsonSerializer.Serialize(preview);
-        var deferredJson = JsonSerializer.Serialize(deferred);
-
-        Assert.Contains("\"student_id\":\"20260001\"", statusJson);
-        Assert.Contains("\"storage_dir\":\".runtime/data/students/20260001/course\"", statusJson);
-        Assert.Contains("\"course_connection\":", statusJson);
-        Assert.Contains("\"grab_reason\":\"course-grab-deferred\"", statusJson);
-        Assert.Contains("\"round_id\":\"round-1\"", roundsJson);
-        Assert.Contains("\"time_range\":\"2026-04-23 ~ 2026-04-25\"", roundsJson);
-        Assert.Contains("\"updated_at\":\"2026-04-23T12:05:00Z\"", roundsJson);
-        Assert.Contains("\"courses\":", previewJson);
-        Assert.Contains("\"jx02id\":\"course-1001\"", previewJson);
-        Assert.Contains("\"jx0404id\":\"section-2002\"", previewJson);
-        Assert.Contains("\"grab_state\":", deferredJson);
-        Assert.Contains("\"reason\":\"course-grab-deferred\"", deferredJson);
-        Assert.DoesNotContain("\"StudentId\":", statusJson);
-        Assert.DoesNotContain("\"GrabReason\":", statusJson);
-    }
-
-    [Fact]
-    public void NetworkResponses_UseSnakeCaseForConfigStatusAndApplyResult()
+    public void NetworkResponses_UseSnakeCaseForConfigAndStatus()
     {
         var config = new NetworkConfigPayload(
             Settings: new NetworkSettingsDocument
@@ -468,25 +355,11 @@ public sealed class ContractSerializationTests
                 Provider = "campus",
                 HeartbeatEnabled = true,
                 HeartbeatIntervalMinutes = 5,
-                CampusIp = "10.0.0.8",
-                CampusSubnetPrefix = 24,
-                CampusGateway = "10.0.0.1",
-                CampusDns = "223.5.5.5",
             },
             Credentials: new Dictionary<string, NetworkProviderCredential>
             {
                 ["telecom"] = new("telecom-user", "te*******ss"),
             },
-            ApplyResult: new NetworkApplyResult(
-                Applied: false,
-                Error: "requires admin",
-                RequiresElevation: true,
-                InterfaceName: "Ethernet 1",
-                Ip: "10.0.0.8",
-                SubnetMask: "255.255.255.0",
-                Gateway: "10.0.0.1",
-                Dns: "223.5.5.5",
-                Interface: new Dictionary<string, object?> { ["name"] = "Ethernet 1" }),
             CampusAccount: "20260001",
             StorageDir: ".runtime/data/students/20260001");
         var status = new NetworkStatusPayload(
@@ -503,53 +376,21 @@ public sealed class ContractSerializationTests
             ProviderLabel: "校园账号",
             Action: "heartbeat",
             Attempts: [new Dictionary<string, object?> { ["username"] = "20260001" }],
-            Message: "校园网心跳已发送");
+            Message: "校园网认证失败", OperationError: "服务器限制当前IP");
 
         var configJson = JsonSerializer.Serialize(config);
         var statusJson = JsonSerializer.Serialize(status);
 
-        Assert.Contains("\"apply_result\":", configJson);
-        Assert.Contains("\"requires_elevation\":true", configJson);
+        Assert.DoesNotContain("apply_result", configJson);
+
         Assert.Contains("\"campus_account\":\"20260001\"", configJson);
         Assert.Contains("\"storage_dir\":\".runtime/data/students/20260001\"", configJson);
         Assert.Contains("\"checked_at\":\"2026-04-23T12:00:00Z\"", statusJson);
         Assert.Contains("\"campus_connected\":true", statusJson);
         Assert.Contains("\"needs_heartbeat\":true", statusJson);
         Assert.Contains("\"provider_label\":", statusJson);
+        Assert.Contains("\"operation_error\":", statusJson);
         Assert.Contains("\"attempts\":", statusJson);
     }
 
-    [Fact]
-    public void TelemetryAndFeedbackResponses_UseSnakeCase()
-    {
-        var telemetry = new TelemetryReportPayload(
-            InstallUuid: "install-1",
-            FirstUsedAt: "2026-04-23T12:00:00Z",
-            ReportedAt: "2026-04-23T12:05:00Z",
-            Cloud: new TelemetryCloudResult(
-                Ok: true,
-                Queued: false,
-                Skipped: true,
-                Reason: "local-only"),
-            Encryption: new TelemetryEncryptionSummary(
-                Algorithm: "AES-256-GCM",
-                Fingerprint: "abc123",
-                KeyPath: "client://xke-local-data-v1"),
-            SnapshotPath: ".runtime/data/students/20260001/info/remote_sensing_snapshot.json");
-        var feedback = new FeedbackReportPayload(
-            FeedbackId: "feedback-1",
-            StoredKey: ".runtime/data/.feedback/outbox/20260001/feedback-1.json",
-            ReportedAt: "2026-04-23T12:06:00Z");
-
-        var telemetryJson = JsonSerializer.Serialize(telemetry);
-        var feedbackJson = JsonSerializer.Serialize(feedback);
-
-        Assert.Contains("\"install_uuid\":\"install-1\"", telemetryJson);
-        Assert.Contains("\"first_used_at\":\"2026-04-23T12:00:00Z\"", telemetryJson);
-        Assert.Contains("\"snapshot_path\":", telemetryJson);
-        Assert.Contains("\"key_path\":", telemetryJson);
-        Assert.Contains("\"feedback_id\":\"feedback-1\"", feedbackJson);
-        Assert.Contains("\"stored_key\":", feedbackJson);
-        Assert.Contains("\"reported_at\":\"2026-04-23T12:06:00Z\"", feedbackJson);
-    }
 }

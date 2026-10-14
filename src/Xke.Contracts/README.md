@@ -1,19 +1,5 @@
 # Xke.Contracts
 
-本模块承载当前 Python API 的共享契约层。
+登录、课表、设置、校园网和桌面宿主的请求/响应模型。JSON 使用 snake_case；接口成功采用 `{ ok, msg, data }`，业务错误采用 `{ ok:false, msg, data:null, detail }` 并保留 HTTP 状态。
 
-## 职责
-- 固定 Request / Response DTO
-- 固定 API envelope 与会话常量
-- 固定枚举、选项、字段命名
-- 作为 WebHost / Core / LegacyCompat 的共同事实层
-
-## 当前阶段
-当前重点仍是：
-- 补齐 snake_case JSON 映射
-- 补齐缺失请求模型
-- 逐步加入验证层
-
-## 设计约束
-- 只表达契约，不承载业务逻辑
-- 优先对齐 Python 现有字段与语义，而不是追求 C# 风格重命名
+本项目只声明数据形态，不访问文件、网络或操作系统；包含当前 GitHub 应用更新状态；不包含旧 Updater、云策略、公告、遥测、反馈或选课模型。

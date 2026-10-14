@@ -8,6 +8,7 @@ using System.Windows;
 using Microsoft.Web.WebView2.Core;
 using Xke.Contracts.Responses;
 using Xke.Core.Desktop;
+using Xke.Core.Releases;
 using Xke.Storage;
 using Xke.WebHost;
 using Drawing = global::System.Drawing;
@@ -25,12 +26,17 @@ public partial class MainWindow : Window, IDesktopWindowController
     private Drawing.Icon? _trayIconImage;
     private Task? _webViewLoadTask;
     private bool _allowClose;
+    private bool _stopping;
+    private bool _hostStopped;
+    private bool _requestBoundaryInstalled;
 
     public MainWindow(XkeWebHostService webHostService, XkeDataRoot dataRoot)
     {
         _webHostService = webHostService;
         _dataRoot = dataRoot;
         InitializeComponent();
+        // Match the product canvas while WebView2 creates its first document.
+        Browser.DefaultBackgroundColor = Drawing.Color.FromArgb(0xF2, 0xF1, 0xEC);
     }
 
     public async Task InitializeAsync(bool loadWebView = true)
@@ -81,10 +87,7 @@ public partial class MainWindow : Window, IDesktopWindowController
     {
         RetryButton.IsEnabled = false;
         OpenBrowserButton.IsEnabled = false;
-        CopyAddressButton.IsEnabled = false;
-        ShowLoadingState(forceRestart
-            ? "正在重新载入桌面界面，请稍候。"
-            : "首次打开时会初始化本地服务，请稍候。");
+        ShowInitializationState();
 
         try
         {
@@ -106,12 +109,7 @@ public partial class MainWindow : Window, IDesktopWindowController
             var health = await ReadHostHealthAsync(_launchResult.BaseUrl).ConfigureAwait(true);
             if (loadWebView)
             {
-                ShowLoadingState(BuildLoadingMessage(health));
                 await LoadWebViewAsync(_launchResult.BaseUrl, health?.FrontendBuild).ConfigureAwait(true);
-            }
-            else
-            {
-                HideStartupPanels();
             }
         }
         catch (Exception ex)
@@ -151,7 +149,7 @@ public partial class MainWindow : Window, IDesktopWindowController
         try
         {
             var health = await ReadHostHealthAsync(_launchResult.BaseUrl).ConfigureAwait(true);
-            ShowLoadingState(BuildLoadingMessage(health));
+            ShowInitializationState();
             await LoadWebViewAsync(_launchResult.BaseUrl, health?.FrontendBuild).ConfigureAwait(true);
         }
         finally
@@ -168,8 +166,11 @@ public partial class MainWindow : Window, IDesktopWindowController
             Directory.CreateDirectory(userDataFolder);
             var environment = await CoreWebView2Environment.CreateAsync(userDataFolder: userDataFolder).ConfigureAwait(true);
             await Browser.EnsureCoreWebView2Async(environment).ConfigureAwait(true);
+            // WebView2 handles CSS app-region title-bar gestures through the native window.
+            Browser.CoreWebView2.Settings.IsNonClientRegionSupportEnabled = true;
             Browser.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
             Browser.CoreWebView2.Settings.IsStatusBarEnabled = false;
+            InstallRequestBoundary();
             await InjectDesktopBridgeAsync().ConfigureAwait(true);
             Browser.Source = BuildVersionedStartupUri(baseUrl, frontendBuild);
         }
@@ -180,6 +181,32 @@ public partial class MainWindow : Window, IDesktopWindowController
                 $"WebView2 不可用：{ex.Message}",
                 allowBrowserActions: _launchResult is not null);
         }
+    }
+
+    private bool IsRuntimeOrigin(string address)
+        => _launchResult is not null && Uri.TryCreate(address, UriKind.Absolute, out var uri)
+            && Uri.TryCreate(_launchResult.BaseUrl, UriKind.Absolute, out var runtime)
+            && uri.Scheme == runtime.Scheme && uri.Host == runtime.Host && uri.Port == runtime.Port;
+
+    private void InstallRequestBoundary()
+    {
+        if (_requestBoundaryInstalled || Browser.CoreWebView2 is null) return;
+        _requestBoundaryInstalled = true;
+        Browser.CoreWebView2.NavigationStarting += (_, e) => { if (!IsRuntimeOrigin(e.Uri)) e.Cancel = true; };
+        Browser.CoreWebView2.NewWindowRequested += (_, e) =>
+        {
+            e.Handled = true;
+            if (!e.IsUserInitiated || !Uri.TryCreate(e.Uri, UriKind.Absolute, out var uri) || !AppRelease.IsProjectPage(uri)) return;
+            try { Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true }); }
+            catch { Notify(AppDisplayName, "无法打开浏览器，请稍后重试。"); }
+        };
+        Browser.CoreWebView2.AddWebResourceRequestedFilter(_launchResult!.BaseUrl.TrimEnd('/') + "/api/*", CoreWebView2WebResourceContext.All);
+        Browser.CoreWebView2.WebResourceRequested += (_, e) =>
+        {
+            if (IsRuntimeOrigin(e.Request.Uri) && new Uri(e.Request.Uri).AbsolutePath.StartsWith("/api/", StringComparison.Ordinal)
+                && !string.IsNullOrWhiteSpace(_webHostService.DesktopRequestToken))
+                e.Request.Headers.SetHeader(LocalApiAccessPolicy.DesktopTokenHeaderName, _webHostService.DesktopRequestToken);
+        };
     }
 
     private static async Task<HostHealthResponse?> ReadHostHealthAsync(string baseUrl)
@@ -199,18 +226,6 @@ public partial class MainWindow : Window, IDesktopWindowController
         }
     }
 
-    private static string BuildLoadingMessage(HostHealthResponse? health)
-    {
-        if (health is null)
-        {
-            return "正在初始化内嵌界面，请稍候。";
-        }
-
-        return string.IsNullOrWhiteSpace(health.FrontendBuild)
-            ? "本地服务已启动，正在打开桌面界面。"
-            : "界面资源已就绪，正在打开桌面端。";
-    }
-
     private static Uri BuildVersionedStartupUri(string baseUrl, string? frontendBuild)
     {
         var build = string.IsNullOrWhiteSpace(frontendBuild) ? "unknown" : frontendBuild.Trim();
@@ -219,31 +234,30 @@ public partial class MainWindow : Window, IDesktopWindowController
         return new Uri($"{root}{separator}xke_build={Uri.EscapeDataString(build)}&xke_ts={DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}");
     }
 
-    private void ShowLoadingState(string message)
+    private void ShowInitializationState()
     {
-        LoadingMessageText.Text = string.IsNullOrWhiteSpace(message)
-            ? "正在加载界面，请稍候。"
-            : message;
-        LoadingOverlay.Visibility = Visibility.Visible;
+        Browser.Visibility = Visibility.Hidden;
+        FallbackExitButton.Visibility = Visibility.Visible;
         ErrorPanel.Visibility = Visibility.Collapsed;
     }
 
     private void ShowErrorState(string title, string detail, bool allowBrowserActions)
     {
+        Browser.Visibility = Visibility.Hidden;
+        FallbackExitButton.Visibility = Visibility.Visible;
         ErrorTitleText.Text = string.IsNullOrWhiteSpace(title) ? "界面加载失败" : title;
         ErrorDetailText.Text = string.IsNullOrWhiteSpace(detail)
             ? "请重试，或暂时用浏览器打开本地界面。"
             : detail;
-        LoadingOverlay.Visibility = Visibility.Collapsed;
         ErrorPanel.Visibility = Visibility.Visible;
         OpenBrowserButton.IsEnabled = allowBrowserActions && _launchResult is not null;
-        CopyAddressButton.IsEnabled = allowBrowserActions && _launchResult is not null;
     }
 
-    private void HideStartupPanels()
+    private void ShowWebViewState()
     {
-        LoadingOverlay.Visibility = Visibility.Collapsed;
         ErrorPanel.Visibility = Visibility.Collapsed;
+        FallbackExitButton.Visibility = Visibility.Collapsed;
+        Browser.Visibility = Visibility.Visible;
     }
 
     private async Task InjectDesktopBridgeAsync()
@@ -301,7 +315,6 @@ public partial class MainWindow : Window, IDesktopWindowController
                 close_window: () => invoke('close_window', []),
                 get_window_state: () => invoke('get_window_state', []),
                 start_window_drag: () => invoke('start_window_drag', []),
-                start_update_install: (planPath) => invoke('start_update_install', [planPath])
               };
               window.dispatchEvent(new Event('pywebviewready'));
             })();
@@ -310,6 +323,7 @@ public partial class MainWindow : Window, IDesktopWindowController
 
     private async void Browser_WebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
+        if (!IsRuntimeOrigin(e.Source) || _stopping) return;
         string id = string.Empty;
         try
         {
@@ -345,7 +359,6 @@ public partial class MainWindow : Window, IDesktopWindowController
             "close_window" => CloseFromBridge(),
             "get_window_state" => BuildWindowState(),
             "start_window_drag" => false,
-            "start_update_install" => StartUpdateInstall(args.ElementAtOrDefault(0)),
             _ => throw new InvalidOperationException($"Unsupported desktop bridge method: {method}"),
         };
     }
@@ -380,6 +393,13 @@ public partial class MainWindow : Window, IDesktopWindowController
         return new Dictionary<string, object?> { ["ok"] = true };
     }
 
+    internal bool ShowLessonReminder(string title, string message)
+    {
+        if (_stopping || _allowClose || Dispatcher.HasShutdownStarted) return false;
+        Notify(title, message);
+        return true;
+    }
+
     private Dictionary<string, object?> MinimizeWindow()
     {
         WindowState = WindowState.Minimized;
@@ -400,32 +420,7 @@ public partial class MainWindow : Window, IDesktopWindowController
         return true;
     }
 
-    private Dictionary<string, object?> StartUpdateInstall(string? planPath)
-    {
-        var resolvedPlanPath = Path.GetFullPath(planPath ?? string.Empty);
-        if (string.IsNullOrWhiteSpace(planPath) || !File.Exists(resolvedPlanPath))
-        {
-            throw new InvalidOperationException("安装计划不存在，请重新准备更新");
-        }
 
-        var currentExe = Environment.ProcessPath ?? Process.GetCurrentProcess().MainModule?.FileName ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(currentExe) || !File.Exists(currentExe))
-        {
-            throw new InvalidOperationException("无法定位当前主程序");
-        }
-
-        var runner = PrepareUpdaterRunner();
-        Process.Start(BuildUpdaterStartInfo(runner, resolvedPlanPath, currentExe));
-
-        _allowClose = true;
-        _dataRoot.DesktopRuntime().Clear(Environment.ProcessId);
-        Dispatcher.BeginInvoke(() => System.Windows.Application.Current.Shutdown());
-        return new Dictionary<string, object?>
-        {
-            ["ok"] = true,
-            ["runner"] = runner.ExecutablePath,
-        };
-    }
 
     private Dictionary<string, object?> BuildWindowState()
     {
@@ -433,7 +428,7 @@ public partial class MainWindow : Window, IDesktopWindowController
         {
             ["available"] = true,
             ["visible"] = IsVisible,
-            ["frameless"] = false,
+            ["frameless"] = true,
             ["state"] = WindowState.ToString().ToLowerInvariant(),
             ["maximized"] = WindowState == WindowState.Maximized,
             ["minimized"] = WindowState == WindowState.Minimized,
@@ -456,110 +451,15 @@ public partial class MainWindow : Window, IDesktopWindowController
         Browser.CoreWebView2.PostWebMessageAsJson(payload);
     }
 
-    private UpdaterRunner PrepareUpdaterRunner()
-    {
-        var source = ResolveUpdaterSource()
-                     ?? throw new InvalidOperationException("未找到 Xke.Updater，请确认发布包包含更新器");
-        var runnerDirectory = _dataRoot.Updates().ResolveRunnerDirectory(Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(runnerDirectory);
 
-        foreach (var file in Directory.EnumerateFiles(source.DirectoryPath, "*", SearchOption.TopDirectoryOnly))
-        {
-            var fileName = Path.GetFileName(file);
-            if (ShouldCopyUpdaterRuntimeFile(fileName))
-            {
-                File.Copy(file, Path.Combine(runnerDirectory, fileName), overwrite: true);
-            }
-        }
 
-        var runnerExecutable = Path.Combine(runnerDirectory, source.FileName);
-        if (!File.Exists(runnerExecutable))
-        {
-            throw new InvalidOperationException("更新器运行副本创建失败");
-        }
 
-        return new UpdaterRunner(runnerDirectory, runnerExecutable, source.IsDll);
-    }
 
-    private UpdaterSource? ResolveUpdaterSource()
-    {
-        foreach (var candidate in ResolveUpdaterCandidates(AppContext.BaseDirectory))
-        {
-            if (File.Exists(candidate))
-            {
-                return new UpdaterSource(
-                    DirectoryPath: Path.GetDirectoryName(candidate)!,
-                    FileName: Path.GetFileName(candidate),
-                    IsDll: candidate.EndsWith(".dll", StringComparison.OrdinalIgnoreCase));
-            }
-        }
 
-        return null;
-    }
 
-    private IEnumerable<string> ResolveUpdaterCandidates(string appDirectory)
-    {
-        yield return Path.Combine(appDirectory, "Xke.Updater.exe");
-        yield return Path.Combine(appDirectory, "Xke.Updater.dll");
 
-        if (string.IsNullOrWhiteSpace(_dataRoot.WorkspaceRoot))
-        {
-            yield break;
-        }
 
-        foreach (var configuration in new[] { "Debug", "Release" })
-        {
-            var output = Path.Combine(
-                _dataRoot.WorkspaceRoot,
-                "src",
-                "Xke.Updater",
-                "bin",
-                configuration,
-                "net8.0-windows");
-            yield return Path.Combine(output, "Xke.Updater.exe");
-            yield return Path.Combine(output, "Xke.Updater.dll");
-        }
-    }
 
-    private static bool ShouldCopyUpdaterRuntimeFile(string fileName)
-    {
-        return fileName.StartsWith("Xke.", StringComparison.OrdinalIgnoreCase)
-               || fileName.EndsWith(".runtimeconfig.json", StringComparison.OrdinalIgnoreCase)
-               || fileName.EndsWith(".deps.json", StringComparison.OrdinalIgnoreCase)
-               || fileName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static ProcessStartInfo BuildUpdaterStartInfo(UpdaterRunner runner, string planPath, string currentExe)
-    {
-        var startInfo = runner.IsDll
-            ? new ProcessStartInfo
-            {
-                FileName = "dotnet",
-                WorkingDirectory = runner.DirectoryPath,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            }
-            : new ProcessStartInfo
-            {
-                FileName = runner.ExecutablePath,
-                WorkingDirectory = runner.DirectoryPath,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-
-        if (runner.IsDll)
-        {
-            startInfo.ArgumentList.Add(runner.ExecutablePath);
-        }
-
-        startInfo.ArgumentList.Add("--pid");
-        startInfo.ArgumentList.Add(Environment.ProcessId.ToString());
-        startInfo.ArgumentList.Add("--plan");
-        startInfo.ArgumentList.Add(planPath);
-        startInfo.ArgumentList.Add("--exe");
-        startInfo.ArgumentList.Add(currentExe);
-        return startInfo;
-    }
 
     private void Browser_NavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
     {
@@ -572,7 +472,7 @@ public partial class MainWindow : Window, IDesktopWindowController
             return;
         }
 
-        HideStartupPanels();
+        ShowWebViewState();
         PublishWindowState();
     }
 
@@ -615,23 +515,50 @@ public partial class MainWindow : Window, IDesktopWindowController
         return (Drawing.Icon)icon.Clone();
     }
 
+    public void RequestUpdateRestart()
+        => Dispatcher.BeginInvoke(new Action(ExitApplication));
+
     private void ExitApplication()
     {
         _allowClose = true;
         Close();
     }
 
-    private void Window_Closing(object? sender, CancelEventArgs e)
+    private void FallbackExit_Click(object sender, RoutedEventArgs e)
     {
+        ExitApplication();
+    }
+
+    private async void Window_Closing(object? sender, CancelEventArgs e)
+    {
+        if (_hostStopped) return;
+        e.Cancel = true;
+        if (_stopping) return;
         if (_allowClose || !ShouldCloseToTray())
         {
-            _dataRoot.DesktopRuntime().Clear(Environment.ProcessId);
+            _stopping = true;
+            _allowClose = true;
             DisposeTrayIcon();
+            try
+            {
+                // Keep the dispatcher alive while cancellation drains background work.
+                await _webHostService.StopAsync().ConfigureAwait(true);
+                _webHostService.AppUpdates?.PrepareExit(_dataRoot.DesktopSettings().Load().AutoUpdateEnabled);
+            }
+            catch (Exception ex)
+            {
+                _stopping = false;
+                ShowErrorState("退出失败", ex.Message, allowBrowserActions: false);
+                return;
+            }
+            _hostStopped = true;
+            _dataRoot.DesktopRuntime().Clear(Environment.ProcessId);
+            // StopAsync may complete synchronously. Never reenter Close inside Closing.
+            _ = Dispatcher.BeginInvoke(new Action(Close));
             return;
         }
 
         // Keep the local WebHost alive when the user chose tray-close semantics.
-        e.Cancel = true;
         EnsureTrayIcon();
         ShowInTaskbar = false;
         Hide();
@@ -683,26 +610,10 @@ public partial class MainWindow : Window, IDesktopWindowController
         }
     }
 
-    private void CopyAddress_Click(object sender, RoutedEventArgs e)
-    {
-        if (_launchResult is null)
-        {
-            return;
-        }
-
-        System.Windows.Clipboard.SetText(_launchResult.BaseUrl);
-        ErrorDetailText.Text = "已复制本地地址，可粘贴到系统浏览器打开。";
-    }
-
-    protected override async void OnClosed(EventArgs e)
+    protected override void OnClosed(EventArgs e)
     {
         DisposeTrayIcon();
-        if (_allowClose || !ShouldCloseToTray())
-        {
-            _dataRoot.DesktopRuntime().Clear(Environment.ProcessId);
-            await _webHostService.StopAsync().ConfigureAwait(false);
-        }
-
+        Browser.Dispose();
         base.OnClosed(e);
     }
 
@@ -720,7 +631,5 @@ public partial class MainWindow : Window, IDesktopWindowController
         _trayIconImage = null;
     }
 
-    private sealed record UpdaterSource(string DirectoryPath, string FileName, bool IsDll);
 
-    private sealed record UpdaterRunner(string DirectoryPath, string ExecutablePath, bool IsDll);
 }
