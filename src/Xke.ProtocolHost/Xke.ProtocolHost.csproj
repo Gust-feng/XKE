@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Xke.ProtocolHost</RootNamespace>
+    <AssemblyName>Xke.ProtocolHost</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Xke.Core\Xke.Core.csproj" />
+    <ProjectReference Include="..\Xke.Storage\Xke.Storage.csproj" />
+  </ItemGroup>
+</Project>
