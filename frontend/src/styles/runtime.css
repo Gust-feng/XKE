@@ -1,0 +1,53 @@
+/* Runtime states extend the accepted edition; its layout and motion rules remain in one.css. */
+button:disabled { cursor: default; opacity: .5; }
+input, select, textarea { font: inherit; color: var(--ink); background: var(--paper); border: 1px solid var(--rule); padding: 8px 10px; }
+input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.runtime-error { color: var(--fg-2); font-size: 13px; padding: 8px 0; line-height: 1.6; }
+.runtime-note { color: var(--mute); font-size: 12px; line-height: 1.5; }
+.runtime-drag { position: fixed; z-index: 40; top: 0; left: 0; right: 0; height: 32px; app-region: drag; }
+.runtime-window { position: fixed; z-index: 41; top: 0; right: 0; display: flex; app-region: no-drag; }
+.runtime-window button { width: 40px; height: 32px; display: grid; place-items: center; color: var(--mute); app-region: no-drag; }
+.runtime-window button:hover { color: var(--ink); background: var(--surface-2); }
+.runtime-window .runtime-window-close:hover { color: var(--red); }
+.runtime-window svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+.runtime-actions { display: flex; gap: 12px; align-items: center; }
+html[data-edition='one'] .one-toolbar { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; min-height: 52px; flex: none; }
+html[data-edition='one'] .one-context { display: flex; align-items: baseline; gap: 20px; font-size: 12px; color: var(--mute); }
+html[data-edition='one'] .one-refresh { font-size: 12px; font-weight: 600; color: var(--fg-2); }
+html[data-edition='one'] .one-refresh:hover { color: var(--ink); }
+html[data-edition='one'] .one-toolbar .one-nav { align-self: auto; margin-left: auto; }
+html[data-edition='one'] .runtime-window ~ .one { padding-top: calc(var(--m) * .75 + 32px); }
+html[data-edition='one'] .one-toolbar.is-desktop .one-nav { app-region: no-drag; }
+html[data-edition='one'] .one-toolbar.is-desktop .one-nav button { app-region: no-drag; }
+.runtime-placeholder { margin: auto; text-align: center; line-height: 2; }
+.runtime-unplaced { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; padding-top: 12px; align-items: center; }
+.auth-surface { height: 100%; display: grid; place-items: center; background: var(--paper); }
+.auth-spinner { width: 24px; height: 24px; border: 2px solid var(--rule); border-top-color: var(--ink); border-radius: 50%; animation: auth-spin .8s linear infinite; }
+@keyframes auth-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .auth-spinner { animation: none; } }
+.auth-overlay { position: fixed; inset: 0; z-index: 25; display: grid; place-items: center; background: var(--scrim); }
+.auth-panel { width: 420px; max-height: calc(100% - 64px); overflow-y: auto; padding: 32px; border: 1px solid var(--rule); background: var(--paper); }
+.auth-panel h1 { font-size: 32px; margin: 12px 0 28px; }
+.auth-panel label { display: grid; gap: 8px; margin: 16px 0; font-size: 13px; }
+.auth-panel input { width: 100%; }
+.auth-panel p { font-size: 13px; line-height: 1.65; margin-bottom: 16px; }
+.auth-actions { flex-wrap: wrap; margin-top: 24px; }
+.auth-feedback { flex: 1 1 120px; color: var(--fg-2); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.auth-captcha { display: block; max-width: 100%; min-height: 40px; background: #fff; }
+.runtime-form { display: grid; gap: 12px; font-size: 13px; margin-top: 20px; }
+.runtime-form label { display: grid; gap: 6px; }
+.runtime-form textarea { resize: vertical; min-height: 70px; }
+.runtime-form .runtime-actions { margin-top: 8px; }
+.runtime-jobs { font-size: 12px; color: var(--mute); line-height: 1.8; margin: 16px 0; }
+html[data-edition='one'] .sw-net .runtime-net-actions { grid-column: 1 / -1; display: flex; gap: 16px; align-items: center; font-size: 12px; }
+html[data-edition='one'] .runtime-net-state b { font-size: 18px; line-height: 24px; letter-spacing: 0; }
+html[data-edition='one'] .one-net-config { grid-column: span 2; justify-self: end; font-size: 12px; color: var(--fg-2); }
+.runtime-setting-input { width: 100px; }
+.sheet { overflow-y: auto; }
+.runtime-window ~ .sheet { padding-top: calc(var(--m) * .75 + 72px); }
+.runtime-window ~ .sheet .x { top: calc(var(--m) * .75 + 32px); }
+.kv { gap: 16px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.course-segments { margin-top: 20px; border-top: 1px solid var(--rule); }
+.course-segment { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 12px 0; border-bottom: 1px solid var(--rule); font-size: 12px; line-height: 1.6; }
+.course-segment b { font-weight: 600; }
+.course-segment span { color: var(--fg-2); }

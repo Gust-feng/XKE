@@ -1,0 +1,318 @@
+{
+  "schedule": {
+    "term": {
+      "name": "2026–2027 第一学期",
+      "startDate": "2026-09-07",
+      "totalWeeks": 20
+    },
+    "courses": [
+      {
+        "id": "c1",
+        "weekday": 0,
+        "start": "14:00",
+        "end": "15:40",
+        "name": "云计算基础",
+        "room": "A-201",
+        "teacher": "教师 A",
+        "kind": "major",
+        "periods": "5–6",
+        "weeks": [
+          [
+            1,
+            16
+          ]
+        ]
+      },
+      {
+        "id": "c1b",
+        "weekday": 0,
+        "start": "16:00",
+        "end": "17:40",
+        "name": "云计算基础",
+        "room": "A-201",
+        "teacher": "教师 A",
+        "kind": "major",
+        "periods": "7–8",
+        "weeks": [
+          [
+            1,
+            16
+          ]
+        ]
+      },
+      {
+        "id": "c2",
+        "weekday": 1,
+        "start": "14:00",
+        "end": "15:40",
+        "name": "大学英语",
+        "room": "B-102",
+        "teacher": "教师 B",
+        "kind": "general",
+        "periods": "5–6",
+        "weeks": [
+          [
+            1,
+            16
+          ]
+        ]
+      },
+      {
+        "id": "c2b",
+        "weekday": 1,
+        "start": "16:00",
+        "end": "17:40",
+        "name": "大学英语",
+        "room": "B-203",
+        "teacher": "教师 B",
+        "kind": "general",
+        "periods": "7–8",
+        "weeks": [
+          [
+            1,
+            16
+          ]
+        ]
+      },
+      {
+        "id": "c3",
+        "weekday": 1,
+        "start": "19:00",
+        "end": "20:40",
+        "name": "艺术与审美",
+        "room": "C-106",
+        "teacher": "教师 C",
+        "kind": "general",
+        "periods": "9–10",
+        "weeks": [
+          [
+            1,
+            12
+          ]
+        ]
+      },
+      {
+        "id": "c4",
+        "weekday": 2,
+        "start": "10:00",
+        "end": "11:40",
+        "name": "数据库原理",
+        "room": "A-204",
+        "teacher": "教师 D",
+        "kind": "major",
+        "periods": "3–4",
+        "weeks": [
+          [
+            1,
+            16
+          ]
+        ]
+      },
+      {
+        "id": "c5",
+        "weekday": 2,
+        "start": "14:00",
+        "end": "17:40",
+        "name": "数据库原理",
+        "room": "A-204",
+        "teacher": "教师 D",
+        "kind": "practice",
+        "periods": "5–8",
+        "weeks": [
+          [
+            3,
+            16
+          ]
+        ]
+      },
+      {
+        "id": "c6",
+        "weekday": 3,
+        "start": "10:00",
+        "end": "11:40",
+        "name": "科技写作与表达",
+        "room": "B-206",
+        "teacher": "教师 E",
+        "kind": "general",
+        "periods": "3–4",
+        "weeks": [
+          [
+            1,
+            16
+          ]
+        ]
+      },
+      {
+        "id": "c7",
+        "weekday": 3,
+        "start": "14:00",
+        "end": "17:40",
+        "name": "软件工程",
+        "room": "A-201",
+        "teacher": "教师 F",
+        "kind": "major",
+        "periods": "5–8",
+        "weeks": [
+          [
+            1,
+            16
+          ]
+        ]
+      },
+      {
+        "id": "c8",
+        "weekday": 4,
+        "start": "10:00",
+        "end": "11:40",
+        "name": "计算机网络",
+        "room": "A-201",
+        "teacher": "教师 G",
+        "kind": "major",
+        "periods": "3–4",
+        "weeks": [
+          [
+            1,
+            16
+          ]
+        ]
+      },
+      {
+        "id": "c9",
+        "weekday": 4,
+        "start": "14:00",
+        "end": "17:40",
+        "name": "计算机网络",
+        "room": "A-201",
+        "teacher": "教师 G",
+        "kind": "practice",
+        "periods": "5–8",
+        "weeks": [
+          [
+            1,
+            16
+          ]
+        ]
+      },
+      {
+        "id": "c10",
+        "weekday": 4,
+        "start": "19:00",
+        "end": "20:40",
+        "name": "人机交互设计",
+        "room": "A-201",
+        "teacher": "教师 H",
+        "kind": "major",
+        "periods": "9–10",
+        "weeks": [
+          [
+            1,
+            16
+          ]
+        ]
+      }
+    ],
+    "blockTimes": [
+      {
+        "section": "1",
+        "blockTime": "08:00-08:45"
+      },
+      {
+        "section": "2",
+        "blockTime": "08:55-09:40"
+      },
+      {
+        "section": "3",
+        "blockTime": "10:00-10:45"
+      },
+      {
+        "section": "4",
+        "blockTime": "10:55-11:40"
+      },
+      {
+        "section": "5",
+        "blockTime": "14:00-14:45"
+      },
+      {
+        "section": "6",
+        "blockTime": "14:55-15:40"
+      },
+      {
+        "section": "7",
+        "blockTime": "16:00-16:45"
+      },
+      {
+        "section": "8",
+        "blockTime": "16:55-17:40"
+      },
+      {
+        "section": "9",
+        "blockTime": "19:00-19:45"
+      },
+      {
+        "section": "10",
+        "blockTime": "19:55-20:40"
+      }
+    ],
+    "syncedAt": "2026-10-08T05:00:00Z"
+  },
+  "net": {
+    "online": false,
+    "account": "DEMO-2026",
+    "ip": null,
+    "since": null,
+    "usedGB": 18.4,
+    "devices": [
+      {
+        "id": "d1",
+        "name": "演示电脑",
+        "ip": "192.0.2.10",
+        "since": "2026-10-08T04:00:00Z",
+        "current": true
+      },
+      {
+        "id": "d2",
+        "name": "演示手机",
+        "ip": "192.0.2.11",
+        "since": "2026-10-08T03:00:00Z",
+        "current": false
+      }
+    ]
+  },
+  "networkSummary": {
+    "configured": true,
+    "available": true,
+    "cached": false,
+    "updated_at": "2026-10-13T08:00:00+08:00",
+    "message": "",
+    "account_status": "正常",
+    "plan_name": "演示校园套餐",
+    "billing_method": "按月",
+    "period_start": "2026-10-01",
+    "period_end": "2026-10-31"
+  },
+  "networkConfig": {
+    "settings": {
+      "provider": "campus",
+      "heartbeat_enabled": true,
+      "heartbeat_interval_minutes": 5,
+      "portal_url": "http://192.0.2.1/",
+      "connectivity_check_urls": [
+        "https://example.com/"
+      ]
+    },
+    "campus_account": "DEMO-2026",
+    "credentials": {}
+  },
+  "settings": {
+    "portalBound": true,
+    "portalAccount": "DEMO-2026",
+    "remindBefore": 10,
+    "netAutoLogin": true,
+    "showWeekend": true,
+    "launchAtLogin": true,
+    "theme": "night",
+    "layout": "one",
+    "autoUpdate": false
+  },
+  "connectionIp": "192.0.2.10"
+}

@@ -1,0 +1,12 @@
+/* Shared defaults; the accepted v7 palette lives in editions/one/one.css. */
+:root {
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --font: 'Archivo Variable', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', 'Helvetica Neue', Arial, 'Liberation Sans', sans-serif;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* 切主题时的整体淡入淡出（支持 View Transitions 的浏览器） */
+::view-transition-old(root),
+::view-transition-new(root) { animation-duration: 0.45s; animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1); }
