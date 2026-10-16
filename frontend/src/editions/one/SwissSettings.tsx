@@ -4,6 +4,8 @@ import { useStore } from '../../lib/store'
 import { sinceLabel, useNow } from '../../lib/time'
 import { personalTerms, termLabel } from '../../lib/schedule-view'
 import { SemesterField } from './SemesterField'
+import { AppUpdatePanel } from './AppUpdatePanel'
+import { useAppUpdates } from '../../lib/use-app-updates'
 import { reminderMinutes, reminderOptions, validRefreshInput } from '../../lib/settings-options'
 
 const d = (i: number) => ({ '--i': i }) as CSSProperties
@@ -26,7 +28,9 @@ function Row({ label, sub, children, i, onClick, networkPopup = false }: { label
 
 /** 设置保持为低频操作：账号、课表显示、校园网入口和系统启动。 */
 export function SwissSettings() {
-  const { settings, schedule, user, updateSettings, openSheet, openAuth } = useStore()
+  const { settings, schedule, user, updateSettings, openSheet, openAuth, preview } = useStore()
+  const [updatesOpen, setUpdatesOpen] = useState(false)
+  const updates = useAppUpdates(updatesOpen)
   if (!settings) return <div className="st sw-grid"><section className="st-col"><h2 className="st-h sw-in" style={d(0)}>课表</h2><button className="st-btn" onClick={openAuth}>连接教务</button></section></div>
 
   const reminder = reminderMinutes(settings.remindBefore)
@@ -66,7 +70,7 @@ export function SwissSettings() {
     </section>
 
     <section className="st-col st-c">
-      <h2 className="st-h sw-in" style={d(8)}>系统</h2>
+      <h2 className="st-h st-system-heading sw-in" style={d(8)}><span>系统</span><button type="button" className="st-version num" aria-label="应用版本与更新" aria-haspopup="dialog" aria-expanded={updatesOpen} data-ready={updates.data?.status === 'ready' || updates.data?.status === 'available'} onClick={() => setUpdatesOpen(true)}>{updates.data?.current_version ? `v${updates.data.current_version.replace(/^v/i, '')}` : '版本'}</button></h2>
       <Row i={9} label="开机启动" sub={settings.desktopSupported === false ? '当前环境不可用' : undefined}>
         <SwToggle label="开机启动" on={settings.launchAtLogin} onChange={(value) => updateSettings({ launchAtLogin: value })} disabled={settings.desktopSupported === false} />
       </Row>
@@ -89,6 +93,9 @@ export function SwissSettings() {
     </section>
 
     <SemesterField />
+    {updatesOpen && <AppUpdatePanel state={updates} noUpdate={updates.noUpdate} autoUpdate={settings.autoUpdate} desktopSupported={settings.desktopSupported === true} preview={preview}
+      onAction={(action) => { void updates.run(action) }} onRefresh={() => { void updates.refresh() }}
+      onAutoChange={(value) => updateSettings({ autoUpdate: value })} onClose={() => setUpdatesOpen(false)} />}
   </div>
 }
 
