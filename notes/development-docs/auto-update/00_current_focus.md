@@ -1,5 +1,7 @@
 # 当前焦点：一键自动更新第一阶段
 
+> 历史方案：产品显示名称已统一为 XKE，以下旧 Updater/CloudSync 设计不再执行；当前发布结构和更新边界以 [发布与更新手册](../personal-runtime/08_release_and_updates.md) 为准。
+
 ## 当前切片
 
 实现“用户主动点击的一键更新”基础链路：
@@ -19,7 +21,7 @@
 - ZIP 包下载完成后必须校验 SHA256。
 - `Xke.Updater` 可以在主程序退出后替换安装目录并重启 `Xke.DesktopHost`。
 - 更新失败时保留旧版本可启动，不能破坏 `.runtime/data`。
-- 正式发布 ZIP 根目录固定为 `XKE·软大课务.exe` 启动器 + `XKE·软大课务/` 程序文件夹，启动器只按相对位置启动文件夹内的 `Xke.DesktopHost.exe`。
+- 正式发布 ZIP 根目录固定为 `XKE.exe` 启动器 + `XKE/` 程序文件夹，启动器只按相对位置启动文件夹内的 `Xke.DesktopHost.exe`。
 - Web 前端只增加最小入口：检查更新、下载更新、立即安装并重启。
 - 后续 WinUI 3 UI 可复用同一套更新服务。
 
@@ -38,17 +40,17 @@
 手动分发包和云端更新包都必须使用同一 ZIP envelope：
 
 ```text
-XKE·软大课务.zip
-├─ XKE·软大课务.exe
-└─ XKE·软大课务/
+XKE.zip
+├─ XKE.exe
+└─ XKE/
    ├─ Xke.DesktopHost.exe
    ├─ Xke.Updater.exe
    ├─ xke.runtime.json
    └─ web/
 ```
 
-- 外层 `XKE·软大课务.exe` 是可移动启动器，必须按自身所在目录解析 `./XKE·软大课务/Xke.DesktopHost.exe`。
-- `XKE·软大课务/` 才是实际安装目录；自动更新安装时只替换该目录内的程序文件，不把外层启动器复制成嵌套目录。
+- 外层 `XKE.exe` 是可移动启动器，必须按自身所在目录解析 `./XKE/Xke.DesktopHost.exe`。
+- `XKE/` 才是实际安装目录；自动更新安装时只替换该目录内的程序文件，不把外层启动器复制成嵌套目录。
 - `tools/package-desktop.ps1` 生成正式包时必须启用根启动器生成逻辑，并把启动器和同名程序文件夹一起压入 ZIP。
 
 ## 云端字段

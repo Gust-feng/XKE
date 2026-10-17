@@ -1,0 +1,58 @@
+*,
+*::before,
+*::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body, #root { height: 100%; }
+body {
+  transition: background-color 0.3s;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font);
+  font-feature-settings: 'cv11', 'ss01';
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  min-width: 0;
+  user-select: none;
+}
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; text-align: left; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* Shared controls, detail panel and toast used by the v7 edition. */
+.chip { height: 32px; min-width: 32px; padding: 0 10px; border-radius: var(--r-sm); border: 1px solid var(--line-2); color: var(--mute); display: inline-flex; align-items: center; justify-content: center; transition: border-color 0.15s, color 0.15s; }
+.chip:hover { border-color: var(--line-hover); color: var(--fg); }
+.chip.accent { border-color: transparent; color: var(--accent); font-size: 12px; font-weight: 600; }
+.chip.accent:hover { background: var(--accent-hover); }
+
+.row { display: flex; align-items: center; justify-content: space-between; min-height: 58px; border-bottom: 1px solid var(--line); gap: 24px; }
+.row .l { font-size: 15px; color: var(--fg); }
+.row .l em { display: block; font-style: normal; font-size: 12px; color: var(--mute); margin-top: 4px; }
+.row .r { font-size: 14px; color: var(--mute); display: flex; align-items: center; gap: 12px; }
+.toggle { width: 42px; height: 24px; border-radius: 12px; background: var(--line-2); position: relative; flex: none; transition: background 0.2s; }
+.toggle.on { background: var(--accent); }
+.toggle i { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--knob); }
+.toggle.on i { background: var(--on-accent); }
+.seg { display: flex; background: var(--surface); border-radius: 10px; padding: 3px; position: relative; }
+.seg button { position: relative; height: 28px; padding: 0 12px; font-size: 13px; color: var(--mute); z-index: 1; transition: color 0.15s; }
+.seg button.on { color: var(--on-accent); font-weight: 700; }
+.seg .thumb { position: absolute; inset: 0; background: var(--accent); border-radius: 7px; z-index: -1; }
+.textbtn { font-size: 13px; color: var(--fg-2); border: 1px solid var(--line-2); border-radius: var(--r-sm); height: 32px; padding: 0 14px; display: inline-flex; align-items: center; gap: 8px; }
+.textbtn:hover { border-color: var(--line-hover); color: var(--fg); }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin 0.7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ───────── sheet / toast ───────── */
+.scrim { position: fixed; inset: 0; background: var(--scrim); z-index: 20; }
+.sheet { position: fixed; top: 0; right: 0; bottom: 0; width: 420px; background: var(--surface); border-left: 1px solid var(--line); z-index: 21; padding: 36px 32px; display: flex; flex-direction: column; }
+.sheet .x { position: absolute; top: 28px; right: 28px; }
+.sheet .kind { font-size: 11px; font-weight: 800; letter-spacing: 1.6px; }
+.sheet h2 { font-size: 26px; font-weight: 800; line-height: 1.32; letter-spacing: -0.5px; margin: 12px 48px 28px 0; }
+.kv { display: flex; justify-content: space-between; padding: 14px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.kv em { font-style: normal; color: var(--mute); }
+.sheet-note { margin-top: 24px; padding: 14px 16px; border-radius: var(--r-md); background: var(--surface-2); font-size: 13px; color: var(--fg-2); line-height: 1.6; }
+.sheet-foot { margin-top: auto; display: flex; gap: 10px; }
+.dev { display: flex; justify-content: space-between; align-items: center; padding: 16px 0; border-bottom: 1px solid var(--line); }
+.dev b { font-size: 15px; font-weight: 600; display: block; }
+.dev span { display: block; font-size: 12px; color: var(--mute); margin-top: 4px; }
+.dev .textbtn:hover { color: var(--danger); border-color: var(--danger); }
+.toast { position: fixed; right: 32px; bottom: 28px; z-index: 30; background: var(--surface-2); border: 1px solid var(--line-2); color: var(--fg); padding: 10px 16px; border-radius: 10px; font-size: 13px; display: flex; align-items: center; gap: 10px; }

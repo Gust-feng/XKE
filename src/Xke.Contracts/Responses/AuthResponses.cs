@@ -13,24 +13,10 @@ public sealed record AuthStudentSummary(
     [property: JsonPropertyName("academy_name")] string AcademyName,
     [property: JsonPropertyName("training_level")] string TrainingLevel,
     [property: JsonPropertyName("campus_name")] string CampusName,
-    [property: JsonPropertyName("avatar_url")] string AvatarUrl
-);
-
-public sealed record AuthCourseGrabState(
-    [property: JsonPropertyName("status")] string Status,
-    [property: JsonPropertyName("running")] bool Running,
-    [property: JsonPropertyName("cooldown_active")] bool CooldownActive = false,
-    [property: JsonPropertyName("cooldown_until")] string CooldownUntil = "",
-    [property: JsonPropertyName("cooldown_remaining_sec")] int CooldownRemainingSec = 0,
-    [property: JsonPropertyName("runtime_deadline_at")] string RuntimeDeadlineAt = "",
-    [property: JsonPropertyName("runtime_remaining_sec")] int RuntimeRemainingSec = 0,
-    [property: JsonPropertyName("last_started_at")] string LastStartedAt = "",
-    [property: JsonPropertyName("last_stopped_at")] string LastStoppedAt = "",
-    [property: JsonPropertyName("last_reason")] string LastReason = "",
-    [property: JsonPropertyName("zbid")] string Zbid = "",
-    [property: JsonPropertyName("kcid")] string Kcid = "",
-    [property: JsonPropertyName("jx0404id")] string Jx0404Id = "",
-    [property: JsonPropertyName("interval_sec")] double IntervalSec = 0
+    [property: JsonPropertyName("avatar_url")] string AvatarUrl,
+    [property: JsonPropertyName("updated_at")] string UpdatedAt = "",
+    [property: JsonPropertyName("program_duration_years")] int? ProgramDurationYears = null,
+    [property: JsonPropertyName("enrollment_date")] string EnrollmentDate = ""
 );
 
 public sealed record AuthPayload(
@@ -42,8 +28,7 @@ public sealed record AuthPayload(
     [property: JsonPropertyName("connected")] bool Connected,
     [property: JsonPropertyName("prelogin_mode")] string PreloginMode,
     [property: JsonPropertyName("cached_schedule")] object? CachedSchedule,
-    [property: JsonPropertyName("trusted_login_token")] string TrustedLoginToken,
-    [property: JsonPropertyName("course_grab_state")] AuthCourseGrabState CourseGrabState
+    [property: JsonPropertyName("trusted_login_token")] string TrustedLoginToken
 );
 
 public sealed record AuthPreferencesPayload(

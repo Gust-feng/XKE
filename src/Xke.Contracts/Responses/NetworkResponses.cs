@@ -7,21 +7,9 @@ public sealed record NetworkProviderCredential(
     [property: JsonPropertyName("account")] string Account,
     [property: JsonPropertyName("password")] string Password);
 
-public sealed record NetworkApplyResult(
-    [property: JsonPropertyName("applied")] bool Applied,
-    [property: JsonPropertyName("error")] string Error,
-    [property: JsonPropertyName("requires_elevation")] bool RequiresElevation,
-    [property: JsonPropertyName("interface_name")] string InterfaceName,
-    [property: JsonPropertyName("ip")] string Ip,
-    [property: JsonPropertyName("subnet_mask")] string SubnetMask,
-    [property: JsonPropertyName("gateway")] string Gateway,
-    [property: JsonPropertyName("dns")] string Dns,
-    [property: JsonPropertyName("interface")] Dictionary<string, object?> Interface);
-
 public sealed record NetworkConfigPayload(
     [property: JsonPropertyName("settings")] NetworkSettingsDocument Settings,
     [property: JsonPropertyName("credentials")] Dictionary<string, NetworkProviderCredential> Credentials,
-    [property: JsonPropertyName("apply_result")] NetworkApplyResult? ApplyResult,
     [property: JsonPropertyName("campus_account")] string CampusAccount,
     [property: JsonPropertyName("storage_dir")] string StorageDir);
 
@@ -39,4 +27,5 @@ public sealed record NetworkStatusPayload(
     [property: JsonPropertyName("provider_label")] string ProviderLabel,
     [property: JsonPropertyName("action")] string Action,
     [property: JsonPropertyName("attempts")] IReadOnlyList<Dictionary<string, object?>> Attempts,
-    [property: JsonPropertyName("message")] string Message);
+    [property: JsonPropertyName("message")] string Message,
+    [property: JsonPropertyName("operation_error")] string OperationError = "");

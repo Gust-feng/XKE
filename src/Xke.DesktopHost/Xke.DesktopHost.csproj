@@ -6,16 +6,21 @@
     <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>Xke.DesktopHost</RootNamespace>
     <AssemblyName>Xke.DesktopHost</AssemblyName>
-    <AssemblyTitle>XKE·软大课务</AssemblyTitle>
-    <Product>XKE·软大课务</Product>
-    <Description>XKE·软大课务桌面客户端</Description>
+    <AssemblyTitle>XKE</AssemblyTitle>
+    <Product>XKE</Product>
+    <Description>XKE桌面客户端</Description>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <StartupObject>Xke.DesktopHost.Program</StartupObject>
   </PropertyGroup>
   <ItemGroup>
+    <ApplicationDefinition Remove="App.xaml" />
+    <Page Include="App.xaml" />
     <None Remove="Assets\app.ico" />
     <Resource Include="Assets\app.ico" />
   </ItemGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Xke.DesktopHost.Tests" />
+    <PackageReference Include="Velopack" Version="1.2.161" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2592.51" />
     <ProjectReference Include="..\Xke.Contracts\Xke.Contracts.csproj" />
     <ProjectReference Include="..\Xke.Core\Xke.Core.csproj" />

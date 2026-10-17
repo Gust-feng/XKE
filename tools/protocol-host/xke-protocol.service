@@ -1,0 +1,21 @@
+[Unit]
+Description=XKE personal protocol API
+Wants=network-online.target xke-ocr.service
+After=network-online.target xke-ocr.service
+
+[Service]
+Type=exec
+User=xke
+Group=xke
+WorkingDirectory=/opt/xke/protocol
+Environment=ASPNETCORE_ENVIRONMENT=Production
+EnvironmentFile=/etc/xke/protocol.env
+StateDirectory=xke-protocol
+ExecStart=/usr/bin/dotnet /opt/xke/protocol/Xke.ProtocolHost.dll
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

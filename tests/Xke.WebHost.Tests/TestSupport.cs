@@ -1,13 +1,9 @@
+using System.Net;
 using System.Text.Json;
 using Xke.Core.Auth.Jw;
-using Xke.Core.Course;
 using Xke.Core.Desktop;
-using Xke.Core.Feedback;
 using Xke.Core.Network;
-using Xke.Core.Notice;
 using Xke.Core.Schedule;
-using Xke.Core.Telemetry;
-using Xke.Core.Update;
 using Xke.WebHost;
 
 namespace Xke.WebHost.Tests;
@@ -62,11 +58,15 @@ internal sealed class TemporaryWebRoot : IDisposable
 
 internal sealed class StartedWebHost : IAsyncDisposable
 {
-    public StartedWebHost(XkeWebHostService service, XkeWebHostLaunchResult launchResult)
+    private readonly TemporaryDirectory? _ownedDataRoot;
+
+    public StartedWebHost(XkeWebHostService service, XkeWebHostLaunchResult launchResult, TemporaryDirectory? ownedDataRoot = null)
     {
+        _ownedDataRoot = ownedDataRoot;
         Service = service;
         LaunchResult = launchResult;
         Client = new HttpClient { BaseAddress = new Uri(launchResult.BaseUrl) };
+        if (service.DesktopRequestToken is { } token) Client.DefaultRequestHeaders.Add(LocalApiAccessPolicy.DesktopTokenHeaderName, token);
     }
 
     public XkeWebHostService Service { get; }
@@ -77,6 +77,7 @@ internal sealed class StartedWebHost : IAsyncDisposable
     {
         Client.Dispose();
         await Service.DisposeAsync();
+        _ownedDataRoot?.Dispose();
     }
 }
 
@@ -86,83 +87,62 @@ internal static class WebHostTestServer
         TemporaryWebRoot webRoot,
         TemporaryDirectory? dataRoot = null,
         string hostMode = "test-host",
-        IJwAuthClient? jwAuthClient = null,
         IJwScheduleClient? jwScheduleClient = null,
-        ICourseClient? courseClient = null,
-        INoticeRemoteSource? noticeRemoteSource = null,
-        string noticeSigningPublicKeyPem = "",
         HttpMessageHandler? networkHttpMessageHandler = null,
         INetworkCommandExecutor? networkCommandExecutor = null,
-        ITelemetryTransport? telemetryTransport = null,
-        IFeedbackTransport? feedbackTransport = null,
         IDesktopWindowController? desktopWindowController = null,
         IDesktopStartupRegistrar? desktopStartupRegistrar = null,
-        IUpdatePackageDownloader? updatePackageDownloader = null,
-        IUpdateVersionProvider? updateVersionProvider = null,
-        string? mainExecutablePath = null)
+        Func<string, string, DirectJwLoginProtocol>? jwLoginProtocolFactory = null)
     {
         return await StartAsync(
             webRoot.RootPath,
             dataRoot,
             hostMode,
-            jwAuthClient,
             jwScheduleClient,
-            courseClient,
-            noticeRemoteSource,
-            noticeSigningPublicKeyPem,
             networkHttpMessageHandler,
             networkCommandExecutor,
-            telemetryTransport,
-            feedbackTransport,
             desktopWindowController,
             desktopStartupRegistrar,
-            updatePackageDownloader,
-            updateVersionProvider,
-            mainExecutablePath);
+            jwLoginProtocolFactory);
     }
 
     public static async Task<StartedWebHost> StartAsync(
         string webRootPath,
         TemporaryDirectory? dataRoot = null,
         string hostMode = "test-host",
-        IJwAuthClient? jwAuthClient = null,
         IJwScheduleClient? jwScheduleClient = null,
-        ICourseClient? courseClient = null,
-        INoticeRemoteSource? noticeRemoteSource = null,
-        string noticeSigningPublicKeyPem = "",
         HttpMessageHandler? networkHttpMessageHandler = null,
         INetworkCommandExecutor? networkCommandExecutor = null,
-        ITelemetryTransport? telemetryTransport = null,
-        IFeedbackTransport? feedbackTransport = null,
         IDesktopWindowController? desktopWindowController = null,
         IDesktopStartupRegistrar? desktopStartupRegistrar = null,
-        IUpdatePackageDownloader? updatePackageDownloader = null,
-        IUpdateVersionProvider? updateVersionProvider = null,
-        string? mainExecutablePath = null)
+        Func<string, string, DirectJwLoginProtocol>? jwLoginProtocolFactory = null)
     {
+        var ownedDataRoot = dataRoot is null ? new TemporaryDirectory() : null;
         var service = new XkeWebHostService(new XkeWebHostOptions
         {
             HostMode = hostMode,
+            DesktopRequestToken = hostMode == "desktop-webview" ? "synthetic-desktop-capability" : null,
             RuntimeChannel = "dotnet8-test",
             WebRootPath = webRootPath,
-            AuthDataRootPath = dataRoot?.RootPath ?? string.Empty,
-            JwAuthClient = jwAuthClient,
+            EnableBackgroundTasks = false,
+            ScheduleApiOptions = new Xke.Core.Schedule.ScheduleApiOptions(),
+            AuthDataRootPath = (dataRoot ?? ownedDataRoot!).RootPath,
             JwScheduleClient = jwScheduleClient,
-            CourseClient = courseClient,
-            NoticeRemoteSource = noticeRemoteSource ?? new MissingNoticeRemoteSource(),
-            NoticeSigningPublicKeyPem = noticeSigningPublicKeyPem,
-            TelemetryTransport = telemetryTransport ?? new LocalOnlyTelemetryTransport(),
-            FeedbackTransport = feedbackTransport ?? new LocalFeedbackOutboxTransport(new Xke.Storage.XkeDataRoot(dataRoot?.RootPath ?? Path.GetTempPath())),
+            // Tests that do not assert on school-protocol traffic get a working fake login.
+            JwLoginProtocolFactory = jwLoginProtocolFactory ?? ((user, password) => new DirectJwLoginProtocol(user, password, new HttpClient(new ProtocolHandler()))),
             NetworkHttpMessageHandler = networkHttpMessageHandler,
             NetworkCommandExecutor = networkCommandExecutor,
             DesktopWindowController = desktopWindowController,
             DesktopStartupRegistrar = desktopStartupRegistrar,
-            UpdatePackageDownloader = updatePackageDownloader,
-            UpdateVersionProvider = updateVersionProvider,
-            MainExecutablePath = mainExecutablePath,
             Urls = new[] { "http://127.0.0.1:0" },
         });
-        return new StartedWebHost(service, await service.StartAsync());
+        try { return new StartedWebHost(service, await service.StartAsync(), ownedDataRoot); }
+        catch
+        {
+            await service.DisposeAsync();
+            ownedDataRoot?.Dispose();
+            throw;
+        }
     }
 }
 
@@ -177,5 +157,29 @@ internal static class WebHostTestJson
     {
         var text = await response.Content.ReadAsStringAsync();
         return JsonDocument.Parse(text);
+    }
+}
+
+internal sealed class ProtocolHandler : HttpMessageHandler
+{
+    public int Requests { get; private set; }
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        Requests++;
+        var uri = request.RequestUri!;
+        if (uri.AbsolutePath == "/verifycode.servlet")
+        {
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent([1, 2, 3]) });
+        }
+        var response = new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            RequestMessage = request,
+            Content = new StringContent(uri.Query.Contains("flag=sess", StringComparison.Ordinal)
+                ? "abcdefghijklmnopqrstuvwxyz#11111111111111111111"
+                : "<table><tr><th>学号</th><td>20260001</td><th>姓名</th><td>测试同学</td></tr><tr><th>学院</th><td>信息工程学院</td><th>专业</th><td>软件技术</td></tr><tr><th>班级</th><td>软件一班</td><th>培养层次</th><td>专科</td><th>校区</th><td>主校区</td></tr></table>"),
+        };
+        if (uri.AbsolutePath == "/Logon.do" && !uri.Query.Contains("flag=sess", StringComparison.Ordinal))
+            response.Headers.Location = new Uri("http://jw.hnsoftedu.com/jsxsd/framework/xsMainV.jsp");
+        return Task.FromResult(response);
     }
 }

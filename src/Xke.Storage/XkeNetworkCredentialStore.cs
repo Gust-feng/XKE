@@ -20,6 +20,13 @@ public sealed class XkeNetworkCredentialStore
         return _protectedJson.Read<StoredNetworkCredentialDocument>(GetPath(provider));
     }
 
+    // An opaque change marker; scheduling must not decrypt passwords on every tick.
+    public long GetRevision(string provider)
+    {
+        var path = GetPath(provider);
+        return File.Exists(path) ? File.GetLastWriteTimeUtc(path).Ticks : 0;
+    }
+
     public string Save(StoredNetworkCredentialDocument document)
     {
         var path = GetPath(document.Provider);

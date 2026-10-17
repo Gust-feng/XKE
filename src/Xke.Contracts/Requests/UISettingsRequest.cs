@@ -14,6 +14,12 @@ public sealed class UIPanelSettingsRequest
 
 public sealed class UISettingsRequest
 {
+    [System.Text.Json.Serialization.JsonPropertyName("show_weekend")]
+    public bool? ShowWeekend { get; init; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("inactive_course_mode")]
+    public string? InactiveCourseMode { get; init; }
+
     [System.Text.Json.Serialization.JsonPropertyName("panels")]
     public UIPanelSettingsRequest? Panels { get; init; }
 }

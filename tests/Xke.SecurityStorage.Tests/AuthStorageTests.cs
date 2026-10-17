@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Xke.Contracts.Models;
 using Xke.Contracts.Responses;
 using Xke.Security;
@@ -134,8 +135,8 @@ public sealed class AuthStorageTests
         Assert.Equal("forest-notes", restoredSettings!.Appearance.Theme);
         Assert.Equal("auto", restoredSession!.PreloginMode);
         Assert.NotNull(studentStore.GetAvatarPath());
-        AssertEncryptedFileDoesNotContain(studentStore.ProfilePath, "测试同学");
-        AssertEncryptedFileDoesNotContain(studentStore.PreferencesPath, "forest-notes");
+        Assert.Equal("测试同学", JsonDocument.Parse(File.ReadAllText(studentStore.ProfilePath)).RootElement.GetProperty("name").GetString());
+        Assert.Equal("forest-notes", JsonDocument.Parse(File.ReadAllText(studentStore.PreferencesPath)).RootElement.GetProperty("appearance").GetProperty("theme").GetString());
         Assert.Equal(new byte[] { 1, 2, 3, 4 }, File.ReadAllBytes(studentStore.GetAvatarPath()!));
         Assert.Equal(new byte[] { 1, 2, 3, 4 }, studentStore.ReadAvatar(studentStore.GetAvatarPath()!));
 
@@ -144,22 +145,50 @@ public sealed class AuthStorageTests
     }
 
     [Fact]
-    public void RuntimeDataRoot_UsesCloudSyncAndDesktopPaths()
+    public void StudentBusinessFiles_RejectEncryptedContentsWithoutDecryptingOrChangingFiles()
+    {
+        using var workspace = new TemporaryDirectory();
+        var student = CreateTemporaryDataRoot(workspace).ForStudent("20260001");
+        var encrypted = new LocalEncryptedFileStore();
+        encrypted.WriteJson(student.ProfilePath, new StudentProfileDocument { StudentId = "20260001", Name = "旧测试资料" });
+        encrypted.WriteJson(student.PreferencesPath, new AppSettingsDocument());
+        var profileBytes = File.ReadAllBytes(student.ProfilePath);
+        var preferencesBytes = File.ReadAllBytes(student.PreferencesPath);
+
+        Assert.Null(student.LoadProfile());
+        Assert.Null(student.LoadPreferences());
+        Assert.Equal(profileBytes, File.ReadAllBytes(student.ProfilePath));
+        Assert.Equal(preferencesBytes, File.ReadAllBytes(student.PreferencesPath));
+    }
+
+    [Fact]
+    public void JwSessionStore_ProtectsAndRemovesStoredCookies()
     {
         using var workspace = new TemporaryDirectory();
         var root = CreateTemporaryDataRoot(workspace);
+        var sessions = root.JwSessions();
 
-        Assert.Equal(Path.Combine(root.RootPath, ".cloud"), root.CloudDirectory);
-        Assert.Equal(Path.Combine(root.RootPath, ".cloud", "feed.json"), root.CloudFeedPath);
-        Assert.Equal(Path.Combine(root.RootPath, ".cloud", "feed.meta.json"), root.CloudFeedMetaPath);
-        Assert.Equal(Path.Combine(root.RootPath, ".desktop", "desktop_settings.json"), root.DesktopSettingsPath);
-        Assert.Equal(Path.Combine(root.RootPath, ".updates", "packages"), root.UpdatePackagesDirectory);
-        Assert.Equal(Path.Combine(root.RootPath, ".updates", "jobs"), root.UpdateJobsDirectory);
-        Assert.Equal(Path.Combine(root.RootPath, ".updates", "backups"), root.UpdateBackupsDirectory);
-        Assert.Equal(Path.Combine(root.RootPath, ".updates", "install-plan.json"), root.UpdateInstallPlanPath);
-        Assert.Contains($"{Path.DirectorySeparatorChar}.runtime{Path.DirectorySeparatorChar}data{Path.DirectorySeparatorChar}.cloud", root.CloudDirectory, StringComparison.OrdinalIgnoreCase);
-        Assert.True(root.IsInsideDataRoot(root.UpdateInstallPlanPath));
-        Assert.True(root.Updates().IsInsideUpdateRoot(root.UpdatePackagesDirectory, allowRoot: false));
+        sessions.Save(new JwSessionDocument
+        {
+            User = "20260001",
+            UpdatedAt = "2026-09-08T00:00:00Z",
+            Cookies =
+            [
+                new JwSessionCookieDocument { Name = "JSESSIONID", Value = "secret-session", Host = "222.243.161.213", Path = "/" },
+                new JwSessionCookieDocument { Name = "SERVERID", Value = "secret-server", Host = "222.243.161.213", Path = "/" },
+            ],
+        });
+
+        var restored = sessions.Load("20260001");
+        var protectedPath = Path.Combine(root.JwSessionsDirectory, "20260001.json.dpapi");
+
+        Assert.NotNull(restored);
+        Assert.Equal(2, restored!.Cookies.Count);
+        Assert.DoesNotContain("secret-session", File.ReadAllText(protectedPath));
+        Assert.DoesNotContain("secret-server", File.ReadAllText(protectedPath));
+
+        sessions.Remove("20260001");
+        Assert.Null(sessions.Load("20260001"));
     }
 
     [Fact]
@@ -219,10 +248,10 @@ public sealed class AuthStorageTests
         var scheduleStore = studentStore.Schedules();
         var payload = new Dictionary<string, object?>
         {
-            ["source"] = "移动教务课表",
-            ["source_label"] = "移动教务课表",
-            ["source_key"] = "mobile_schedule",
-            ["source_type"] = "mobile",
+            ["source"] = "教务系统课表",
+            ["source_label"] = "教务系统课表",
+            ["source_key"] = "jw_schedule",
+            ["source_type"] = "jw",
             ["week_label"] = "第7周",
             ["current_week_label"] = "第7周",
             ["updated_at"] = "2026-04-23T12:00:00Z",
@@ -255,22 +284,22 @@ public sealed class AuthStorageTests
             ["data"] = new List<object?>(),
         };
 
-        var savedFiles = scheduleStore.SaveSourceSchedule(payload, raw, "mobile_schedule", "第7周");
-        var restoredByWeek = scheduleStore.LoadScheduleForWeek("7", ["mobile"]);
-        var restoredLatest = scheduleStore.LoadLatestSourceSchedule(["mobile"]);
-        var inferredWeek = scheduleStore.FindScheduleWeekLabelForDate(new DateOnly(2026, 4, 22), ["mobile"]);
+        var savedFiles = scheduleStore.SaveSourceSchedule(payload, raw, "jw_schedule", "第7周");
+        var restoredByWeek = scheduleStore.LoadScheduleForWeek("7", ["jw"]);
+        var restoredLatest = scheduleStore.LoadLatestSourceSchedule(["jw"]);
+        var inferredWeek = scheduleStore.FindScheduleWeekLabelForDate(new DateOnly(2026, 4, 22), ["jw"]);
 
         Assert.Equal("2026_0001", studentStore.StudentId);
         Assert.Equal("第7周", restoredByWeek!.GetValueOrDefault("week_label"));
         Assert.Equal("第7周", restoredLatest!.GetValueOrDefault("week_label"));
         Assert.Equal("第7周", inferredWeek);
-        Assert.Contains(savedFiles, path => path.EndsWith("mobile_schedule.json", StringComparison.Ordinal));
-        Assert.Contains(savedFiles, path => path.EndsWith("mobile_schedule_raw.json", StringComparison.Ordinal));
-        var csvRelativePath = Assert.Single(savedFiles, path => path.EndsWith("mobile_schedule.csv", StringComparison.Ordinal));
+        Assert.Contains(savedFiles, path => path.EndsWith("jw_schedule.json", StringComparison.Ordinal));
+        Assert.Contains(savedFiles, path => path.EndsWith("jw_schedule_raw.json", StringComparison.Ordinal));
+        var csvRelativePath = Assert.Single(savedFiles, path => path.EndsWith("jw_schedule.csv", StringComparison.Ordinal));
         var csvPath = Path.Combine(workspace.RootPath, csvRelativePath.Replace('/', Path.DirectorySeparatorChar));
         var csv = File.ReadAllText(csvPath);
-        Assert.Contains("week_label,weekday,section,time_text,time_range,block_time,small_section_1,small_section_2,break_minutes,course_name,teacher,room,weeks,credit", csv);
-        Assert.Contains("第7周,星期一,第1-2节,,08:00-09:40,,,,,高等数学,张老师,\"1-101,东楼\",,", csv);
+        Assert.Contains("student_id,academic_term,week_label,weekday,course_name,teacher,room,section_numbers,week_numbers,time_segments,weeks,credit,hours_text", csv);
+        Assert.Contains("第7周,星期一,高等数学,张老师,\"1-101,东楼\"", csv);
         Assert.DoesNotContain("source_key", csv);
         Assert.DoesNotContain("source_type", csv);
         Assert.All(savedFiles, path => Assert.StartsWith(".runtime/data/students/2026_0001/schedules/", path.Replace('\\', '/')));
@@ -310,8 +339,8 @@ public sealed class AuthStorageTests
         var csvRelativePath = Assert.Single(savedFiles, path => path.EndsWith("jw_schedule.csv", StringComparison.Ordinal));
         var csvPath = Path.Combine(workspace.RootPath, csvRelativePath.Replace('/', Path.DirectorySeparatorChar));
         var csv = File.ReadAllText(csvPath);
-        Assert.Contains("week_label,weekday,section,time_text,time_range,block_time,small_section_1,small_section_2,break_minutes,course_name,teacher,room,weeks,credit", csv);
-        Assert.Contains("第8周,星期一,第1-2节,,08:00-09:40,,,,,高等数学,张老师,1-101,,", csv);
+        Assert.Contains("student_id,academic_term,week_label,weekday,course_name,teacher,room,section_numbers,week_numbers,time_segments,weeks,credit,hours_text", csv);
+        Assert.Contains("第8周,星期一,高等数学,张老师,1-101", csv);
         Assert.DoesNotContain("source_key", csv);
         Assert.DoesNotContain("source_type", csv);
     }
@@ -349,10 +378,10 @@ public sealed class AuthStorageTests
         var scheduleStore = new XkeScheduleStore(root, studentStore, () => new DateOnly(2026, 4, 27));
         var payload = new Dictionary<string, object?>
         {
-            ["source"] = "移动教务课表",
-            ["source_label"] = "移动教务课表",
-            ["source_key"] = "mobile_schedule",
-            ["source_type"] = "mobile",
+            ["source"] = "教务系统课表",
+            ["source_label"] = "教务系统课表",
+            ["source_key"] = "jw_schedule",
+            ["source_type"] = "jw",
             ["week_label"] = "第8周",
             ["updated_at"] = "2026-04-27T08:00:00+08:00",
             ["week_dates"] = new Dictionary<string, object?>
@@ -363,9 +392,9 @@ public sealed class AuthStorageTests
             ["rows"] = new List<object?> { new Dictionary<string, object?> { ["course_name"] = "高等数学" } },
         };
 
-        scheduleStore.SaveSourceSchedule(payload, [], "mobile_schedule", "第8周");
+        scheduleStore.SaveSourceSchedule(payload, [], "jw_schedule", "第8周");
 
-        Assert.Equal("第8周", scheduleStore.FindScheduleWeekLabelForDate(null, ["mobile"]));
+        Assert.Equal("第8周", scheduleStore.FindScheduleWeekLabelForDate(null, ["jw"]));
     }
 
     [Fact]
@@ -397,145 +426,66 @@ public sealed class AuthStorageTests
     }
 
     [Fact]
-    public void NetworkTelemetryAndFeedbackStores_StayInsideDotNetRuntimeRoot()
+    public void ScheduleStore_DefaultReadsIgnoreRetiredSourceFilesWithoutDeletingThem()
     {
         using var workspace = new TemporaryDirectory();
         var root = CreateTemporaryDataRoot(workspace);
-        var studentStore = root.ForStudent("20260001");
-
-        var credentialPath = studentStore.NetworkCredentials().Save(new StoredNetworkCredentialDocument
+        var student = root.ForStudent("20260001");
+        var store = new XkeScheduleStore(root, student, () => new DateOnly(2026, 4, 20));
+        var directory = Path.Combine(student.SchedulesDirectory, "2025-2026-2", "weeks", "第7周");
+        Directory.CreateDirectory(directory);
+        var retiredPath = Path.Combine(directory, "mobile_schedule.json");
+        var retired = JsonSerializer.Serialize(new Dictionary<string, object?>
         {
-            Provider = "telecom",
-            Account = "telecom-user",
-            Password = "secret-pass",
-            UpdatedAt = "2026-04-23T12:00:00Z",
+            ["source_key"] = "mobile_schedule", ["week_label"] = "第7周", ["updated_at"] = "2026-04-25T12:00:00+08:00",
+            ["term"] = new { academic_term = "2025-2026-2" },
+            ["week_dates"] = new Dictionary<string, string> { ["星期一"] = "2026-04-20" },
+            ["rows"] = Array.Empty<object>(),
         });
-        var restoredCredential = studentStore.NetworkCredentials().Load("telecom");
+        File.WriteAllText(retiredPath, retired);
+        var defaults = XkeScheduleStore.ResolveSourceKeys("preferred");
+        Assert.Null(store.LoadLatestSourceSchedule(defaults));
+        Assert.Null(store.LoadScheduleForWeek("第7周", defaults));
+        Assert.Null(store.LoadLatestTermSourceSchedule(defaults));
+        Assert.Null(store.FindSemesterStartDate("2025-2026-2", defaults));
+        Assert.Equal(string.Empty, store.FindScheduleWeekLabelForDate(null, defaults));
+        Assert.Null(store.LoadLatestSourceSchedule([]));
 
-        var installation = root.Telemetry().LoadOrCreateInstallationProfile(() => "2026-04-23T12:00:00Z");
-        var keyProfile = root.Telemetry().LoadOrCreateKeyProfile(() => "2026-04-23T12:00:00Z");
-        var spool = root.Telemetry().EnsureSpoolDirectory();
-
-        var runtimePath = studentStore.SaveAppRuntimeInfo(new Dictionary<string, object?>
+        store.SaveSourceSchedule(new Dictionary<string, object?>
         {
-            ["usage"] = new Dictionary<string, object?>
-            {
-                ["total_runtime_seconds"] = 30,
-            },
-        });
-        var snapshotPath = studentStore.SaveRemoteSensingSnapshot(new Dictionary<string, object?>
-        {
-            ["reported_at"] = "2026-04-23T12:01:00Z",
-        });
-        var historyPath = studentStore.SaveNetworkAuthHistory(new NetworkAuthHistoryDocument
-        {
-            Records =
-            [
-                new NetworkAuthRecordDocument
-                {
-                    RecordedAt = "2026-04-23T12:02:00Z",
-                    Provider = "campus",
-                    ProviderLabel = "校园账号",
-                    Account = "20******01",
-                    Success = true,
-                    Message = "ok",
-                },
-            ],
-        });
-        var feedbackKey = root.FeedbackOutbox().Save("20260001", "fb-1", new Dictionary<string, object?>
-        {
-            ["feedback_id"] = "fb-1",
-            ["content"] = "need help",
-        });
-
-        Assert.NotNull(restoredCredential);
-        Assert.Equal("telecom-user", restoredCredential!.Account);
-        Assert.Equal("secret-pass", restoredCredential.Password);
-        Assert.DoesNotContain("secret-pass", File.ReadAllText(Path.Combine(root.RootPath, "students", "20260001", "info", "network", "telecom.json.dpapi")));
-
-        Assert.Equal(".runtime/data/students/20260001/info/network/telecom.json.dpapi", credentialPath.Replace('\\', '/'));
-        Assert.Equal(".runtime/data/.cloud/telemetry/spool", spool.Replace('\\', '/'));
-        Assert.Equal(".runtime/data/students/20260001/info/app_runtime.json", runtimePath.Replace('\\', '/'));
-        Assert.Equal(".runtime/data/students/20260001/info/remote_sensing_snapshot.json", snapshotPath.Replace('\\', '/'));
-        Assert.Equal(".runtime/data/students/20260001/info/network_auth_history.json", historyPath.Replace('\\', '/'));
-        Assert.Equal(".runtime/data/.feedback/outbox/20260001/fb-1.json", feedbackKey.Replace('\\', '/'));
-        Assert.Equal("2026-04-23T12:00:00Z", installation["first_used_at"]);
-        Assert.Equal(LocalEncryptedFileStore.KeyId, keyProfile.SourcePath);
-        Assert.False(File.Exists(root.TelemetryKeyPath));
-
-        AssertEncryptedFileDoesNotContain(root.TelemetryInstallationPath, "install_uuid");
-        AssertEncryptedFileDoesNotContain(Path.Combine(workspace.RootPath, runtimePath.Replace('/', Path.DirectorySeparatorChar)), "total_runtime_seconds");
-        AssertEncryptedFileDoesNotContain(Path.Combine(workspace.RootPath, snapshotPath.Replace('/', Path.DirectorySeparatorChar)), "reported_at");
-        AssertEncryptedFileDoesNotContain(Path.Combine(workspace.RootPath, historyPath.Replace('/', Path.DirectorySeparatorChar)), "校园账号");
-        AssertEncryptedFileDoesNotContain(Path.Combine(workspace.RootPath, feedbackKey.Replace('/', Path.DirectorySeparatorChar)), "need help");
-
-        Assert.False(Directory.Exists(Path.Combine(workspace.RootPath, "data", ".telemetry")));
-        Assert.False(Directory.Exists(Path.Combine(workspace.RootPath, "data", ".feedback")));
+            ["source_key"] = "jw_schedule", ["week_label"] = "第7周", ["updated_at"] = "2026-04-20T12:00:00+08:00",
+            ["term"] = new { academic_term = "2025-2026-2" }, ["rows"] = Array.Empty<object>(),
+        }, [], "jw_schedule", "第7周");
+        Assert.Equal("jw_schedule", store.LoadLatestSourceSchedule(defaults)!["source_key"]);
+        Assert.Equal("jw_schedule", store.LoadScheduleForWeek("第7周", [])!["source_key"]);
+        Assert.Equal(retired, File.ReadAllText(retiredPath));
     }
 
-    [Fact]
-    public void CourseStore_PersistsNormalizedAndRawPayloadsInsideDotNetRuntimeRoot()
+    [Theory]
+    [InlineData("")]
+    [InlineData("preferred")]
+    [InlineData("cookie")]
+    [InlineData("jw")]
+    [InlineData("jw_schedule")]
+    [InlineData(" JW ")]
+    public void ScheduleStore_CurrentSourceAliasesResolveToTheSameCache(string source)
+    {
+        Assert.Equal("jw_schedule", XkeScheduleStore.NormalizeSourceKey(source));
+        Assert.Equal(new[] { "jw_schedule" }, XkeScheduleStore.ResolveSourceKeys(source));
+    }
+
+    [Theory]
+    [InlineData("mobile")]
+    [InlineData("encrypted")]
+    [InlineData("mobile_schedule")]
+    [InlineData("unknown")]
+    public void ScheduleStore_RejectsUnsupportedSourceWrites(string source)
     {
         using var workspace = new TemporaryDirectory();
-        var root = CreateTemporaryDataRoot(workspace);
-        var studentStore = root.ForStudent("2026/0001");
-        var courseStore = studentStore.Course();
-        var rounds = new CourseRoundsPayload(
-            Rounds:
-            [
-                new CourseRound(
-                    RoundId: "round/1",
-                    Name: "公共选修课第一轮",
-                    Term: "2025-2026-2",
-                    TimeRange: "2026-04-23 ~ 2026-04-25",
-                    Status: "open"),
-            ],
-            Count: 1,
-            Cached: false,
-            UpdatedAt: "2026-04-23T12:00:00Z",
-            Warnings: ["fixture-source"]);
-        var preview = new CoursePreviewPayload(
-            RoundId: "round/1",
-            Courses:
-            [
-                new CourseItem
-                {
-                    Kch = "A1001",
-                    Kcmc = "大学美育",
-                    Xf = "2",
-                    Skls = "李老师",
-                    Sksj = "周一 1-2 节",
-                    Skdd = "教学楼 101",
-                    Xqmc = "主校区",
-                    Xkrs = "30",
-                    Syrs = "12",
-                    Ctsm = string.Empty,
-                    Szkcflmc = "公共选修",
-                    Jx02Id = "course-1001",
-                    Jx0404Id = "section-2002",
-                },
-            ],
-            Count: 1,
-            Cached: false,
-            UpdatedAt: "2026-04-23T12:02:00Z",
-            Warnings: []);
-
-        var roundsPath = courseStore.SaveRounds(rounds, new Dictionary<string, object?> { ["source"] = "fake" });
-        var previewPath = courseStore.SavePreview(preview, new Dictionary<string, object?> { ["source"] = "fake-preview" });
-        var restoredRounds = courseStore.LoadRounds();
-        var restoredPreview = courseStore.LoadPreview("round/1");
-
-        Assert.Equal("2026_0001", studentStore.StudentId);
-        Assert.Equal(".runtime/data/students/2026_0001/course/rounds.json", roundsPath.Replace('\\', '/'));
-        Assert.Equal(".runtime/data/students/2026_0001/course/previews/round_1/preview.json", previewPath.Replace('\\', '/'));
-        Assert.Equal("公共选修课第一轮", restoredRounds!.Rounds[0].Name);
-        Assert.Equal("大学美育", restoredPreview!.Courses[0].Kcmc);
-        Assert.True(File.Exists(Path.Combine(root.RootPath, "students", "2026_0001", "course", "rounds_raw.json")));
-        Assert.True(File.Exists(Path.Combine(root.RootPath, "students", "2026_0001", "course", "previews", "round_1", "preview_raw.json")));
-        AssertEncryptedFileDoesNotContain(Path.Combine(workspace.RootPath, roundsPath.Replace('/', Path.DirectorySeparatorChar)), "公共选修课第一轮");
-        AssertEncryptedFileDoesNotContain(Path.Combine(workspace.RootPath, previewPath.Replace('/', Path.DirectorySeparatorChar)), "大学美育");
-        AssertEncryptedFileDoesNotContain(Path.Combine(root.RootPath, "students", "2026_0001", "course", "rounds_raw.json"), "fake");
-        Assert.False(Directory.Exists(Path.Combine(workspace.RootPath, "data", "students", "2026_0001", "course")));
+        var store = CreateTemporaryDataRoot(workspace).ForStudent("20260001").Schedules();
+        Assert.Throws<ArgumentException>(() => store.SaveSourceSchedule(new(), new(), source, "第1周"));
+        Assert.Throws<ArgumentException>(() => XkeScheduleStore.ResolveSourceKeys(source));
+        Assert.False(Directory.Exists(store.SchedulesDirectory));
     }
 
     private static XkeDataRoot CreateTemporaryDataRoot(TemporaryDirectory workspace)

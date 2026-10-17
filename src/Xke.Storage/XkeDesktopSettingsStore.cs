@@ -51,6 +51,7 @@ public sealed class XkeDesktopSettingsStore
     {
         return new DesktopSettingsDocument
         {
+            AutoUpdateEnabled = true,
             LaunchAtStartup = false,
             SilentStartup = false,
             CloseToTray = true,
@@ -63,6 +64,7 @@ public sealed class XkeDesktopSettingsStore
         var launchAtStartup = current.LaunchAtStartup;
         return new DesktopSettingsDocument
         {
+            AutoUpdateEnabled = current.AutoUpdateEnabled,
             LaunchAtStartup = launchAtStartup,
             SilentStartup = launchAtStartup && current.SilentStartup,
             CloseToTray = current.CloseToTray,

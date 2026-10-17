@@ -72,7 +72,7 @@ public sealed class ScheduleSettingsDocument
     public bool LessonReminderEnabled { get; init; }
 
     [JsonPropertyName("lesson_reminder_minutes")]
-    public int LessonReminderMinutes { get; init; } = 15;
+    public int LessonReminderMinutes { get; init; } = 30;
 
     [JsonPropertyName("weekend_auto_switch_enabled")]
     public bool WeekendAutoSwitchEnabled { get; init; }
@@ -98,6 +98,12 @@ public sealed class AuthSettingsDocument
 
 public sealed class NetworkSettingsDocument
 {
+    [JsonPropertyName("portal_url")]
+    public string PortalUrl { get; init; } = "http://10.199.199.199/";
+
+    [JsonPropertyName("connectivity_check_urls")]
+    public IReadOnlyList<string> ConnectivityCheckUrls { get; init; } = ["https://www.baidu.com/", "https://www.qq.com/"];
+
     [JsonPropertyName("provider")]
     public string Provider { get; init; } = "campus";
 
@@ -106,22 +112,16 @@ public sealed class NetworkSettingsDocument
 
     [JsonPropertyName("heartbeat_interval_minutes")]
     public int HeartbeatIntervalMinutes { get; init; } = 5;
-
-    [JsonPropertyName("campus_ip")]
-    public string CampusIp { get; init; } = string.Empty;
-
-    [JsonPropertyName("campus_subnet_prefix")]
-    public int CampusSubnetPrefix { get; init; } = 24;
-
-    [JsonPropertyName("campus_gateway")]
-    public string CampusGateway { get; init; } = string.Empty;
-
-    [JsonPropertyName("campus_dns")]
-    public string CampusDns { get; init; } = string.Empty;
 }
 
 public sealed class UiSettingsDocument
 {
+    [JsonPropertyName("show_weekend")]
+    public bool ShowWeekend { get; init; } = true;
+
+    [JsonPropertyName("inactive_course_mode")]
+    public string InactiveCourseMode { get; init; } = "dim";
+
     [JsonPropertyName("panels")]
     public UiPanelsDocument Panels { get; init; } = new();
 }
@@ -140,6 +140,9 @@ public sealed class UiPanelsDocument
 
 public sealed class DesktopSettingsDocument
 {
+    [JsonPropertyName("auto_update_enabled")]
+    public bool AutoUpdateEnabled { get; init; } = true;
+
     [JsonPropertyName("launch_at_startup")]
     public bool LaunchAtStartup { get; init; }
 
@@ -182,6 +185,12 @@ public sealed class StudentProfileDocument
     [JsonPropertyName("training_level")]
     public string TrainingLevel { get; init; } = string.Empty;
 
+    [JsonPropertyName("program_duration_years")]
+    public int? ProgramDurationYears { get; init; }
+
+    [JsonPropertyName("enrollment_date")]
+    public string EnrollmentDate { get; init; } = string.Empty;
+
     [JsonPropertyName("campus_name")]
     public string CampusName { get; init; } = string.Empty;
 
@@ -203,23 +212,35 @@ public sealed class StoredCredentialDocument
     [JsonPropertyName("trusted_login_token")]
     public string TrustedLoginToken { get; init; } = string.Empty;
 
-    [JsonPropertyName("mobile_jw")]
-    public MobileJwEncryptedCredentialDocument? MobileJw { get; init; }
-
     [JsonPropertyName("updated_at")]
     public string UpdatedAt { get; init; } = string.Empty;
 }
 
-public sealed class MobileJwEncryptedCredentialDocument
+public sealed class JwSessionDocument
 {
-    [JsonPropertyName("encrypted_password")]
-    public string EncryptedPassword { get; init; } = string.Empty;
+    [JsonPropertyName("user")]
+    public string User { get; init; } = string.Empty;
 
-    [JsonPropertyName("generated_at")]
-    public string GeneratedAt { get; init; } = string.Empty;
+    [JsonPropertyName("updated_at")]
+    public string UpdatedAt { get; init; } = string.Empty;
 
-    [JsonPropertyName("expires_at")]
-    public string ExpiresAt { get; init; } = string.Empty;
+    [JsonPropertyName("cookies")]
+    public IReadOnlyList<JwSessionCookieDocument> Cookies { get; init; } = Array.Empty<JwSessionCookieDocument>();
+}
+
+public sealed class JwSessionCookieDocument
+{
+    [JsonPropertyName("name")]
+    public string Name { get; init; } = string.Empty;
+
+    [JsonPropertyName("value")]
+    public string Value { get; init; } = string.Empty;
+
+    [JsonPropertyName("host")]
+    public string Host { get; init; } = string.Empty;
+
+    [JsonPropertyName("path")]
+    public string Path { get; init; } = "/";
 }
 
 public sealed class StoredSessionDocument

@@ -2,13 +2,12 @@ using System.Collections.Concurrent;
 
 namespace Xke.Core.Schedule;
 
-public sealed class TraditionalJwSessionRuntimeStore
+public sealed class TraditionalJwSessionRuntimeStore : IDisposable
 {
     private readonly ConcurrentDictionary<string, TraditionalJwClient> _clients = new(StringComparer.Ordinal);
 
-    // Traditional JW cookies and ticket-derived sessions are deliberately kept
-    // process-local. A host restart must require a new JW bootstrap instead of
-    // silently reviving browser-like Cookie state from disk.
+    // Active HTTP clients are process-local. The desktop credential store can
+    // separately restore a protected cookie document after a successful GET.
     public void Store(string sessionId, TraditionalJwClient client)
     {
         var cleanedSessionId = (sessionId ?? string.Empty).Trim();
@@ -50,4 +49,9 @@ public sealed class TraditionalJwSessionRuntimeStore
             client.Dispose();
         }
     }
+    public void Dispose()
+    {
+        foreach (var sessionId in _clients.Keys) Remove(sessionId);
+    }
+
 }

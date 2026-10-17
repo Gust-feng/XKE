@@ -225,7 +225,7 @@ if ([string]::IsNullOrWhiteSpace($ProjectPath)) {
 }
 
 $resolvedProject = (Resolve-Path $ProjectPath).Path
-$resolvedWebRoot = Join-Path $repoRoot "..\web"
+$resolvedWebRoot = Join-Path $repoRoot "web"
 if (Test-Path $resolvedWebRoot) {
     $resolvedWebRoot = (Resolve-Path $resolvedWebRoot).Path
 }

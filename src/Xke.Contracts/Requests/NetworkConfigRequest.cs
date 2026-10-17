@@ -1,12 +1,16 @@
-// 本文件对应 Python `api/routes/network.py` 中的 `NetworkConfigRequest`。
-// 职责：在基础网络设置之外，承载三家运营商账号与密码字段，
-// 作为 WebHost -> NetworkKeepAlive 域的配置输入契约。
+// Account-scoped network credentials, independent of the teaching-system login.
 using System.Text.Json.Serialization;
 
 namespace Xke.Contracts.Requests;
 
 public sealed class NetworkConfigRequest : NetworkSettingsRequest
 {
+    [JsonPropertyName("campus_account")]
+    public string CampusAccount { get; init; } = string.Empty;
+
+    [JsonPropertyName("campus_password")]
+    public string CampusPassword { get; init; } = string.Empty;
+
     [JsonPropertyName("telecom_account")]
     public string TelecomAccount { get; init; } = string.Empty;
 

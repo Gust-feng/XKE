@@ -4,8 +4,14 @@ namespace Xke.Contracts.Requests;
 
 public class NetworkSettingsRequest
 {
+    [System.Text.Json.Serialization.JsonPropertyName("portal_url")]
+    public string? PortalUrl { get; init; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("connectivity_check_urls")]
+    public IReadOnlyList<string>? ConnectivityCheckUrls { get; init; }
+
     [JsonPropertyName("provider")]
-    public string Provider { get; init; } = string.Empty;
+    public string? Provider { get; init; }
 
     [JsonPropertyName("heartbeat_enabled")]
     public bool? HeartbeatEnabled { get; init; }
@@ -13,15 +19,4 @@ public class NetworkSettingsRequest
     [JsonPropertyName("heartbeat_interval_minutes")]
     public int? HeartbeatIntervalMinutes { get; init; }
 
-    [JsonPropertyName("campus_ip")]
-    public string CampusIp { get; init; } = string.Empty;
-
-    [JsonPropertyName("campus_subnet_prefix")]
-    public int? CampusSubnetPrefix { get; init; }
-
-    [JsonPropertyName("campus_gateway")]
-    public string CampusGateway { get; init; } = string.Empty;
-
-    [JsonPropertyName("campus_dns")]
-    public string CampusDns { get; init; } = string.Empty;
 }

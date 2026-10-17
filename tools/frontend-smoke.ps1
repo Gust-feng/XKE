@@ -1,86 +1,58 @@
 param(
-    [switch]$SkipSyntaxCheck,
-    [switch]$SkipInstall
+    [switch]$SkipInstall,
+    [switch]$SkipBuild,
+    [switch]$SkipSyntaxCheck
 )
 
 $ErrorActionPreference = "Stop"
-
-$dotnetRoot = Split-Path -Parent $PSScriptRoot
-$webRoot = Join-Path $dotnetRoot "web"
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$frontendRoot = Join-Path $repoRoot "frontend"
 
 function Resolve-ToolPath {
-    param(
-        [string[]]$Names,
-        [string]$FallbackPath
-    )
-
+    param([string[]]$Names, [string]$FallbackPath)
     foreach ($name in $Names) {
         $command = Get-Command $name -ErrorAction SilentlyContinue
-        if ($command) {
-            return $command.Source
-        }
+        if ($command) { return $command.Source }
     }
-
-    if ($FallbackPath -and (Test-Path $FallbackPath)) {
-        return $FallbackPath
-    }
-
-    return ""
+    if ($FallbackPath -and (Test-Path -LiteralPath $FallbackPath)) { return $FallbackPath }
+    throw "Required tool not found: $($Names -join ', ')"
 }
 
 function Invoke-Checked {
-    param(
-        [string]$FilePath,
-        [string[]]$Arguments
-    )
-
+    param([string]$FilePath, [string[]]$Arguments)
     & $FilePath @Arguments
     if ($LASTEXITCODE -ne 0) {
         throw "Command failed: $FilePath $($Arguments -join ' ')"
     }
 }
 
-if (-not (Test-Path $webRoot)) {
-    Write-Warning "Web root not found: $webRoot. Frontend smoke is skipped because web/ is local-only in this checkout."
-    return
+if (-not (Test-Path -LiteralPath (Join-Path $frontendRoot "package.json"))) {
+    throw "TypeScript frontend not found: $frontendRoot"
 }
-
 $node = Resolve-ToolPath -Names @("node.exe", "node") -FallbackPath "C:\Program Files\nodejs\node.exe"
 $npm = Resolve-ToolPath -Names @("npm.cmd", "npm") -FallbackPath "C:\Program Files\nodejs\npm.cmd"
-
-if ([string]::IsNullOrWhiteSpace($node)) {
-    throw "Node.js was not found. Expected it on PATH or at C:\Program Files\nodejs\node.exe"
-}
-
-Push-Location $webRoot
 $previousPath = $env:Path
+Push-Location $frontendRoot
 try {
-    $nodeDir = Split-Path -Parent $node
-    if (-not [string]::IsNullOrWhiteSpace($nodeDir)) {
-        $env:Path = "$nodeDir;$env:Path"
-    }
-
+    $env:Path = "$(Split-Path -Parent $node);$env:Path"
     Write-Host "Node: $(& $node --version)"
-    if (-not [string]::IsNullOrWhiteSpace($npm)) {
-        Write-Host "npm: $(& $npm --version)"
+    Write-Host "npm: $(& $npm --version)"
+    if ($SkipSyntaxCheck) {
+        Write-Warning "TypeScript checks run through npm run check; use -SkipBuild to skip the build."
     }
-
-    if (-not $SkipSyntaxCheck) {
-        Write-Host "Checking frontend JavaScript syntax..."
-        $jsFiles = Get-ChildItem -Path (Join-Path $webRoot "assets") -Recurse -Filter "*.js" |
-            Sort-Object FullName
-        foreach ($file in $jsFiles) {
-            $relativePath = Resolve-Path -Path $file.FullName -Relative
-            Invoke-Checked -FilePath $node -Arguments @("--check", $relativePath)
-        }
+    if (-not $SkipInstall) {
+        Invoke-Checked -FilePath $npm -Arguments @("ci")
     }
-
-    Write-Host "Running frontend tests..."
-    if (-not [string]::IsNullOrWhiteSpace($npm)) {
-        Invoke-Checked -FilePath $npm -Arguments @("test")
+    elseif (-not (Test-Path -LiteralPath (Join-Path $frontendRoot "node_modules"))) {
+        throw "Dependencies are missing. Run without -SkipInstall, or run npm ci in frontend/."
     }
-    else {
-        Invoke-Checked -FilePath $node -Arguments @("--test")
+    Write-Host "Checking the first-version React/TypeScript runtime..."
+    Invoke-Checked -FilePath $npm -Arguments @("run", "check")
+    Invoke-Checked -FilePath $npm -Arguments @("run", "lint")
+    Invoke-Checked -FilePath $npm -Arguments @("run", "test")
+    if (-not $SkipBuild) {
+        Write-Host "Building the frontend (runtime by default; preview must be explicit)..."
+        Invoke-Checked -FilePath $npm -Arguments @("run", "build")
     }
 }
 finally {

@@ -2,16 +2,16 @@
 
 ## 切片名称
 
-`jw-cookie-schedule-v1`
+`jw-protocol-login-v1`
 
 ## 目标
 
-把传统 Web 教务系统接入推进到可用的 Cookie 课表闭环：
+把教务系统表单协议接入推进到可用的登录与课表闭环：
 
 ```text
-预登录
--> SSO 登录
--> JW bootstrap
+JW 登录页
+-> 验证码 challenge
+-> encoded 表单提交
 -> 拉取传统教务课表 HTML
 -> 解析为统一课表 rows
 -> 保存 jw_schedule
@@ -22,7 +22,7 @@
 
 先离线、再接口、最后真实登录。
 
-第一阶段不直接接真实教务登录，先使用 `fixtures/schedule/sample_cookie_schedule.html` 固定解析结果、返回结构和缓存行为。
+登录、重新初始化与课表刷新统一使用 JW 表单协议。成功会话保存本次 JW/IP 登录域实际下发的完整 Cookie 集合到 DPAPI 保护文件；下次登录先用 GET 校验，失效即删除并重新完成验证码登录。
 
 验证码策略：
 
@@ -48,7 +48,7 @@
 - 不实现课程轮次和预览真实连接
 - 不把外部 Cookie 当作登录入口
 - 不把验证码识别写死在 Web 前端或后端阻塞输入里
-- 不改移动教务主链路
+- 不恢复移动教务为生产数据源
 - 不写入真实账号、密码、Cookie、token、验证码图片或原始响应
 
 ## 完成定义
@@ -61,7 +61,7 @@
 - 成功后可写入 `jw_schedule` 缓存
 - `/api/schedule/local?source=cookie` 能读取该缓存
 - 人工验证码 challenge 设计完成，且保留 OCR fallback 到人工的扩展点
-- 移动教务 `schedule/preferred` 和 `schedule/local` 回归不变
+- `schedule/preferred` 统一走 JW 会话；历史 mobile 缓存仅作为本地读取回退
 
 ## 依赖文档
 
@@ -70,3 +70,8 @@
 - `../sensitive-index/移动教务/01_认证流程索引.md`
 - `../api-parity/01_contract_freeze.md`
 - `../api-parity/02_legacy_data_model.md`
+
+
+## 本地辅助资料
+
+Python 协议验证及云端交接资料保留在 ignored 的 `开发数据/本地协议工具说明/`，不作为桌面主线完成定义。

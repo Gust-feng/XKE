@@ -4,6 +4,9 @@ namespace Xke.Contracts.Requests;
 
 public sealed class DesktopSettingsRequest
 {
+    [JsonPropertyName("auto_update_enabled")]
+    public bool? AutoUpdateEnabled { get; init; }
+
     [JsonPropertyName("launch_at_startup")]
     public bool? LaunchAtStartup { get; init; }
 

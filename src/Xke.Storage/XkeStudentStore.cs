@@ -27,34 +27,31 @@ public sealed class XkeStudentStore
     public string PreferencesPath => Path.Combine(StudentDirectory, "preferences.json");
     public string AvatarBasePath => Path.Combine(StudentDirectory, "avatar");
     public string SchedulesDirectory => Path.Combine(StudentDirectory, "schedules");
-    public string CourseDirectory => Path.Combine(StudentDirectory, "course");
     public string InfoDirectory => Path.Combine(StudentDirectory, "info");
     public string NetworkInfoDirectory => Path.Combine(InfoDirectory, "network");
-    public string AppRuntimePath => Path.Combine(InfoDirectory, "app_runtime.json");
     public string NetworkAuthHistoryPath => Path.Combine(InfoDirectory, "network_auth_history.json");
-    public string RemoteSensingSnapshotPath => Path.Combine(InfoDirectory, "remote_sensing_snapshot.json");
 
     public StudentProfileDocument? LoadProfile()
     {
-        return ReadJson<StudentProfileDocument>(ProfilePath);
+        return ReadBusinessJson<StudentProfileDocument>(ProfilePath);
     }
 
     public string SaveProfile(StudentProfileDocument profile)
     {
         EnsureDirectory();
-        WriteJson(ProfilePath, profile);
+        AtomicFile.WriteText(ProfilePath, JsonSerializer.Serialize(profile, JsonOptions));
         return _root.RelativePath(ProfilePath);
     }
 
     public AppSettingsDocument? LoadPreferences()
     {
-        return ReadJson<AppSettingsDocument>(PreferencesPath);
+        return ReadBusinessJson<AppSettingsDocument>(PreferencesPath);
     }
 
     public string SavePreferences(AppSettingsDocument settings)
     {
         EnsureDirectory();
-        WriteJson(PreferencesPath, settings);
+        AtomicFile.WriteText(PreferencesPath, JsonSerializer.Serialize(settings, JsonOptions));
         return _root.RelativePath(PreferencesPath);
     }
 
@@ -75,11 +72,6 @@ public sealed class XkeStudentStore
     public XkeScheduleStore Schedules()
     {
         return new XkeScheduleStore(_root, this);
-    }
-
-    public XkeCourseStore Course()
-    {
-        return new XkeCourseStore(_root, this);
     }
 
     public XkeNetworkCredentialStore NetworkCredentials()
@@ -138,18 +130,6 @@ public sealed class XkeStudentStore
         Directory.Delete(StudentDirectory, recursive: true);
     }
 
-    public Dictionary<string, object?> LoadAppRuntimeInfo()
-    {
-        return ReadJsonDictionary(AppRuntimePath);
-    }
-
-    public string SaveAppRuntimeInfo(Dictionary<string, object?> payload)
-    {
-        EnsureInfoDirectory();
-        WriteJson(AppRuntimePath, payload);
-        return _root.RelativePath(AppRuntimePath);
-    }
-
     public NetworkAuthHistoryDocument LoadNetworkAuthHistory()
     {
         return ReadJson<NetworkAuthHistoryDocument>(NetworkAuthHistoryPath) ?? new NetworkAuthHistoryDocument();
@@ -162,18 +142,6 @@ public sealed class XkeStudentStore
         return _root.RelativePath(NetworkAuthHistoryPath);
     }
 
-    public Dictionary<string, object?> LoadRemoteSensingSnapshot()
-    {
-        return ReadJsonDictionary(RemoteSensingSnapshotPath);
-    }
-
-    public string SaveRemoteSensingSnapshot(Dictionary<string, object?> payload)
-    {
-        EnsureInfoDirectory();
-        WriteJson(RemoteSensingSnapshotPath, payload);
-        return _root.RelativePath(RemoteSensingSnapshotPath);
-    }
-
     private void EnsureDirectory()
     {
         Directory.CreateDirectory(StudentDirectory);
@@ -184,6 +152,14 @@ public sealed class XkeStudentStore
         Directory.CreateDirectory(InfoDirectory);
     }
 
+    private static T? ReadBusinessJson<T>(string path)
+    {
+        if (!File.Exists(path)) return default;
+        try { return JsonSerializer.Deserialize<T>(File.ReadAllText(path), JsonOptions); }
+        // Unsupported or incomplete business files cannot restore a workspace.
+        // Leave them untouched; only successful authentication writes fresh JSON.
+        catch (JsonException) { return default; }
+    }
     private T? ReadJson<T>(string path)
     {
         if (!File.Exists(path))
@@ -202,7 +178,7 @@ public sealed class XkeStudentStore
         }
 
         using var document = JsonDocument.Parse(_encrypted.ReadBytes(path));
-        return LegacyNoticeJson.ToDictionary(document.RootElement.Clone());
+        return JsonValueConverter.ToDictionary(document.RootElement.Clone());
     }
 
     private void WriteJson<T>(string path, T value)

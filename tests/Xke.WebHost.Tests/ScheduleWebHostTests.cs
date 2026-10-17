@@ -8,7 +8,6 @@ using Xke.Contracts.Api;
 using Xke.Contracts.Models;
 using Xke.Contracts.Requests;
 using Xke.Core.Auth.Jw;
-using Xke.Core.Notice;
 using Xke.Core.Schedule;
 using Xke.Security;
 using Xke.Storage;
@@ -19,246 +18,12 @@ namespace Xke.WebHost.Tests;
 public sealed class ScheduleWebHostTests
 {
     [Fact]
-    public async Task ScheduleEndpoints_RefreshPreferredCacheAndLoadLocal()
-    {
-        using var webRoot = new TemporaryWebRoot();
-        using var dataRoot = new TemporaryDirectory("xke-schedule-webhost-data");
-        var fakeAuth = new FakeJwAuthClient();
-        var fakeSchedule = new FakeJwScheduleClient();
-
-        await using var host = await WebHostTestServer.StartAsync(
-            webRoot,
-            dataRoot,
-            hostMode: "test-schedule",
-            jwAuthClient: fakeAuth,
-            jwScheduleClient: fakeSchedule);
-        var client = host.Client;
-
-        var login = await client.PostAsJsonAsync("/api/auth/login", new
-        {
-            user = "20260001",
-            password = "secret",
-            prelogin_mode = "capture",
-        });
-        var loginData = GetData(await ReadJsonAsync(login));
-        var sessionId = loginData.GetProperty("session_id").GetString()!;
-        Assert.Equal("live_fetch", loginData.GetProperty("cached_schedule").GetProperty("data_origin").GetString());
-        Assert.Equal("第7周", loginData.GetProperty("cached_schedule").GetProperty("week_label").GetString());
-        Assert.Equal(1, fakeSchedule.PreferredCalls);
-
-        var refresh = await client.PostAsJsonAsync($"/api/schedule/preferred?session_id={sessionId}", new ScheduleRequest
-        {
-            Mode = "current",
-        });
-        var refreshDoc = await ReadJsonAsync(refresh);
-        var refreshData = GetData(refreshDoc);
-
-        Assert.Equal(HttpStatusCode.OK, refresh.StatusCode);
-        Assert.Equal("live_fetch", refreshData.GetProperty("data_origin").GetString());
-        Assert.Equal("mobile", refreshData.GetProperty("source_type").GetString());
-        Assert.Equal("第7周", refreshData.GetProperty("week_label").GetString());
-        Assert.Equal("信息工程学院", refreshData.GetProperty("student").GetProperty("academy_name").GetString());
-        Assert.Equal("软件技术", refreshData.GetProperty("student").GetProperty("major_name").GetString());
-        Assert.Equal("专科", refreshData.GetProperty("student").GetProperty("training_level").GetString());
-        var savedFiles = refreshData.GetProperty("saved_files").EnumerateArray().Select(item => item.GetString() ?? string.Empty).ToArray();
-        Assert.Contains(savedFiles, path => path.EndsWith("mobile_schedule.csv", StringComparison.Ordinal));
-        Assert.True(savedFiles.Length >= 3);
-        Assert.Equal(2, fakeSchedule.PreferredCalls);
-        Assert.Equal("mobile-token-initial", fakeSchedule.LastExistingToken);
-
-        using var localRequest = new HttpRequestMessage(HttpMethod.Get, "/api/schedule/local?week_label=第7周&source=preferred");
-        localRequest.Headers.Add(SessionConstants.SessionHeaderName, sessionId);
-        var local = await client.SendAsync(localRequest);
-        var localDoc = await ReadJsonAsync(local);
-        var localData = GetData(localDoc);
-
-        Assert.Equal(HttpStatusCode.OK, local.StatusCode);
-        Assert.True(localData.GetProperty("cached").GetBoolean());
-        Assert.Equal("local_cache", localData.GetProperty("data_origin").GetString());
-        Assert.Equal("高等数学", localData.GetProperty("rows")[0].GetProperty("course_name").GetString());
-        Assert.Equal("信息工程学院", localData.GetProperty("student").GetProperty("academy_name").GetString());
-        Assert.Equal("软件技术", localData.GetProperty("student").GetProperty("major_name").GetString());
-        Assert.Equal("专科", localData.GetProperty("student").GetProperty("training_level").GetString());
-    }
-
-    [Fact]
-    public async Task ScheduleEndpoints_ManualPreferredKeepsCurrentWeekDistinctFromViewedWeek()
-    {
-        using var webRoot = new TemporaryWebRoot();
-        using var dataRoot = new TemporaryDirectory("xke-schedule-webhost-manual-week");
-        var fakeAuth = new FakeJwAuthClient();
-        var fakeSchedule = new FakeJwScheduleClient
-        {
-            PreferredCurrentWeekNumber = 8,
-            PreferredViewedWeekNumber = 8,
-        };
-
-        await using var host = await WebHostTestServer.StartAsync(
-            webRoot,
-            dataRoot,
-            hostMode: "test-schedule",
-            jwAuthClient: fakeAuth,
-            jwScheduleClient: fakeSchedule);
-        var client = host.Client;
-
-        var login = await client.PostAsJsonAsync("/api/auth/login", new
-        {
-            user = "20260001",
-            password = "secret",
-            prelogin_mode = "capture",
-        });
-        var loginData = GetData(await ReadJsonAsync(login));
-        var sessionId = loginData.GetProperty("session_id").GetString()!;
-        fakeSchedule.PreferredViewedWeekNumber = 9;
-
-        var refresh = await client.PostAsJsonAsync($"/api/schedule/preferred?session_id={sessionId}", new ScheduleRequest
-        {
-            Mode = "manual",
-            ManualWeek = "9",
-        });
-        var refreshData = GetData(await ReadJsonAsync(refresh));
-
-        Assert.Equal(HttpStatusCode.OK, refresh.StatusCode);
-        Assert.Equal("第9周", refreshData.GetProperty("week_label").GetString());
-        Assert.Equal("第8周", refreshData.GetProperty("current_week_label").GetString());
-        Assert.Equal(8, refreshData.GetProperty("current_week_number").GetInt32());
-        Assert.Equal(9, refreshData.GetProperty("viewed_week_number").GetInt32());
-
-        var local = await client.GetAsync($"/api/schedule/local?session_id={sessionId}&week_label=第9周&source=preferred");
-        var localData = GetData(await ReadJsonAsync(local));
-
-        Assert.Equal(HttpStatusCode.OK, local.StatusCode);
-        Assert.Equal("第9周", localData.GetProperty("week_label").GetString());
-        Assert.Equal("第8周", localData.GetProperty("current_week_label").GetString());
-        Assert.Equal(8, localData.GetProperty("current_week_number").GetInt32());
-        Assert.Equal(9, localData.GetProperty("viewed_week_number").GetInt32());
-    }
-
-    [Fact]
-    public async Task ScheduleEndpoints_PreservesExplicitWeekNumbersWhenWeekLabelIsNotParseable()
-    {
-        using var webRoot = new TemporaryWebRoot();
-        using var dataRoot = new TemporaryDirectory("xke-schedule-webhost-week-number-preserve");
-        var fakeAuth = new FakeJwAuthClient();
-        var fakeSchedule = new FakeJwScheduleClient
-        {
-            PreferredCurrentWeekNumber = 8,
-            PreferredViewedWeekNumber = 8,
-        };
-
-        await using var host = await WebHostTestServer.StartAsync(
-            webRoot,
-            dataRoot,
-            hostMode: "test-schedule",
-            jwAuthClient: fakeAuth,
-            jwScheduleClient: fakeSchedule);
-        var client = host.Client;
-
-        var login = await client.PostAsJsonAsync("/api/auth/login", new
-        {
-            user = "20260001",
-            password = "secret",
-            prelogin_mode = "capture",
-        });
-        var loginData = GetData(await ReadJsonAsync(login));
-        var sessionId = loginData.GetProperty("session_id").GetString()!;
-        fakeSchedule.PreferredViewedWeekNumber = 9;
-        fakeSchedule.PreferredWeekLabelOverride = "下一教学周";
-
-        var refresh = await client.PostAsJsonAsync($"/api/schedule/preferred?session_id={sessionId}", new ScheduleRequest
-        {
-            Mode = "manual",
-            ManualWeek = "9",
-        });
-        var refreshData = GetData(await ReadJsonAsync(refresh));
-
-        Assert.Equal(HttpStatusCode.OK, refresh.StatusCode);
-        Assert.Equal("下一教学周", refreshData.GetProperty("week_label").GetString());
-        Assert.Equal("第8周", refreshData.GetProperty("current_week_label").GetString());
-        Assert.Equal(8, refreshData.GetProperty("current_week_number").GetInt32());
-        Assert.Equal(9, refreshData.GetProperty("viewed_week_number").GetInt32());
-
-        var localWeekLabel = Uri.EscapeDataString("下一教学周");
-        var local = await client.GetAsync($"/api/schedule/local?session_id={sessionId}&week_label={localWeekLabel}&source=preferred");
-        var localData = GetData(await ReadJsonAsync(local));
-
-        Assert.Equal(HttpStatusCode.OK, local.StatusCode);
-        Assert.Equal("下一教学周", localData.GetProperty("week_label").GetString());
-        Assert.Equal("第8周", localData.GetProperty("current_week_label").GetString());
-        Assert.Equal(8, localData.GetProperty("current_week_number").GetInt32());
-        Assert.Equal(9, localData.GetProperty("viewed_week_number").GetInt32());
-    }
-
-    [Fact]
-    public async Task ScheduleEndpoints_CookieRouteRefreshesJwCacheAndPreferredStaysMobileOnly()
-    {
-        using var webRoot = new TemporaryWebRoot();
-        using var dataRoot = new TemporaryDirectory("xke-schedule-webhost-cookie");
-        var fakeAuth = new FakeJwAuthClient();
-        var fakeSchedule = new FakeJwScheduleClient();
-
-        await using var host = await WebHostTestServer.StartAsync(
-            webRoot,
-            dataRoot,
-            hostMode: "test-schedule",
-            jwAuthClient: fakeAuth,
-            jwScheduleClient: fakeSchedule);
-        var client = host.Client;
-
-        var login = await client.PostAsJsonAsync("/api/auth/login", new
-        {
-            user = "20260001",
-            password = "secret",
-            prelogin_mode = "capture",
-        });
-        var loginData = GetData(await ReadJsonAsync(login));
-        var sessionId = loginData.GetProperty("session_id").GetString()!;
-        Assert.True(loginData.GetProperty("connected").GetBoolean());
-        Assert.Equal("live_fetch", loginData.GetProperty("cached_schedule").GetProperty("data_origin").GetString());
-
-        var cookieRefresh = await client.PostAsJsonAsync($"/api/schedule/cookie?session_id={sessionId}", new ScheduleRequest
-        {
-            Mode = "current",
-        });
-        var cookieData = GetData(await ReadJsonAsync(cookieRefresh));
-
-        Assert.Equal(HttpStatusCode.OK, cookieRefresh.StatusCode);
-        Assert.Equal("jw_schedule", cookieData.GetProperty("source_key").GetString());
-        Assert.Equal("jw", cookieData.GetProperty("source_type").GetString());
-        Assert.Equal("live_fetch", cookieData.GetProperty("data_origin").GetString());
-        Assert.Equal("第8周", cookieData.GetProperty("week_label").GetString());
-        var cookieSavedFiles = cookieData.GetProperty("saved_files").EnumerateArray().Select(item => item.GetString() ?? string.Empty).ToArray();
-        Assert.Contains(cookieSavedFiles, path => path.EndsWith("jw_schedule.csv", StringComparison.Ordinal));
-        Assert.Equal(1, fakeSchedule.CookieCalls);
-
-        var cookieLocal = await client.GetAsync($"/api/schedule/local?session_id={sessionId}&source=cookie");
-        var cookieLocalData = GetData(await ReadJsonAsync(cookieLocal));
-        Assert.Equal(HttpStatusCode.OK, cookieLocal.StatusCode);
-        Assert.True(cookieLocalData.GetProperty("cached").GetBoolean());
-        Assert.Equal("jw_schedule", cookieLocalData.GetProperty("source_key").GetString());
-
-        fakeSchedule.FailPreferredOnce = true;
-        var fallback = await client.PostAsJsonAsync($"/api/schedule/preferred?session_id={sessionId}", new ScheduleRequest
-        {
-            Mode = "current",
-            CookieRq = "2026-04-20",
-        });
-        var fallbackDoc = await ReadJsonAsync(fallback);
-
-        Assert.Equal(HttpStatusCode.InternalServerError, fallback.StatusCode);
-        Assert.False(fallbackDoc.RootElement.GetProperty("ok").GetBoolean());
-        Assert.Equal("移动教务暂不可用", fallbackDoc.RootElement.GetProperty("msg").GetString());
-        Assert.Equal("移动教务暂不可用", fallbackDoc.RootElement.GetProperty("detail").GetString());
-        Assert.Equal(1, fakeSchedule.CookieCalls);
-    }
-
-    [Fact]
     public async Task ScheduleEndpoints_RestoreLocalAcrossRestartAndResetLiveCookieConnection()
     {
         using var webRoot = new TemporaryWebRoot();
         using var dataRoot = new TemporaryDirectory("xke-schedule-webhost-restart");
-        var fakeAuth = new FakeJwAuthClient();
         var fakeSchedule = new FakeJwScheduleClient();
+        var handler = new ProtocolHandler();
 
         async Task<XkeWebHostService> CreateServiceAsync(IJwScheduleClient scheduleClient)
         {
@@ -267,10 +32,10 @@ public sealed class ScheduleWebHostTests
                 HostMode = "test-schedule",
                 RuntimeChannel = "dotnet8-test",
                 WebRootPath = webRoot.RootPath,
+                ScheduleApiOptions = new Xke.Core.Schedule.ScheduleApiOptions(),
                 AuthDataRootPath = dataRoot.RootPath,
-                JwAuthClient = fakeAuth,
                 JwScheduleClient = scheduleClient,
-                NoticeRemoteSource = new MissingNoticeRemoteSource(),
+                JwLoginProtocolFactory = (user, password) => new DirectJwLoginProtocol(user, password, new HttpClient(handler)),
                 Urls = new[] { "http://127.0.0.1:0" },
             });
             await service.StartAsync();
@@ -287,7 +52,15 @@ public sealed class ScheduleWebHostTests
                 password = "secret",
                 prelogin_mode = "capture",
             });
-            sessionId = GetData(await ReadJsonAsync(login)).GetProperty("session_id").GetString()!;
+            var loginDoc = await ReadJsonAsync(login);
+            var challengeId = GetData(loginDoc).GetProperty("challenge_id").GetString();
+            var submit = await firstClient.PostAsJsonAsync("/api/auth/captcha", new
+            {
+                challenge_id = challengeId,
+                captcha_code = "1234",
+            });
+            Assert.Equal(HttpStatusCode.OK, submit.StatusCode);
+            sessionId = GetData(await ReadJsonAsync(submit)).GetProperty("session_id").GetString()!;
         }
 
         await firstService.StopAsync();
@@ -319,7 +92,26 @@ public sealed class ScheduleWebHostTests
     [Fact]
     public void TraditionalJwScheduleHtmlParser_ParsesCookieFixture()
     {
-        var html = ReadFixtureText(Path.Combine("fixtures", "schedule", "sample_cookie_schedule.html"));
+        var html = """
+            <html>
+              <body>
+                <div class="schedule-title">第8周</div>
+                <table class="kbtable">
+                  <tr>
+                    <td>上午<br />第1-2节<br />08:00-09:35</td>
+                    <td>
+                      <div class="kbcontent">
+                        高等数学<br />
+                        <font title="教师">张老师</font>
+                        <font title="教室">1-101</font>
+                        <font title="周次(节次)">8(周)[01-02节]</font>
+                      </div>
+                    </td>
+                  </tr>
+                </table>
+              </body>
+            </html>
+            """;
         var result = new TraditionalJwScheduleHtmlParser().Parse(html, new ScheduleRequest
         {
             Mode = "current",
@@ -536,12 +328,12 @@ public sealed class ScheduleWebHostTests
         var row = Assert.Single(result.Rows);
         Assert.Equal("第1-2节", row["section"]);
         Assert.Equal("08:00-09:40", row["time_range"]);
-        Assert.Equal("08:00-08:45", row["small_section_1"]);
-        Assert.Equal("08:55-09:40", row["small_section_2"]);
+        Assert.Equal(string.Empty, row["small_section_1"]);
+        Assert.Equal(string.Empty, row["small_section_2"]);
     }
 
     [Fact]
-    public void TraditionalJwScheduleHtmlParser_MergesDuplicateRoomsAndWarns()
+    public void TraditionalJwScheduleHtmlParser_PreservesDistinctLocations()
     {
         var html = """
             <table><tbody>
@@ -572,14 +364,11 @@ public sealed class ScheduleWebHostTests
             ManualWeek = "8",
         });
 
-        var row = Assert.Single(result.Rows);
-        Assert.Equal("东操场 / 西操场", row["room"]);
-        var conflict = Assert.IsType<Dictionary<string, object?>>(row["conflict"]);
-        Assert.Equal("room_conflict", conflict["kind"]);
-        Assert.Contains(result.DataWarnings, warning =>
-            string.Equals(warning.GetValueOrDefault("type")?.ToString(), "duplicate_slot", StringComparison.Ordinal));
+        Assert.Equal(2, result.Rows.Count);
+        Assert.Contains(result.Rows, row => row["room"]?.ToString() == "东操场");
+        Assert.Contains(result.Rows, row => row["room"]?.ToString() == "西操场");
+        Assert.DoesNotContain(result.DataWarnings, warning => warning.GetValueOrDefault("type")?.ToString() == "duplicate_slot");
     }
-
     [Fact]
     public void TraditionalJwScheduleHtmlParser_DoesNotMergeSameCourseAcrossDifferentSections()
     {
@@ -639,15 +428,9 @@ public sealed class ScheduleWebHostTests
             webRoot,
             dataRoot,
             hostMode: "test-schedule",
-            jwAuthClient: new FakeJwAuthClient(),
             jwScheduleClient: fakeSchedule);
         var client = host.Client;
-        var sessionId = GetData(await ReadJsonAsync(await client.PostAsJsonAsync("/api/auth/login", new
-        {
-            user = "20260001",
-            password = "secret",
-            prelogin_mode = "capture",
-        }))).GetProperty("session_id").GetString()!;
+        var sessionId = await LoginAsync(client, "20260001");
 
         var refresh = await client.PostAsJsonAsync($"/api/schedule/cookie?session_id={sessionId}", new ScheduleRequest
         {
@@ -656,12 +439,17 @@ public sealed class ScheduleWebHostTests
         var data = GetData(await ReadJsonAsync(refresh));
 
         Assert.Equal(HttpStatusCode.OK, refresh.StatusCode);
-        var row = Assert.Single(data.GetProperty("rows").EnumerateArray());
+        var normalizedRows = data.GetProperty("rows").EnumerateArray().ToArray();
+        Assert.Equal(3, normalizedRows.Length);
+        var row = normalizedRows[0];
         Assert.Equal("星期一", row.GetProperty("weekday").GetString());
         Assert.Equal("第1-2节", row.GetProperty("section").GetString());
         Assert.Equal("线性代数", row.GetProperty("course_name").GetString());
-        Assert.Equal("1-202 / 超星网络教学平台2", row.GetProperty("room").GetString());
-        Assert.Equal("room_conflict", row.GetProperty("conflict").GetProperty("kind").GetString());
+        Assert.Equal("1-202", row.GetProperty("room").GetString());
+        Assert.Equal("超星网络教学平台2", normalizedRows[1].GetProperty("room").GetString());
+        Assert.Equal("1-202", normalizedRows[2].GetProperty("room").GetString());
+        Assert.Equal(Enumerable.Range(1, 8), row.GetProperty("week_numbers").EnumerateArray().Select(value => value.GetInt32()));
+        Assert.Equal(Enumerable.Range(9, 8), normalizedRows[2].GetProperty("week_numbers").EnumerateArray().Select(value => value.GetInt32()));
         Assert.Contains(data.GetProperty("data_warnings").EnumerateArray(), warning =>
             warning.GetProperty("type").GetString() == "schedule-row-invalid");
         var duplicateWarnings = data.GetProperty("data_warnings")
@@ -674,11 +462,11 @@ public sealed class ScheduleWebHostTests
             .Select(item => item.GetProperty("room").GetString())
             .ToArray();
         Assert.Contains("手工导入平台", discardedRooms);
-        Assert.Contains("超星网络教学平台2", discardedRooms);
+        Assert.DoesNotContain("超星网络教学平台2", discardedRooms);
 
         var local = await client.GetAsync($"/api/schedule/local?session_id={sessionId}&source=cookie");
         var localData = GetData(await ReadJsonAsync(local));
-        Assert.Single(localData.GetProperty("rows").EnumerateArray());
+        Assert.Equal(3, localData.GetProperty("rows").GetArrayLength());
     }
 
     [Fact]
@@ -688,22 +476,16 @@ public sealed class ScheduleWebHostTests
         using var dataRoot = new TemporaryDirectory("xke-schedule-webhost-captcha");
         var fakeSchedule = new FakeJwScheduleClient
         {
-            RequireCaptchaOnce = true,
         };
 
         await using var host = await WebHostTestServer.StartAsync(
             webRoot,
             dataRoot,
             hostMode: "test-schedule",
-            jwAuthClient: new FakeJwAuthClient(),
             jwScheduleClient: fakeSchedule);
         var client = host.Client;
-        var sessionId = GetData(await ReadJsonAsync(await client.PostAsJsonAsync("/api/auth/login", new
-        {
-            user = "20260001",
-            password = "secret",
-            prelogin_mode = "capture",
-        }))).GetProperty("session_id").GetString()!;
+        var sessionId = await LoginAsync(client, "20260001");
+        fakeSchedule.RequireCaptchaOnce = true;
 
         var challenge = await client.PostAsJsonAsync($"/api/schedule/cookie?session_id={sessionId}", new ScheduleRequest
         {
@@ -735,7 +517,6 @@ public sealed class ScheduleWebHostTests
         using var dataRoot = new TemporaryDirectory("xke-schedule-webhost-captcha-status");
         var fakeSchedule = new FakeJwScheduleClient
         {
-            RequireCaptchaOnce = true,
             CaptchaContinuationFailureStatusCode = 409,
             CaptchaContinuationFailureMessage = "教务系统登录上下文已失效",
         };
@@ -744,15 +525,10 @@ public sealed class ScheduleWebHostTests
             webRoot,
             dataRoot,
             hostMode: "test-schedule",
-            jwAuthClient: new FakeJwAuthClient(),
             jwScheduleClient: fakeSchedule);
         var client = host.Client;
-        var sessionId = GetData(await ReadJsonAsync(await client.PostAsJsonAsync("/api/auth/login", new
-        {
-            user = "20260001",
-            password = "secret",
-            prelogin_mode = "capture",
-        }))).GetProperty("session_id").GetString()!;
+        var sessionId = await LoginAsync(client, "20260001");
+        fakeSchedule.RequireCaptchaOnce = true;
 
         var challenge = await client.PostAsJsonAsync($"/api/schedule/cookie?session_id={sessionId}", new ScheduleRequest
         {
@@ -778,22 +554,16 @@ public sealed class ScheduleWebHostTests
         using var dataRoot = new TemporaryDirectory("xke-schedule-webhost-captcha-retry");
         var fakeSchedule = new FakeJwScheduleClient
         {
-            RequireCaptchaOnce = true,
         };
 
         await using var host = await WebHostTestServer.StartAsync(
             webRoot,
             dataRoot,
             hostMode: "test-schedule",
-            jwAuthClient: new FakeJwAuthClient(),
             jwScheduleClient: fakeSchedule);
         var client = host.Client;
-        var sessionId = GetData(await ReadJsonAsync(await client.PostAsJsonAsync("/api/auth/login", new
-        {
-            user = "20260001",
-            password = "secret",
-            prelogin_mode = "capture",
-        }))).GetProperty("session_id").GetString()!;
+        var sessionId = await LoginAsync(client, "20260001");
+        fakeSchedule.RequireCaptchaOnce = true;
 
         var challenge = await client.PostAsJsonAsync($"/api/schedule/cookie?session_id={sessionId}", new ScheduleRequest
         {
@@ -820,79 +590,22 @@ public sealed class ScheduleWebHostTests
         Assert.Equal("jw_schedule", retryData.GetProperty("source_key").GetString());
     }
 
-    [Fact]
-    public async Task BlockedStudent_ScheduleEndpointReturns403Detail()
+    private static async Task<string> LoginAsync(HttpClient client, string user)
     {
-        using var webRoot = new TemporaryWebRoot();
-        using var dataRoot = new TemporaryDirectory("xke-schedule-webhost-blocked");
-        var fixture = CreateBlockedNoticeFixture("20269999");
-        var root = new XkeDataRoot(dataRoot.RootPath, dataRoot.RootPath);
-        root.Credentials().Save(new StoredCredentialDocument
+        var login = await client.PostAsJsonAsync("/api/auth/login", new
         {
-            User = "20269999",
-            Password = "secret",
-            StudentId = "20269999",
-            TrustedLoginToken = "trusted-token",
-            UpdatedAt = "2026-04-23T12:00:00Z",
-        });
-        root.ForStudent("20269999").SaveProfile(new StudentProfileDocument
-        {
-            StudentId = "20269999",
-            Name = "受限学生",
-            UpdatedAt = "2026-04-23T12:00:00Z",
-        });
-        var session = root.Sessions().Create("20269999", "20269999", "capture");
-
-        await using var host = await WebHostTestServer.StartAsync(
-            webRoot,
-            dataRoot,
-            hostMode: "test-schedule",
-            jwAuthClient: new FakeJwAuthClient(),
-            jwScheduleClient: new FakeJwScheduleClient(),
-            noticeRemoteSource: fixture.Source,
-            noticeSigningPublicKeyPem: fixture.PublicKeyPem);
-        var client = host.Client;
-        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/schedule/local?source=preferred");
-        request.Headers.Add(SessionConstants.SessionHeaderName, session.SessionId);
-        var response = await client.SendAsync(request);
-        var document = await ReadJsonAsync(response);
-
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-        Assert.True(document.RootElement.GetProperty("detail").GetProperty("blocked").GetBoolean());
-        Assert.Equal("20269999", document.RootElement.GetProperty("detail").GetProperty("student_id").GetString());
-    }
-
-    [Fact]
-    public async Task ScheduleEndpoints_ExposeWarningsFromNormalizedMobilePayload()
-    {
-        using var webRoot = new TemporaryWebRoot();
-        using var dataRoot = new TemporaryDirectory("xke-schedule-webhost-warnings");
-        var fakeSchedule = new FakeJwScheduleClient
-        {
-            IncludeMissingSectionWarning = true,
-        };
-
-        await using var host = await WebHostTestServer.StartAsync(
-            webRoot,
-            dataRoot,
-            hostMode: "test-schedule",
-            jwAuthClient: new FakeJwAuthClient(),
-            jwScheduleClient: fakeSchedule);
-        var client = host.Client;
-        var sessionId = GetData(await ReadJsonAsync(await client.PostAsJsonAsync("/api/auth/login", new
-        {
-            user = "20260001",
+            user,
             password = "secret",
             prelogin_mode = "capture",
-        }))).GetProperty("session_id").GetString()!;
-
-        var refreshData = GetData(await ReadJsonAsync(await client.PostAsJsonAsync($"/api/schedule/preferred?session_id={sessionId}", new ScheduleRequest
+        });
+        var document = await ReadJsonAsync(login);
+        var challengeId = GetData(document).GetProperty("challenge_id").GetString()!;
+        var submit = await client.PostAsJsonAsync("/api/auth/captcha", new
         {
-            Mode = "current",
-        })));
-
-        Assert.Equal(1, refreshData.GetProperty("data_warnings").GetArrayLength());
-        Assert.Equal("mobile-course-section-missing", refreshData.GetProperty("data_warnings")[0].GetProperty("type").GetString());
+            challenge_id = challengeId,
+            captcha_code = "1234",
+        });
+        return GetData(await ReadJsonAsync(submit)).GetProperty("session_id").GetString()!;
     }
 
     private static JsonElement GetData(JsonDocument document)
@@ -906,240 +619,15 @@ public sealed class ScheduleWebHostTests
         return JsonDocument.Parse(text);
     }
 
-    private static string ReadFixtureText(string relativePath)
-    {
-        var current = new DirectoryInfo(AppContext.BaseDirectory);
-        while (current is not null)
-        {
-            var candidate = Path.Combine(current.FullName, relativePath);
-            if (File.Exists(candidate))
-            {
-                return File.ReadAllText(candidate);
-            }
-
-            current = current.Parent;
-        }
-
-        throw new FileNotFoundException($"Fixture not found: {relativePath}");
-    }
-
-    private static NoticeFixture CreateBlockedNoticeFixture(string blockedStudentId)
-    {
-        const string updatedAt = "2026-04-23T12:00:00Z";
-        var noticeDirectory = new Dictionary<string, object?>
-        {
-            ["schema_version"] = "1",
-            ["updated_at"] = updatedAt,
-            ["manifests"] = new List<object?>
-            {
-                new Dictionary<string, object?>
-                {
-                    ["id"] = "beta",
-                    ["path"] = "notice/beta.json",
-                    ["updated_at"] = updatedAt,
-                    ["sha256"] = NoticeHash.Sha256Hex(NoticeCanonicalJson.Serialize(new Dictionary<string, object?>
-                    {
-                        ["schema_version"] = "1",
-                        ["manifest_id"] = "beta",
-                        ["updated_at"] = updatedAt,
-                        ["bundles"] = new List<object?>(),
-                    })),
-                },
-            },
-        };
-
-        var manifest = new Dictionary<string, object?>
-        {
-            ["schema_version"] = "1",
-            ["manifest_id"] = "beta",
-            ["updated_at"] = updatedAt,
-            ["bundles"] = new List<object?>(),
-        };
-
-        var versionPolicy = new Dictionary<string, object?>
-        {
-            ["schema_version"] = "1",
-            ["updated_at"] = updatedAt,
-            ["versions"] = new List<object?>
-            {
-                new Dictionary<string, object?>
-                {
-                    ["id"] = "beta",
-                    ["version"] = "1.0.0",
-                    ["enabled"] = true,
-                    ["updated_at"] = updatedAt,
-                    ["app_control"] = new Dictionary<string, object?>
-                    {
-                        ["state"] = "normal",
-                        ["reason"] = string.Empty,
-                    },
-                    ["feature_flags"] = new Dictionary<string, object?>(),
-                    ["feature_limits"] = new Dictionary<string, object?>(),
-                    ["runtime_policy"] = new Dictionary<string, object?>(),
-                    ["telemetry_enabled"] = false,
-                },
-            },
-        };
-
-        var updateInfo = new Dictionary<string, object?>
-        {
-            ["schema_version"] = "1",
-            ["updated_at"] = updatedAt,
-            ["latest_version"] = "1.0.0",
-        };
-
-        var accessPolicy = new Dictionary<string, object?>
-        {
-            ["schema_version"] = 1,
-            ["updated_at"] = updatedAt,
-            ["default_message"] = "该账号当前不可用",
-            ["blocked_students"] = new List<object?>
-            {
-                new Dictionary<string, object?>
-                {
-                    ["student_id_hash"] = NoticeHash.Sha256Hex(Encoding.UTF8.GetBytes(blockedStudentId)),
-                    ["message"] = "该账号当前不可用",
-                },
-            },
-        };
-
-        var index = new Dictionary<string, object?>
-        {
-            ["schema_version"] = 1,
-            ["updated_at"] = updatedAt,
-            ["notice"] = new Dictionary<string, object?>
-            {
-                ["path"] = "notice/directory.json",
-                ["updated_at"] = updatedAt,
-                ["sha256"] = NoticeHash.Sha256Hex(NoticeCanonicalJson.Serialize(noticeDirectory)),
-            },
-            ["version_policy"] = new Dictionary<string, object?>
-            {
-                ["path"] = "config/version_policy.json",
-                ["updated_at"] = updatedAt,
-                ["sha256"] = NoticeHash.Sha256Hex(NoticeCanonicalJson.Serialize(versionPolicy)),
-            },
-            ["update_info"] = new Dictionary<string, object?>
-            {
-                ["path"] = "config/update_info.json",
-                ["updated_at"] = updatedAt,
-                ["sha256"] = NoticeHash.Sha256Hex(NoticeCanonicalJson.Serialize(updateInfo)),
-            },
-            ["access_policy"] = new Dictionary<string, object?>
-            {
-                ["path"] = "config/access_policy.json",
-                ["updated_at"] = updatedAt,
-                ["sha256"] = NoticeHash.Sha256Hex(NoticeCanonicalJson.Serialize(accessPolicy)),
-            },
-        };
-
-        var cloudFeed = new Dictionary<string, object?>
-        {
-            ["schema_version"] = "1",
-            ["updated_at"] = updatedAt,
-            ["announcement"] = new Dictionary<string, object?>
-            {
-                ["items"] = new List<object?>(),
-            },
-            ["policy"] = new Dictionary<string, object?>
-            {
-                ["version_policy"] = versionPolicy,
-                ["access_policy"] = accessPolicy,
-            },
-            ["update_info"] = updateInfo,
-        };
-
-        using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP521);
-        var files = new Dictionary<string, byte[]>(StringComparer.Ordinal)
-        {
-            ["cloud-feed.json"] = SerializeJson(cloudFeed),
-            ["index.json"] = SerializeJson(index),
-            ["index.sig"] = Encoding.UTF8.GetBytes(Convert.ToBase64String(ecdsa.SignData(NoticeCanonicalJson.Serialize(index), HashAlgorithmName.SHA512)).TrimEnd('=')),
-            ["notice/directory.json"] = SerializeJson(noticeDirectory),
-            ["notice/beta.json"] = SerializeJson(manifest),
-            ["config/version_policy.json"] = SerializeJson(versionPolicy),
-            ["config/update_info.json"] = SerializeJson(updateInfo),
-            ["config/access_policy.json"] = SerializeJson(accessPolicy),
-        };
-
-        return new NoticeFixture(new MemoryNoticeRemoteSource(files), ecdsa.ExportSubjectPublicKeyInfoPem());
-    }
-
-    private static byte[] SerializeJson(object payload)
-    {
-        return JsonSerializer.SerializeToUtf8Bytes(payload, new JsonSerializerOptions
-        {
-            WriteIndented = true,
-        });
-    }
-
-    private sealed record NoticeFixture(MemoryNoticeRemoteSource Source, string PublicKeyPem);
-
-    private sealed class FakeJwAuthClient : IJwAuthClient
-    {
-        public Task<JwAuthResult> InitializeAsync(string user, string password, string preloginMode, CancellationToken cancellationToken = default, MobileJwEncryptedCredentialDocument? mobileJw = null)
-        {
-            return Task.FromResult(new JwAuthResult(BuildProfile(user), "mobile-token-initial"));
-        }
-
-        public Task<JwAuthResult> ConnectAsync(string user, string password, string preloginMode, CancellationToken cancellationToken = default, MobileJwEncryptedCredentialDocument? mobileJw = null)
-        {
-            return Task.FromResult(new JwAuthResult(BuildProfile(user), "mobile-token-connected"));
-        }
-
-        private static StudentProfileDocument BuildProfile(string user)
-        {
-            return new StudentProfileDocument
-            {
-                StudentId = user,
-                Name = "测试同学",
-                ClassName = "软件一班",
-                MajorName = "软件技术",
-                AcademyName = "信息工程学院",
-                TrainingLevel = "专科",
-                CampusName = "主校区",
-                UpdatedAt = "2026-04-23T12:00:00Z",
-            };
-        }
-    }
-
     private sealed class FakeJwScheduleClient : IJwScheduleClient
     {
-        public bool FailPreferredOnce { get; set; }
-        public bool IncludeMissingSectionWarning { get; set; }
         public bool IncludeMalformedCookieRows { get; set; }
         public bool RequireCaptchaOnce { get; set; }
         public int? CaptchaContinuationFailureStatusCode { get; set; }
         public string CaptchaContinuationFailureMessage { get; set; } = "验证码续跑失败";
-        public int PreferredCurrentWeekNumber { get; set; } = 7;
-        public int? PreferredViewedWeekNumber { get; set; }
-        public string PreferredWeekLabelOverride { get; set; } = string.Empty;
-        public int PreferredCalls { get; private set; }
         public int CookieCalls { get; private set; }
-        public string LastExistingToken { get; private set; } = string.Empty;
 
-        public Task<JwScheduleFetchResult> FetchPreferredAsync(string user, string password, string preloginMode, ScheduleRequest request, CancellationToken cancellationToken = default, string existingToken = "", MobileJwEncryptedCredentialDocument? mobileJw = null)
-        {
-            PreferredCalls++;
-            LastExistingToken = existingToken;
-            if (FailPreferredOnce)
-            {
-                FailPreferredOnce = false;
-                throw new JwScheduleException("移动教务暂不可用");
-            }
-
-            return Task.FromResult(BuildResult(
-                "mobile_schedule",
-                "移动教务课表",
-                "mobile",
-                PreferredCurrentWeekNumber,
-                "移动教务课表刷新成功",
-                IncludeMissingSectionWarning,
-                PreferredViewedWeekNumber,
-                PreferredWeekLabelOverride));
-        }
-
-        public Task<JwScheduleFetchResult> FetchCookieAsync(string user, string password, string preloginMode, ScheduleRequest request, CancellationToken cancellationToken = default, string existingToken = "", MobileJwEncryptedCredentialDocument? mobileJw = null, string sessionId = "")
+        public Task<JwScheduleFetchResult> FetchCookieAsync(string user, string password, string preloginMode, ScheduleRequest request, CancellationToken cancellationToken = default, string sessionId = "")
         {
             CookieCalls++;
             if (RequireCaptchaOnce)
@@ -1223,6 +711,7 @@ public sealed class ScheduleWebHostTests
                         ["course_name"] = "线性代数",
                         ["teacher"] = "教师：李老师",
                         ["room"] = "1-202",
+                        ["weeks"] = "1-8周",
                     },
                     new Dictionary<string, object?>
                     {
@@ -1232,6 +721,18 @@ public sealed class ScheduleWebHostTests
                         ["section"] = "第1-2节",
                         ["course_name"] = "线性代数",
                         ["teacher"] = "李老师",
+                        ["room"] = "超星网络教学平台2",
+                    },
+                    new Dictionary<string, object?>
+                    {
+                        ["source"] = "Cookie", ["week_label"] = weekLabel, ["weekday"] = "星期一",
+                        ["section"] = "第1-2节", ["course_name"] = "线性代数", ["teacher"] = "李老师",
+                        ["room"] = "1-202", ["weeks"] = "9-16周",
+                    },
+                    new Dictionary<string, object?>
+                    {
+                        ["source"] = "Cookie", ["week_label"] = weekLabel, ["weekday"] = "星期一",
+                        ["section"] = "第1-2节", ["course_name"] = "线性代数", ["teacher"] = "李老师",
                         ["room"] = "超星网络教学平台2",
                     },
                     new Dictionary<string, object?>

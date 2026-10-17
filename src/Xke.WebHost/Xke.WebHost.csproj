@@ -6,6 +6,7 @@
     <AssemblyName>Xke.WebHost</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Xke.WebHost.Tests" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\Xke.Contracts\Xke.Contracts.csproj" />
     <ProjectReference Include="..\Xke.Core\Xke.Core.csproj" />

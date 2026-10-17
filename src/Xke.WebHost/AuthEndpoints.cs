@@ -1,7 +1,5 @@
 using Xke.Contracts.Requests;
 using Xke.Core.Auth;
-using Xke.Core.Course;
-using Xke.Core.Notice;
 using Xke.Core.Schedule;
 
 namespace Xke.WebHost;
@@ -12,285 +10,102 @@ public static partial class XkeWebHostApplication
     {
         var auth = app.MapGroup("/api/auth");
 
-        auth.MapPost("/login", async (LoginRequest request, AuthService authService, NoticeService noticeService, HttpContext context) =>
+        auth.MapPost("/captcha", async (JwCaptchaSubmitRequest request, AuthService authService, HttpContext context) =>
         {
-            try
-            {
-                await EnsureStudentAllowedAsync(noticeService, request.User, "login", context.RequestAborted);
-                var result = await authService.LoginAsync(request, context.RequestAborted);
-                return Ok(result.Message, result.Payload);
-            }
-            catch (BlockedAccessException ex)
-            {
-                return BlockedError(ex);
-            }
-            catch (AuthException ex)
-            {
-                return AuthError(ex);
-            }
-            catch (Exception ex)
-            {
-                return Results.Json(new { detail = ex.Message }, statusCode: StatusCodes.Status500InternalServerError);
-            }
+            var result = await authService.SubmitProtocolCaptchaAsync(request, context.RequestAborted);
+            return Ok(result.Message, result.Payload);
         });
 
-        auth.MapPost("/reinitialize", async (LoginRequest request, AuthService authService, NoticeService noticeService, HttpContext context) =>
+        auth.MapPost("/login", async (LoginRequest request, AuthService authService, HttpContext context) =>
         {
-            try
-            {
-                await EnsureStudentAllowedAsync(noticeService, request.User, "login", context.RequestAborted);
-                var result = await authService.ReinitializeAsync(request, context.RequestAborted);
-                return Ok(result.Message, result.Payload);
-            }
-            catch (BlockedAccessException ex)
-            {
-                return BlockedError(ex);
-            }
-            catch (AuthException ex)
-            {
-                return AuthError(ex);
-            }
-            catch (Exception ex)
-            {
-                return Results.Json(new { detail = ex.Message }, statusCode: StatusCodes.Status500InternalServerError);
-            }
+            var result = await authService.BeginProtocolLoginAsync(request, cancellationToken: context.RequestAborted);
+            return Ok(result.Message, result.Payload);
         });
 
-        auth.MapPost("/trusted-login", async (TrustedLoginRequest request, AuthService authService, NoticeService noticeService, HttpContext context) =>
+        auth.MapPost("/reinitialize", async (LoginRequest request, AuthService authService, HttpContext context) =>
         {
-            try
-            {
-                await EnsureStudentAllowedAsync(noticeService, request.User, "login", context.RequestAborted);
-                var result = authService.TrustedLogin(request);
-                return Ok(result.Message, result.Payload);
-            }
-            catch (BlockedAccessException ex)
-            {
-                return BlockedError(ex);
-            }
-            catch (AuthException ex)
-            {
-                return AuthError(ex);
-            }
-            catch (Exception ex)
-            {
-                return Results.Json(new { detail = ex.Message }, statusCode: StatusCodes.Status500InternalServerError);
-            }
+            var result = await authService.BeginProtocolLoginAsync(request, forceRemote: true, cancellationToken: context.RequestAborted);
+            return Ok(result.Message, result.Payload);
         });
 
-        auth.MapPost("/connect", async (ConnectRequest request, AuthService authService, NoticeService noticeService, HttpContext context) =>
+        auth.MapPost("/trusted-login", (TrustedLoginRequest request, AuthService authService, HttpContext context) =>
         {
-            try
-            {
-                var sessionId = ResolveSessionId(context);
-                await EnsureSessionAllowedAsync(authService, noticeService, sessionId, context.RequestAborted);
-                var result = await authService.ConnectAsync(sessionId, request, context.RequestAborted);
-                return Ok(result.Message, result.Payload);
-            }
-            catch (BlockedAccessException ex)
-            {
-                return BlockedError(ex);
-            }
-            catch (AuthException ex)
-            {
-                return AuthError(ex);
-            }
-            catch (Exception ex)
-            {
-                return Results.Json(new { detail = ex.Message }, statusCode: StatusCodes.Status500InternalServerError);
-            }
+            var result = authService.TrustedLogin(request);
+            return Ok(result.Message, result.Payload);
         });
 
-        auth.MapGet("/session", async (AuthService authService, NoticeService noticeService, HttpContext context) =>
+        auth.MapPost("/connect", async (ConnectRequest request, AuthService authService, HttpContext context) =>
         {
-            try
-            {
-                var sessionId = ResolveSessionId(context);
-                await EnsureSessionAllowedAsync(authService, noticeService, sessionId, context.RequestAborted);
-                var result = authService.GetSession(sessionId);
-                return Ok(result.Message, result.Payload);
-            }
-            catch (BlockedAccessException ex)
-            {
-                return BlockedError(ex);
-            }
-            catch (AuthException ex)
-            {
-                return AuthError(ex);
-            }
-            catch (Exception ex)
-            {
-                return Results.Json(new { detail = ex.Message }, statusCode: StatusCodes.Status500InternalServerError);
-            }
+            var sessionId = ResolveSessionId(context);
+            var result = await authService.ConnectProtocolAsync(sessionId, context.RequestAborted);
+            return Ok(result.Message, result.Payload);
         });
 
-        auth.MapGet("/preferences", async (AuthService authService, NoticeService noticeService, HttpContext context) =>
+        auth.MapGet("/session", (AuthService authService, HttpContext context) =>
         {
-            try
-            {
-                var sessionId = ResolveSessionId(context);
-                await EnsureSessionAllowedAsync(authService, noticeService, sessionId, context.RequestAborted);
-                var result = authService.GetPreferences(sessionId);
-                return Ok(result.Message, result.Payload);
-            }
-            catch (BlockedAccessException ex)
-            {
-                return BlockedError(ex);
-            }
-            catch (AuthException ex)
-            {
-                return AuthError(ex);
-            }
-            catch (Exception ex)
-            {
-                return Results.Json(new { detail = ex.Message }, statusCode: StatusCodes.Status500InternalServerError);
-            }
+            var sessionId = ResolveSessionId(context);
+            var result = authService.GetSession(sessionId);
+            return Ok(result.Message, result.Payload);
         });
 
-        auth.MapPost("/preferences", async (PreferencesRequest request, AuthService authService, NoticeService noticeService, HttpContext context) =>
+        auth.MapGet("/preferences", (AuthService authService, HttpContext context) =>
         {
-            try
-            {
-                var sessionId = ResolveSessionId(context);
-                await EnsureSessionAllowedAsync(authService, noticeService, sessionId, context.RequestAborted);
-                var result = authService.UpdatePreferences(sessionId, request);
-                return Ok(result.Message, result.Payload);
-            }
-            catch (BlockedAccessException ex)
-            {
-                return BlockedError(ex);
-            }
-            catch (AuthException ex)
-            {
-                return AuthError(ex);
-            }
-            catch (Exception ex)
-            {
-                return Results.Json(new { detail = ex.Message }, statusCode: StatusCodes.Status500InternalServerError);
-            }
+            var sessionId = ResolveSessionId(context);
+            var result = authService.GetPreferences(sessionId);
+            return Ok(result.Message, result.Payload);
         });
 
-        auth.MapPost("/profile", async (ProfileRequest request, AuthService authService, NoticeService noticeService, HttpContext context) =>
+        auth.MapPost("/preferences", (PreferencesRequest request, AuthService authService, HttpContext context) =>
         {
-            try
-            {
-                var sessionId = ResolveSessionId(context);
-                await EnsureSessionAllowedAsync(authService, noticeService, sessionId, context.RequestAborted);
-                var result = authService.UpdateProfile(sessionId, request);
-                return Ok(result.Message, result.Payload);
-            }
-            catch (BlockedAccessException ex)
-            {
-                return BlockedError(ex);
-            }
-            catch (AuthException ex)
-            {
-                return AuthError(ex);
-            }
-            catch (Exception ex)
-            {
-                return Results.Json(new { detail = ex.Message }, statusCode: StatusCodes.Status500InternalServerError);
-            }
+            var sessionId = ResolveSessionId(context);
+            var result = authService.UpdatePreferences(sessionId, request);
+            return Ok(result.Message, result.Payload);
         });
 
-        auth.MapGet("/avatar", async (AuthService authService, NoticeService noticeService, HttpContext context) =>
+        auth.MapPost("/profile", (ProfileRequest request, AuthService authService, HttpContext context) =>
         {
-            try
-            {
-                var sessionId = ResolveSessionId(context);
-                await EnsureSessionAllowedAsync(authService, noticeService, sessionId, context.RequestAborted);
-                var avatar = authService.GetAvatar(sessionId);
-                return Results.File(avatar.Content, GetAvatarContentType(avatar.FileName));
-            }
-            catch (BlockedAccessException ex)
-            {
-                return BlockedError(ex);
-            }
-            catch (AuthException ex)
-            {
-                return AuthError(ex);
-            }
-            catch (Exception ex)
-            {
-                return Results.Json(new { detail = ex.Message }, statusCode: StatusCodes.Status500InternalServerError);
-            }
+            var sessionId = ResolveSessionId(context);
+            var result = authService.UpdateProfile(sessionId, request);
+            return Ok(result.Message, result.Payload);
         });
 
-        auth.MapPost("/avatar", async (AuthService authService, NoticeService noticeService, HttpContext context) =>
+        auth.MapGet("/avatar", (AuthService authService, HttpContext context) =>
         {
-            try
-            {
-                var sessionId = ResolveSessionId(context);
-                await EnsureSessionAllowedAsync(authService, noticeService, sessionId, context.RequestAborted);
-                if (!context.Request.HasFormContentType)
-                {
-                    throw new AuthException(StatusCodes.Status400BadRequest, "头像上传必须使用 multipart/form-data");
-                }
-
-                var form = await context.Request.ReadFormAsync(context.RequestAborted);
-                var file = form.Files.FirstOrDefault()
-                    ?? throw new AuthException(StatusCodes.Status400BadRequest, "缺少头像文件");
-                await using var stream = file.OpenReadStream();
-                using var buffer = new MemoryStream();
-                await stream.CopyToAsync(buffer, context.RequestAborted);
-                var result = authService.SaveAvatar(sessionId, file.FileName, buffer.ToArray());
-                return Ok(result.Message, result.Payload);
-            }
-            catch (BlockedAccessException ex)
-            {
-                return BlockedError(ex);
-            }
-            catch (AuthException ex)
-            {
-                return AuthError(ex);
-            }
-            catch (Exception ex)
-            {
-                return Results.Json(new { detail = ex.Message }, statusCode: StatusCodes.Status500InternalServerError);
-            }
+            var sessionId = ResolveSessionId(context);
+            var avatar = authService.GetAvatar(sessionId);
+            return Results.File(avatar.Content, GetAvatarContentType(avatar.FileName));
         });
 
-        auth.MapPost("/jw-captcha/submit", async (JwCaptchaSubmitRequest request, ScheduleService scheduleService, AuthService authService, NoticeService noticeService, HttpContext context) =>
+        auth.MapPost("/avatar", async (AuthService authService, HttpContext context) =>
         {
-            try
+            var sessionId = ResolveSessionId(context);
+            if (!context.Request.HasFormContentType)
             {
-                var sessionId = ResolveSessionId(context);
-                await EnsureSessionAllowedAsync(authService, noticeService, sessionId, context.RequestAborted);
-                var result = await scheduleService.SubmitJwCaptchaAsync(sessionId, request, context.RequestAborted);
-                return Ok(result.Message, result.Payload);
+                throw new AuthException(StatusCodes.Status400BadRequest, "头像上传必须使用 multipart/form-data");
             }
-            catch (BlockedAccessException ex)
-            {
-                return BlockedError(ex);
-            }
-            catch (ScheduleException ex)
-            {
-                return ScheduleError(ex);
-            }
-            catch (Exception ex)
-            {
-                return Results.Json(new { detail = ex.Message }, statusCode: StatusCodes.Status500InternalServerError);
-            }
+
+            var form = await context.Request.ReadFormAsync(context.RequestAborted);
+            var file = form.Files.FirstOrDefault()
+                ?? throw new AuthException(StatusCodes.Status400BadRequest, "缺少头像文件");
+            await using var stream = file.OpenReadStream();
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer, context.RequestAborted);
+            var result = authService.SaveAvatar(sessionId, file.FileName, buffer.ToArray());
+            return Ok(result.Message, result.Payload);
         });
 
-        auth.MapPost("/logout", (AuthService authService, CourseService courseService, TraditionalJwSessionRuntimeStore traditionalJwSessions, HttpContext context) =>
+        auth.MapPost("/jw-captcha/submit", async (JwCaptchaSubmitRequest request, ScheduleService scheduleService, HttpContext context) =>
         {
-            try
-            {
-                var sessionId = ResolveSessionId(context);
-                var message = authService.Logout(sessionId);
-                courseService.ClearSession(sessionId);
-                traditionalJwSessions.Remove(sessionId);
-                return Ok(message);
-            }
-            catch (AuthException ex)
-            {
-                return AuthError(ex);
-            }
-            catch (Exception ex)
-            {
-                return Results.Json(new { detail = ex.Message }, statusCode: StatusCodes.Status500InternalServerError);
-            }
+            var sessionId = ResolveSessionId(context);
+            var result = await scheduleService.SubmitJwCaptchaAsync(sessionId, request, context.RequestAborted);
+            return Ok(result.Message, result.Payload);
+        });
+
+        auth.MapPost("/logout", (AuthService authService, HttpContext context) =>
+        {
+            var sessionId = ResolveSessionId(context);
+            var message = authService.Logout(sessionId);
+            return Ok(message);
         });
     }
 }

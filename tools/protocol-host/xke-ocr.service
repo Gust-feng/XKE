@@ -1,0 +1,16 @@
+[Unit]
+Description=XKE loopback ddddocr service
+
+[Service]
+Type=exec
+User=xke
+Group=xke
+WorkingDirectory=/opt/xke/tools/ocr
+ExecStart=/opt/xke/ocr-venv/bin/python /opt/xke/tools/ocr/server.py --port 8866
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

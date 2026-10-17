@@ -11,10 +11,10 @@
 当前推进主线：
 
 ```text
-传统 Web 教务预登录 -> SSO/JW 登录态 -> Cookie 课表 HTML -> jw_schedule 缓存
+JW 表单登录 -> 人工验证码 challenge -> JW 运行期会话 -> 课表 HTML -> jw_schedule 缓存
 ```
 
-当前第一阶段只做离线 HTML 课表解析和 `jw_schedule` 结果封装；传统教务登录态接入排在后续阶段。移动教务保持现有主链路稳定，课程查询和抢课继续后置。
+生产登录与课表刷新统一使用 JW 表单协议；历史移动实现只保留为测试兼容 seam，不参与生产宿主。课程查询和抢课继续后置。
 
 ## 阅读顺序
 
@@ -36,9 +36,9 @@
 - 每次触及真实认证资料，先检查 `../../sensitive-index/`。
 - 不在本目录保存真实账号、密码、token、cookie、验证码图片、原始 HTML 或真实响应。
 
-## 当前第一个可执行切片
+## 桌面解析器复用边界
 
-先做离线解析：
+已有桌面 HTML parser 的数据流：
 
 ```text
 fixtures/schedule/sample_cookie_schedule.html
@@ -47,4 +47,9 @@ fixtures/schedule/sample_cookie_schedule.html
 -> source_key=jw_schedule
 ```
 
-这个切片不依赖真实账号、验证码或 Cookie，是后续接入真实预登录链路前必须稳定的基础。
+该解析器可用脱敏 fixture 离线验证。Linux 脚本只复用协议信息并输出 HTML，不复制桌面缓存、统一 rows 或可信账号流程。
+
+
+## 本地辅助工具
+
+独立 Python 协议验证工具及其测试按当前提交范围保留在本地，不作为 C# 产品运行依赖，也不纳入本次提交。工具操作说明和交接材料见 ignored 的 `开发数据/本地协议工具说明/`。

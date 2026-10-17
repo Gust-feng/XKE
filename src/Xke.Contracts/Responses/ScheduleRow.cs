@@ -47,6 +47,21 @@ public sealed class ScheduleRow
     [System.Text.Json.Serialization.JsonPropertyName("credit")]
     public string Credit { get; init; } = string.Empty;
 
+    [System.Text.Json.Serialization.JsonPropertyName("section_numbers")]
+    public IReadOnlyList<int> SectionNumbers { get; init; } = [];
+
+    [System.Text.Json.Serialization.JsonPropertyName("week_numbers")]
+    public IReadOnlyList<int> WeekNumbers { get; init; } = [];
+
+    [System.Text.Json.Serialization.JsonPropertyName("time_segments")]
+    public IReadOnlyList<string> TimeSegments { get; init; } = [];
+
+    [System.Text.Json.Serialization.JsonPropertyName("hours_text")]
+    public string HoursText { get; init; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("hours_variants")]
+    public IReadOnlyList<string> HoursVariants { get; init; } = [];
+
     [System.Text.Json.Serialization.JsonPropertyName("conflict")]
     public ScheduleConflict? Conflict { get; init; }
 }

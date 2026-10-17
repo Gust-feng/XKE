@@ -23,7 +23,9 @@ public sealed record ScheduleData(
     [property: JsonPropertyName("cached")] bool Cached,
     [property: JsonPropertyName("data_origin")] string DataOrigin,
     [property: JsonPropertyName("updated_at")] string UpdatedAt,
-    [property: JsonPropertyName("file_updated_at")] string FileUpdatedAt
+    [property: JsonPropertyName("file_updated_at")] string FileUpdatedAt,
+    [property: JsonPropertyName("retrieval_channel")] string RetrievalChannel = "direct_jw",
+    [property: JsonPropertyName("source_key")] string SourceKey = "jw_schedule"
 );
 
 public sealed record ScheduleWeekOption(

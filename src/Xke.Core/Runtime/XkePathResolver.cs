@@ -50,6 +50,7 @@ public static class XkePathResolver
 
         foreach (var ancestor in EnumerateAncestors(Path.GetFullPath(startDirectory)))
         {
+            yield return Path.Combine(ancestor, "frontend", "dist");
             yield return Path.Combine(ancestor, "web");
         }
     }

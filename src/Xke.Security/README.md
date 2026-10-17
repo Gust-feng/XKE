@@ -1,21 +1,10 @@
 # Xke.Security
 
-当前阶段目标：
-- 对齐 Python 版本中的 secure-json / hybrid secret / DPAPI / 签名相关能力边界
-- 先优先落地 secure-json 与 notice DPAPI 的真实读取兼容
+Windows当前用户 DPAPI 存储基础，供本地密码、Cookie、运行会话、校园网凭据与桌面运行态使用。
+普通个人资料、账号偏好和课表使用JSON/CSV，不调用此层。独立ProtocolHost的学校登录材料只在内存。
 
-当前已落地：
-- `TelemetryKeyProfile`
-- `SecureJsonEnvelope`
-- `SecureJsonDecryptor`
-- `NoticeDpapi`
-- `NoticeCanonicalJson`
-- `NoticeHash`
-- `NoticeSignatureVerifier`
-- `NoticePublicKeyLoader`
-- `SecurityAssetPaths`（基于 appRoot 解析，而不是开发机绝对路径）
+- `XkeDpapi`：Windows 当前用户保护。
+- `ProtectedJsonFileStore`：受保护 JSON 文件。
+- `LocalEncryptedFileStore`：当前 DPAPI envelope 及原子文件写入。
 
-当前限制：
-- 还未实现 hybrid secret 兼容
-- 当前公告索引验签链已建入口，但仍需进一步确认与 Python Ed25519 输出的完全一致性
-- 尚未加入 purpose 常量与更细粒度的强类型错误
+不再提供公告签名、云端遥测加密或旧固定 AES envelope。安全存储只保护本机数据，不承担认证协议或网络请求。
