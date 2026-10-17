@@ -31,6 +31,7 @@ var app = XkeWebHostApplication.Create(options: new XkeWebHostOptions
     ScheduleApiOptions = new ScheduleApiOptions(),
     JwScheduleClient = new FixtureScheduleClient(),
     JwLoginProtocolFactory = (user, password) => new DirectJwLoginProtocol(user, password, new HttpClient(new FixtureProtocolHandler(user))),
+    CampusSelfServiceOptions = new CampusSelfServiceOptions(),
     NetworkHttpMessageHandler = new OfflineNetworkHandler(),
     NetworkCommandExecutor = new OfflineCommands(),
     DesktopStartupRegistrar = new InMemoryStartupRegistrar(),
