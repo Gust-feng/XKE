@@ -1,20 +1,22 @@
 # 一键自动更新实施步骤
 
+> 历史方案：产品显示名称已统一为 XKE，以下旧 Updater/CloudSync 设计不再执行；当前发布结构和更新边界以 [发布与更新手册](../personal-runtime/08_release_and_updates.md) 为准。
+
 ## 0. 发布与元数据准备
 
 - 打包完整程序为 ZIP；正式用户包和云端更新包都采用固定 envelope：
 
 ```text
 <package>.zip
-├─ XKE·软大课务.exe
-└─ XKE·软大课务/
+├─ XKE.exe
+└─ XKE/
    ├─ Xke.DesktopHost.exe
    ├─ Xke.Updater.exe
    ├─ xke.runtime.json
    └─ web/
 ```
 
-- 外层 `XKE·软大课务.exe` 是根启动器，不是 Windows `.lnk` 快捷方式；它必须使用相对路径启动 `./XKE·软大课务/Xke.DesktopHost.exe`。
+- 外层 `XKE.exe` 是根启动器，不是 Windows `.lnk` 快捷方式；它必须使用相对路径启动 `./XKE/Xke.DesktopHost.exe`。
 - 发布包不得再使用 `.lnk` 或 `.cmd` 作为主启动入口。
 - 计算 ZIP 的 SHA256。
 - 上传到公开 HTTPS 静态下载地址：
@@ -105,7 +107,7 @@ POST /api/update/prepare-install
   - 校验安装目录和包路径都在允许边界
   - 备份旧程序文件
   - 解压新包到临时目录
-  - 如果 ZIP 是 `XKE·软大课务.exe` + `XKE·软大课务/` envelope，只把 `XKE·软大课务/` 作为真正 payload
+  - 如果 ZIP 是 `XKE.exe` + `XKE/` envelope，只把 `XKE/` 作为真正 payload
   - 替换安装目录中的程序文件
   - 启动新的 `Xke.DesktopHost.exe`
   - 成功后标记安装完成

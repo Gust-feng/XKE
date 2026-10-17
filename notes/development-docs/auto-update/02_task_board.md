@@ -1,5 +1,7 @@
 # 一键自动更新任务板
 
+> 历史方案：产品显示名称已统一为 XKE，以下旧 Updater/CloudSync 设计不再执行；当前发布结构和更新边界以 [发布与更新手册](../personal-runtime/08_release_and_updates.md) 为准。
+
 ## In Progress
 
 - 运行构建、后端测试、更新 smoke 与前端 smoke，确认本轮实现可用。
@@ -24,7 +26,7 @@
 - 在 Web 前端关于页增加两步更新入口，移除下载地址展示。
 - 新增 `tools/update-smoke.ps1` 和临时包验收测试。
 - 修复桌面打包入口，发布 `Xke.DesktopHost` 时同步发布并校验 `Xke.Updater` 产物。
-- 固化正式包结构：ZIP 根目录为 `XKE·软大课务.exe` 根启动器 + `XKE·软大课务/` 程序文件夹；禁止以 `.lnk` 或 `.cmd` 作为主入口。
+- 固化正式包结构：ZIP 根目录为 `XKE.exe` 根启动器 + `XKE/` 程序文件夹；禁止以 `.lnk` 或 `.cmd` 作为主入口。
 - `Xke.Updater` 识别 envelope ZIP，安装时只使用内部程序文件夹，避免把更新包装成嵌套目录。
 
 ## Blockers / Decisions

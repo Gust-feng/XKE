@@ -6,9 +6,9 @@
     <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>Xke.DesktopHost</RootNamespace>
     <AssemblyName>Xke.DesktopHost</AssemblyName>
-    <AssemblyTitle>XKE·软大课务</AssemblyTitle>
-    <Product>XKE·软大课务</Product>
-    <Description>XKE·软大课务桌面客户端</Description>
+    <AssemblyTitle>XKE</AssemblyTitle>
+    <Product>XKE</Product>
+    <Description>XKE桌面客户端</Description>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <StartupObject>Xke.DesktopHost.Program</StartupObject>
   </PropertyGroup>

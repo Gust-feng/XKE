@@ -142,3 +142,10 @@ describe('native dialog navigation boundary', () => {
     expect(layout).toContain("addEventListener('keydown', onKey, true)")
   })
 })
+
+describe('product identity', () => {
+  it('uses the product name as the browser title', () => {
+    const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8')
+    expect(html).toContain('<title>XKE</title>')
+  })
+})

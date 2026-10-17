@@ -18,7 +18,7 @@ namespace Xke.DesktopHost;
 
 public partial class MainWindow : Window, IDesktopWindowController
 {
-    private const string AppDisplayName = "XKE·软大课务";
+    private const string AppDisplayName = "XKE";
     private readonly XkeWebHostService _webHostService;
     private readonly XkeDataRoot _dataRoot;
     private XkeWebHostLaunchResult? _launchResult;
