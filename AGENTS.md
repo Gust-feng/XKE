@@ -1,5 +1,35 @@
 局部的最优解往往不是全局的最优解，你编写代码和制定计划必须统领全局，切勿顾此失彼，留下技术债！
 
+## 2026-10-17 分批提交授权
+
+用户已授权将本次整理后的必要源码按依赖分批本地commit，并允许重排既有暂存内容；压缩包、产物、运行数据和个人辅助材料不提交。每批精确核对路径和构建边界，使用实际提交时间，不回填虚构开发历史；未授权push/tag/Release。此授权仅覆盖本轮已审阅清单，不把历史“不得擅自提交”改为长期默认许可。
+
+## 2026-10-17 桌面直接启动
+
+用户确认移除旧独立启动画面：不再展示原生应用名、加载说明、进度条或额外整页入场动画。原生窗口和WebView2首文档底色对齐当前one版#f2f1ec，导航完成直接显示既有前端。保留真实账号恢复状态、首次认证、WebView2/服务失败重试和托盘恢复逻辑，不用固定延时掩盖加载。
+
+## 2026-10-17 V1.0.0 与 GitHub 自动更新（最新授权）
+
+用户要求个人本地软件V1.0.0，并明确支持自动下载和更新。允许新增Core/Releases与Velopack/GitHub Releases客户端；这覆盖下文“自动更新全部退役”的当前功能口径，但不恢复旧云控制、遥测、旧Updater或任意远程URL执行。
+
+固定公开来源Gust-feng/XKE、PackageId=XKE、channel=win；下载校验后正常退出/下次启动安装，可显式重启，不能运行中直接覆盖或因关闭到托盘强退。账户/课表/校园网缓存仍在原数据根，绝不随包或更新替换。旧源码未提交前不能把旧main当新版发布；仍不擅自stage/commit/push。详细边界见notes/development-docs/personal-runtime/08_release_and_updates.md。
+
+## 2026-10-13 自动重启约定
+
+- 用户最新授权：界面/桌面相关修改完成并验证通过后，默认自动重启桌面版供用户查看，不再要求用户另说“启动”。每轮完成后重启一次，不在每次内部构建或小修改时重复重启；用户明确要求暂不启动时例外。
+- 重启须使用最新runtime前端及当前DesktopHost构建，核对本机health/构建标记和窗口就绪；不能仅更新磁盘资源或重新激活旧进程就宣称已加载新版。只操作本项目进程，保留原数据根与账号缓存，不把重启当作真实学校/像素验收。
+
+## 2026-10-11 当前授权与接手
+
+- 用户最新确认首次进入仍需认证：先自动恢复已有本地账号，无可信工作区则显示精简认证页，认证成功才进入主界面。连接/验证码仍可在设置按需打开；界面以按钮表达操作，去除解释性引导文字，只保留字段标签、必要状态和错误。该决定覆盖10月10日的无认证主界面探索。
+
+- 后续优化已授权：学期缓存读取/恢复、获取时间决定同周覆盖、Core共享转换、桌面显式provider=protocol消费。用户确认此前学校表单登录实测可用，保留DirectJwLoginProtocol基线；OCR新组合验收单列。
+
+- 产品第一版沿用现第七版「合成」设计；用户已授权子智能体实现真实前后端对接，按目录分工，不重做视觉。
+- 新接手先读 `notes/development-docs/personal-runtime/05_backend_technical_manual.md`，云协议版再读 `06_protocol_host.md`；这些当前手册优先于下文历史 mock/后置 OCR 描述。
+- 新增 `Xke.ProtocolHost` 是独立跨平台纯 HTTP 宿主，复用 Core/Storage，只保存普通业务 JSON/CSV。学校登录材料在内存，ddddocr 为本机识别进程；桌面仍保留原人工验证码和 DPAPI 边界。
+- 项目未使用、无旧业务数据兼容/迁移要求；不删除旧目录，不stage/commit/push。当前验收状态以任务板为准，开发实现不等于真实学校/云部署/桌面发布完成。
+
 # 项目记忆
 
 ## 协作方式
@@ -10,7 +40,7 @@
 - 用户问数据存在哪里时，先给具体路径、存储类和读写入口，再讲流程。
 - 用户问“这些是缓存数据吗”时，必须区分本地持久化缓存/物化副本、浏览器缓存、临时内存态。
 - 用户要求把问题写入文件时，优先写入 repo 内 notes/review-issues 或现有 notes 体系，而不是只在聊天中总结。
-- 当前前端 `web/` 是用户有意保留的本地资源，暂不纳入 Git；不要将它被排除直接当作缺陷，也不要自动强制提交。前端重做与交付方式另行决定。
+- 当前唯一前端为 `frontend/` 的 React + TypeScript，第七版「合成」作为产品第一版设计基线；其他设计资产已移出项目。runtime接本机API，只有显式preview共享 `frontend/src/api/demo-data.json` 合成数据，不恢复旧视觉或另建并行活动前端。
 - 本地验证统一使用 `.dotnet_cli`；其他 `.dotnet-home` / `.dotnet-cli-home` 是本地缓存，不提交。
 - 如果用户说“子 git”“子仓库”，审查和修改必须针对当前独立仓库 `Z:\XKE`；旧嵌套路径 `Z:\XKE\XKE.DotNet8` 已退出活动工程。
 
@@ -27,10 +57,10 @@
 ## 全局边界
 
 - 以 README 和当前代码为准确认主线/后置边界。不要凭历史记忆假设功能仍处于旧状态。
-- 当前工程边界主要是 `Xke.Contracts`、`Xke.Core`、`Xke.Storage`、`Xke.Security`、`Xke.WebHost`、`Xke.DesktopHost`、`Xke.Updater`。
+- 当前工程边界为 `Xke.Contracts`、`Xke.Core`、`Xke.Storage`、`Xke.Security`、`Xke.WebHost`、`Xke.DesktopHost`；当前产品只保留登录、课表、设置、校园网和桌面常驻。
 - `Xke.WebHost` 是 API/runtime hub，`Xke.DesktopHost` 是 WPF + WebView2 shell。
 - 保持 `Xke.Core` 作为一个项目内的 namespace 级模块化，除非边界已经稳定到值得拆 csproj。
-- Auth、Schedule、Course、Notice、Telemetry、Feedback、Desktop、Update、CloudSync 的改动要看全局数据流，不要只修局部调用点。
+- Auth、Schedule、Network、Settings、Desktop 的改动要看完整数据流；已退役的 Course、Notice、Telemetry、Feedback、Update、CloudSync 资料仅作历史参考，不重新接回默认运行。
 - 传统 JW 验证码、Cookie 课表刷新、选课真实执行等曾多次作为后置/谨慎边界处理；如果要推进，先确认当前代码和测试是否已经改变这个事实。
 
 ## 数据与存储
@@ -73,3 +103,18 @@
 - `dotnet` 验证可能需要 repo-local `DOTNET_CLI_HOME`、`DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1`、`DOTNET_CLI_TELEMETRY_OPTOUT=1`。
 - 历史上 `UpdateWebHostTests.PrepareInstall_OnlySucceedsAfterVerifiedPackage` 曾作为无关残留失败出现；每次报告测试结果时要说明当前实际结果，不要假设它仍失败或已修复。
 - passing build/test/smoke 是基线信号，不替代语义边界审查，尤其是验证码 challenge、cookie schedule、云端策略和隐私上传路径。
+
+
+## 当前并行开发边界
+
+- 前后端共同使用 `Z:\XKE` 和 `refactor/personal-runtime`，按目录分工，不各自切换分支。
+- 前端 agent 负责 `frontend/`，第一版保留第七版「合成」布局与动效。真实API构建为 `dist/`、mode=runtime；显式mock预览输出 `dist-preview/`、`preview/`、mode=preview。打包继续拒绝preview；runtime构建与隔离HTTP验证不代表真实学校/桌面发布验收。
+- 后端 agent 负责 `src/`、后端 `tests/`、`tools/`、共享契约和 notes 导航。接口需求由前端交接文档记录，后端以开发状态文档回复。
+- 不执行会覆盖另一方改动的 restore/reset/clean，不全仓库暂存；提交时按文件范围核对，不提交另一方未验收内容。
+
+
+## 2026-10-08 业务数据最新约定
+
+- 用户确认全程开发状态，不要求旧业务数据兼容/迁移；不要新增加密/明文双格式读取或假 HTML fixture格式兼容，也不要擅自删除旧目录。
+- 当前个人资料和账号偏好为普通JSON，课表按同一规范化模型生成JSON/新CSV。密码、Cookie和运行会话的既有DPAPI边界保持，不把普通业务文件加密说明当作当前事实。
+- 新数据契约和学期API见 notes/development-docs/personal-runtime/03_api_contract.md；前端仍mock，不能把后端真实Cookie GET当作产品登录、前端或发布已验收。
