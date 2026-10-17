@@ -21,7 +21,6 @@
   },
   "include": [
     "vite.config.ts",
-    "vite.preview.config.ts",
     "vitest.config.ts",
     "build/**/*.ts"
   ]

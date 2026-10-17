@@ -59,11 +59,41 @@ describe('weekly display blocks', () => {
     expect(blocks.every((c) => !c.moveFrom)).toBe(true)
   })
 
-  it('marks the following room change with the actual preceding block, including another subject', () => {
+  it('does not mark a room change between different subjects', () => {
     const blocks = courseBlocks(schedule([lesson(), continuation(), continuation({ course_name: '下一门课', room: 'B202', time_segments: ['18:00-19:40'] })]).courses, 3)
     expect(blocks).toHaveLength(2)
-    expect(blocks[1].moveFrom).toEqual({ room: 'A101', previousId: blocks[0].id })
+    expect(blocks[1].moveFrom).toBeUndefined()
     expect(blocks[1].room).toBe('B202')
+  })
+
+  it('marks only a continuous lesson of the same course when its room changes', () => {
+    const blocks = courseBlocks(schedule([lesson(), continuation({ room: 'B202' })]).courses, 3)
+    expect(blocks).toHaveLength(2)
+    expect(blocks[1].moveFrom).toEqual({ room: 'A101', previousId: blocks[0].id })
+  })
+
+  it.each([{ teacher: '另一位教师' }, { course_name: '下一门课' }])('does not treat unrelated lessons as a classroom continuation: %j', (patch) => {
+    const blocks = courseBlocks(schedule([lesson(), continuation({ room: 'B202', ...patch })]).courses, 3)
+    expect(blocks.every((block) => !block.moveFrom)).toBe(true)
+  })
+
+  it('keeps display identities when a weekly cache replaces semester rows with different source IDs and row positions', () => {
+    const rows = [lesson(), continuation({ room: 'B202' })]
+    const full = schedule([lesson({ week_numbers: [5], course_name: '其他周的课' }), ...rows])
+    const weekly = adaptWeek(week(3, { rows, updated_at: '2026-09-22T08:00:00+08:00' }))
+    const before = courseBlocks(combineSchedule(full, [], 3)!.courses, 3)
+    const after = courseBlocks(combineSchedule(full, [weekly], 3)!.courses, 3)
+    expect(after.map((block) => block.id)).toEqual(before.map((block) => block.id))
+    expect(after[1].moveFrom?.previousId).toBe(after[0].id)
+    expect(after[0].parts[0].id).not.toBe(before[0].parts[0].id)
+  })
+
+  it('keeps separate overlapping copies distinguishable without depending on source row IDs', () => {
+    const courses = schedule([lesson(), lesson()]).courses
+    const blocks = courseBlocks(courses, 3)
+    expect(new Set(blocks.map((block) => block.id)).size).toBe(2)
+    const changedIds = courses.map((course, index) => ({ ...course, id: `new-source-${index}` }))
+    expect(courseBlocks(changedIds, 3).map((block) => block.id)).toEqual(blocks.map((block) => block.id))
   })
 
   it('never carries a room reminder across different weeks or a long break', () => {

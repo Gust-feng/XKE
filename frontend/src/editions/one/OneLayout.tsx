@@ -1,12 +1,13 @@
 import '@fontsource-variable/archivo/wdth.css'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import { useEffect } from 'react'
-import { useStore, type View } from '../../lib/store'
+import { useEffect, useState } from 'react'
+import { useStore, type View } from '../../lib/store-context'
 import { MONTH_CN, WEEKDAY_CN, pad, relativeDay, useNow } from '../../lib/time'
 import { SwissNet } from './SwissNet'
 import { SwissSettings } from './SwissSettings'
 import { SwissWeek } from './SwissWeek'
-import { DETENT, Ticker, countdown } from './parts'
+import { Ticker } from './parts'
+import { DETENT, countdown } from './presentation'
 import './one.css'
 import { nextCourseBlock } from '../../lib/course-blocks'
 import { NetworkRail } from './NetworkRail'
@@ -27,6 +28,7 @@ export function OneLayout({ desktop = false }: { desktop?: boolean }) {
   const { view, setView, sheet, captcha, authOpen, phase } = useStore()
   const t = useNow(60_000)
   const reduce = useReducedMotion()
+  const [weekSlot, setWeekSlot] = useState<HTMLDivElement | null>(null)
 
   // 不再有「今天」页：今天的信息全部由左栏小卡承担
   useEffect(() => {
@@ -59,7 +61,7 @@ export function OneLayout({ desktop = false }: { desktop?: boolean }) {
         </div>
         {v === 'net' ? <NetworkRail /> : v === 'settings' ? <IdCard /> : <>
           <NextCard />
-          <div className="one-slot" id="one-slot" />
+          <div className="one-slot" id="one-slot" ref={setWeekSlot} />
         </>}
       </aside>
 
@@ -75,7 +77,7 @@ export function OneLayout({ desktop = false }: { desktop?: boolean }) {
           </nav>
         </header>
         <main className="sw-main" key={v}>
-          {v === 'week' && <SwissWeek />}
+          {v === 'week' && <SwissWeek toolbarSlot={weekSlot} />}
           {v === 'net' && <SwissNet />}
           {v === 'settings' && <SwissSettings />}
         </main>

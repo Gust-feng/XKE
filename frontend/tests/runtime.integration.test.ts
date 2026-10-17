@@ -8,7 +8,15 @@ it.skipIf(!process.env.XKE_INTEGRATION_URL)('real isolated WebHost HTTP flow', a
   const base = process.env.XKE_INTEGRATION_URL!
   const diagnostics = await fetch(`${base}/api/config`).then((r) => r.json())
   expect(diagnostics.development.channel).toBe('isolated-frontend-integration')
-  const api = new RuntimeApi(new HttpClient(base))
+  const denied = await fetch(`${base}/api/desktop/settings`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+  expect(denied.status).toBe(403)
+  // Simulate the native WebView proof only for this explicit synthetic host.
+  const transport: typeof fetch = (input, init) => {
+    const headers = new Headers(init?.headers)
+    headers.set('X-XKE-Desktop', 'synthetic-integration-desktop-proof')
+    return fetch(input, { ...init, headers })
+  }
+  const api = new RuntimeApi(new HttpClient(base, transport))
   // The host can already have local state if another isolated verification used it.
   await api.bootstrap()
   const login = await api.login('20260001', 'test-password')

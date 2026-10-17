@@ -1,7 +1,7 @@
 import { OneLayout } from './editions/one/OneLayout'
 import { Sheet, Toast } from './components/Sheet'
 import { AuthPanel } from './components/AuthPanel'
-import { useStore } from './lib/store'
+import { useStore } from './lib/store-context'
 import { CoursePop } from './editions/one/CoursePop'
 import { NetworkConfigPop } from './editions/one/NetworkConfigPop'
 import { useDesktopBridge } from './lib/desktop'

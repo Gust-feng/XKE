@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { HttpClient } from '../src/api/http'
 import { RuntimeApi } from '../src/api/runtime'
-import { auth, captcha, response, semester, week } from './fixtures'
+import { account, auth, captcha, response, semester, week } from './fixtures'
 
 describe('HTTP runtime', () => {
   it('reads account metadata through its independent authenticated GET route', async () => {
@@ -296,5 +296,86 @@ describe('cancellable local background reads', () => {
     resolve(response({ enabled: false, next_run_at: null, last_run_at: null, last_error: '' }))
     await assertion
     expect(settled).toBe(true)
+  })
+})
+
+describe('profile display preferences', () => {
+  it('saves only nickname fields and leaves the real name and academic data intact', async () => {
+    const initial = auth(), updated = { ...initial.student, nickname: '我的昵称', use_nickname: true }
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(response(initial)).mockResolvedValueOnce(response({ student: updated }))
+    const api = new RuntimeApi(new HttpClient('', fetcher))
+    await api.login('20260001', 'test-password')
+    expect(await api.updateNickname(' 我的昵称 ')).toEqual(updated)
+    expect(fetcher.mock.calls[1][0]).toBe('/api/auth/profile')
+    expect(JSON.parse(String(fetcher.mock.calls[1][1]?.body))).toEqual({ nickname: '我的昵称', use_nickname: true })
+    expect(updated.name).toBe(initial.student.name)
+  })
+  it('clearing the nickname restores the default-name preference', async () => {
+    const initial = auth()
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(response(initial)).mockResolvedValueOnce(response({ student: initial.student }))
+    const api = new RuntimeApi(new HttpClient('', fetcher))
+    await api.login('20260001', 'test-password')
+    await api.updateNickname('  ')
+    expect(JSON.parse(String(fetcher.mock.calls[1][1]?.body))).toEqual({ nickname: '', use_nickname: false })
+  })
+  it('ignores a delayed profile response after logout', async () => {
+    let resolve!: (response: Response) => void
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(response(auth())).mockImplementationOnce(() => new Promise((done) => { resolve = done }))
+    const api = new RuntimeApi(new HttpClient('', fetcher))
+    await api.login('20260001', 'test-password')
+    const pending = api.updateNickname('过期昵称')
+    api.clearSession()
+    resolve(response({ student: { ...auth().student, nickname: '过期昵称', use_nickname: true } }))
+    await expect(pending).rejects.toMatchObject({ status: 409 })
+  })
+})
+
+describe('session isolation during response parsing', () => {
+  it('rejects an old response if the session changes while JSON is being parsed', async () => {
+    let finish!: (value: unknown) => void
+    const reply = response(null)
+    const parse = vi.spyOn(reply, 'json').mockImplementation(() => new Promise(resolve => { finish = resolve }))
+    const http = new HttpClient('', vi.fn<typeof fetch>().mockResolvedValue(reply))
+    http.setSession('synthetic-A')
+    const pending = http.request('/api/synthetic')
+    await vi.waitFor(() => expect(parse).toHaveBeenCalledOnce())
+    http.clearSession()
+    finish({ ok: true, data: { stale: true } })
+    await expect(pending).rejects.toMatchObject({ status: 409 })
+  })
+  it('does not overwrite account B preferences with account A after parsing completes', async () => {
+    let finish!: (value: unknown) => void
+    const reply = response(null)
+    const parse = vi.spyOn(reply, 'json').mockImplementation(() => new Promise(resolve => { finish = resolve }))
+    const a = auth()
+    const b = { ...auth(), session_id: 'synthetic-B', student: { ...auth().student, student_id: 'synthetic-student-B' } }
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(response(a)).mockResolvedValueOnce(reply).mockResolvedValueOnce(response(b))
+    const api = new RuntimeApi(new HttpClient('', fetcher))
+    await api.login('synthetic-A', 'synthetic-password')
+    const pending = api.updateSettings({ showWeekend: false })
+    await vi.waitFor(() => expect(parse).toHaveBeenCalledOnce())
+    api.clearSession()
+    await api.login('synthetic-B', 'synthetic-password')
+    finish({ ok: true, data: { settings: { ...account(), appearance: { theme: 'night' }, ui: { ...account().ui, show_weekend: false } } } })
+    await expect(pending).rejects.toMatchObject({ status: 409 })
+  })
+})
+
+describe('settings API state ownership', () => {
+  it.each(['read', 'write'] as const)('rejects a late %s before mutating a newly authenticated account', async (operation) => {
+    const a = auth(), b = { ...auth(), session_id: 'synthetic-B', student: { ...auth().student, student_id: 'synthetic-student-B' } }
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(response(a)).mockResolvedValueOnce(response(b))
+    const http = new HttpClient('', fetcher), api = new RuntimeApi(http)
+    await api.login('synthetic-A', 'synthetic-password')
+    let finish!: (value: unknown) => void
+    // Isolate the API commit boundary, after transport ownership has already been checked.
+    const transport = vi.spyOn(http, 'request').mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const pending = operation === 'read' ? api.getSettings() : api.updateSettings({ showWeekend: false })
+    api.clearSession(); transport.mockRestore()
+    await api.login('synthetic-B', 'synthetic-password')
+    finish({ settings: { ...account(), ui: { ...account().ui, show_weekend: false } } })
+    await expect(pending).rejects.toMatchObject({ status: 409 })
+    // A subsequent no-op reads API memory without making another request.
+    expect(await api.updateSettings({})).toMatchObject({ portalAccount: 'synthetic-student-B', showWeekend: true })
   })
 })

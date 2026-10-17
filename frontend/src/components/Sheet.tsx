@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect } from 'react'
-import { useStore } from '../lib/store'
+import { useStore } from '../lib/store-context'
 import { sinceLabel, useNow } from '../lib/time'
 
 function DevicesBody() {

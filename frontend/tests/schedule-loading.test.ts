@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { adaptSemester, adaptWeek } from '../src/api/adapters'
 import { ApiError } from '../src/api/http'
 import type { Api, Schedule } from '../src/api/types'
-import { loadSemester } from '../src/lib/schedule-loading'
+import { cacheMissingSemesters, loadSemester } from '../src/lib/schedule-loading'
 import { combineSchedule, OperationEpoch, saveSemester } from '../src/lib/schedule-state'
 import { semester, week } from './fixtures'
 
@@ -152,5 +152,60 @@ describe('semester calendar restoration', () => {
     epoch.next(); done(context)
     expect(await pending).toBe(false)
     expect(accept).toHaveBeenCalledTimes(before)
+  })
+})
+
+describe('explicit semester acquisition and personal history cache', () => {
+  it('fetches the whole selected semester after a local restore even when connected is false', async () => {
+    const api = client(), accept = vi.fn()
+    api.getLocalSemester.mockRejectedValue(new ApiError(404, '未缓存'))
+    expect(await loadSemester(api, { term: '2025-2026-2', connected: false, fetchMissing: true, accept, isCurrent: () => true })).toBe(true)
+    expect(api.getSemester).toHaveBeenCalledWith('2025-2026-2', undefined)
+    expect(accept).toHaveBeenCalledTimes(1)
+  })
+
+  it('reuses complete local semesters and obtains missing terms serially without fetching individual weeks from school', async () => {
+    const api = client(), accept = vi.fn()
+    const forTerm = (term: string) => adaptSemester(semester({ term: { academic_term: term, label: term } }))
+    api.getLocalSemester.mockImplementation(async (term) => {
+      if (term === '2025-2026-2') return forTerm(term)
+      throw new ApiError(404, '未缓存')
+    })
+    let fetching = false
+    api.getSemester.mockImplementation(async (term) => {
+      expect(fetching).toBe(false)
+      fetching = true
+      await Promise.resolve()
+      fetching = false
+      return forTerm(term!)
+    })
+    const terms = ['2025-2026-2', '2025-2026-1', '2024-2025-2', '2025-2026-1']
+    expect(await cacheMissingSemesters(api, terms, { isCurrent: () => true, accept })).toEqual([])
+    expect(api.getSemester.mock.calls.map(([term]) => term)).toEqual(['2025-2026-1', '2024-2025-2'])
+    expect(accept.mock.calls.map(([schedule]) => schedule.term.id)).toEqual(['2025-2026-2', '2025-2026-1', '2024-2025-2'])
+  })
+
+  it('keeps successful history cache fills when one term fails and stops if school authentication expires', async () => {
+    const api = client(), accept = vi.fn()
+    api.getLocalSemester.mockRejectedValue(new ApiError(404, '未缓存'))
+    api.getSemester.mockRejectedValueOnce(new ApiError(500, '暂时失败')).mockResolvedValueOnce(local())
+    expect(await cacheMissingSemesters(api, ['2025-2026-2', '2025-2026-1'], { isCurrent: () => true, accept })).toEqual(['2025-2026-2'])
+    expect(accept).toHaveBeenCalledTimes(1)
+    api.getSemester.mockReset().mockRejectedValue(new ApiError(401, '需连接教务'))
+    await expect(cacheMissingSemesters(api, ['2025-2026-2', '2025-2026-1'], { isCurrent: () => true, accept })).rejects.toMatchObject({ status: 401 })
+    expect(api.getSemester).toHaveBeenCalledTimes(1)
+  })
+
+  it('discards an in-flight result and skips remaining terms after logout or a new selection', async () => {
+    const api = client(), accept = vi.fn(), epoch = new OperationEpoch(), ticket = epoch.current()
+    api.getLocalSemester.mockRejectedValue(new ApiError(404, '未缓存'))
+    let resolve!: (value: Schedule) => void
+    api.getSemester.mockImplementation(() => new Promise((done) => { resolve = done }))
+    const pending = cacheMissingSemesters(api, ['2025-2026-2', '2025-2026-1'], { isCurrent: () => epoch.matches(ticket), accept })
+    await vi.waitFor(() => expect(resolve).toBeDefined())
+    epoch.next(); resolve(local())
+    await pending
+    expect(accept).not.toHaveBeenCalled()
+    expect(api.getSemester).toHaveBeenCalledTimes(1)
   })
 })

@@ -40,6 +40,7 @@ export class HttpClient {
     try { payload = await response.json() } catch {
       throw new ApiError(response.status, '响应异常', !!session)
     }
+    if (generation !== this.generation) throw new ApiError(409, '会话已切换，已忽略旧请求')
     const envelope = payload as { ok?: boolean; msg?: string; data?: T }
     if (!response.ok || (!raw && envelope.ok !== true)) {
       throw new ApiError(response.status, envelope.msg || '操作未完成', !!session)

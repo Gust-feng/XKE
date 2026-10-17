@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { useStore } from '../src/lib/store'
+import type { useStore } from '../src/lib/store-context'
 import { adaptSemester, adaptSettings, adaptWeek } from '../src/api/adapters'
 import { account, auth, row, semester, week } from './fixtures'
 import { courseBlocks } from '../src/lib/course-blocks'
@@ -12,7 +12,7 @@ const state = vi.hoisted(() => {
   vi.stubGlobal('__XKE_PREVIEW__', false)
   return { current: {} as ReturnType<typeof useStore>, desktop: { bridge: undefined as DesktopBridge | undefined, maximized: false } }
 })
-vi.mock('../src/lib/store', () => ({ useStore: () => state.current }))
+vi.mock('../src/lib/store-context', () => ({ useStore: () => state.current }))
 // SSR has no desktop window; exercise the actual edition and account components.
 vi.mock('../src/lib/desktop', () => ({ useDesktopBridge: () => state.desktop }))
 import App from '../src/App'
@@ -24,7 +24,7 @@ const emptyStore = (): ReturnType<typeof useStore> => ({
   weekLoaded: false, jobs: null, jobsError: '', networkConfig: null, networkSummary: null, summaryBusy: false, summaryError: '', view: 'week', sheet: null, toast: null,
   setView: vi.fn(), openSheet: vi.fn(), notify: vi.fn(), login: vi.fn(), connect: vi.fn(), submitCaptcha: vi.fn(),
   openAuth: vi.fn(), cancelAuth: vi.fn(), logout: vi.fn(), sync: vi.fn(), selectWeek: vi.fn(), selectTerm: vi.fn(),
-  refreshNet: vi.fn(), toggleNet: vi.fn(), kick: vi.fn(), updateSettings: vi.fn(), loadNetworkConfig: vi.fn(),
+  refreshNet: vi.fn(), toggleNet: vi.fn(), kick: vi.fn(), updateSettings: vi.fn(), updateNickname: vi.fn(), loadNetworkConfig: vi.fn(),
   saveNetworkConfig: vi.fn(), refreshJobs: vi.fn(), loadNetworkSummary: vi.fn(),
 })
 const render = () => renderToStaticMarkup(createElement(App))
@@ -366,6 +366,16 @@ describe('lesson blocks and classroom cues', () => {
     expect(html).toContain('16:00 换到 B202')
     expect(html).toContain('class="sw-move">换教室</em>')
     expect(html).toMatch(/class="sw-cell [^"]*is-move/)
+  })
+
+  it('does not show classroom-change emphasis when the next lesson is a different subject', () => {
+    const schedule = readyAt(14, 30, 'B202')
+    schedule.courses[1].name = '下一门课'
+    const html = render()
+    expect(html.match(/class="sw-cell /g)).toHaveLength(2)
+    expect(html).not.toContain('class="sw-move"')
+    expect(html).not.toMatch(/class="sw-cell [^"]*is-move/)
+    expect(html).not.toContain('16:00 换到 B202')
   })
 
   it('details show exact teaching segments without week rules, periods or a false continuous span', () => {
@@ -763,17 +773,28 @@ describe('reminder and automatic schedule settings', () => {
     expect(html).not.toContain('<span>5</span>')
     expect(state.current.updateSettings).not.toHaveBeenCalled()
   })
+  it('keeps settings rows to their primary labels and controls', () => {
+    ready()
+    const html = render()
+    expect(html).toContain('教务登录')
+    expect(html).toContain('课前提醒')
+    expect(html).toContain('连接设置')
+    expect(html).not.toContain('更换学号或密码')
+    expect(html).not.toContain('校园网账号与运营商')
+    expect(html).not.toContain('<em>')
+    expect(html).not.toMatch(/上课前 \d+ 分钟通知/)
+  })
   it('selects custom minutes or the legacy floor rather than showing an empty selection', () => {
     ready(); state.current.settings!.remindBefore = 18
     expect(render()).toMatch(/aria-checked="true"[^>]*>.*?<span>18<\/span>/s)
     state.current.settings!.remindBefore = 5
-    expect(render()).toContain('上课前 15 分钟通知')
+    expect(render()).toMatch(/aria-label="上课前 15 分钟提醒"[^>]*aria-checked="true"/)
     expect(state.current.updateSettings).not.toHaveBeenCalled()
   })
   it('disables desktop notifications without changing the saved preference when native capability is absent', () => {
     ready(); state.current.settings!.desktopSupported = false; state.current.settings!.remindBefore = 30
     const html = render()
-    expect(html).toContain('桌面通知不可用')
+    expect(html).not.toContain('桌面通知不可用')
     const group = html.match(/aria-label="课前提醒">(.*?)<\/span><\/span><\/div>/s)?.[1] || ''
     expect(group.match(/disabled=""/g)).toHaveLength(4)
     expect(state.current.settings!.remindBefore).toBe(30)
@@ -799,5 +820,29 @@ describe('reminder and automatic schedule settings', () => {
     expect(renderToStaticMarkup(createElement(TermCap))).toContain('自动更新失败')
     state.current.browsing = true
     expect(renderToStaticMarkup(createElement(TermCap))).not.toContain('自动更新失败')
+  })
+})
+
+describe('personal display name', () => {
+  function settingsView() {
+    const user = workspace()
+    Object.assign(state.current, { phase: 'ready', user, settings: user.settings, schedule: user.schedule, view: 'settings' })
+  }
+  it('shows the real name by default without a student-number line or visible editing instructions', () => {
+    settingsView()
+    const html = render()
+    const card = html.match(/<section class="one-id"[\s\S]*?<\/section>/)?.[0] || ''
+    expect(card).toContain('测试学生')
+    expect(card).toContain('aria-label="修改昵称，当前测试学生"')
+    expect(card).not.toContain('20260001')
+    expect(card).not.toContain('one-id-v')
+    expect(card).not.toContain('点击修改')
+  })
+  it('uses a saved nickname only when the user explicitly enabled it', () => {
+    settingsView()
+    state.current.user!.student = { ...state.current.user!.student, nickname: '自选昵称', use_nickname: true }
+    expect(render()).toContain('aria-label="修改昵称，当前自选昵称"')
+    state.current.user!.student.use_nickname = false
+    expect(render()).toContain('aria-label="修改昵称，当前测试学生"')
   })
 })

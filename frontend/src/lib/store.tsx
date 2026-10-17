@@ -1,39 +1,16 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api } from '../api'
 import { ApiError } from '../api/http'
-import type { JobStateDto, NetworkConfigDto, NetworkSummaryDto } from '../api/dto'
-import type { AuthResult, Captcha, Course, NetStatus, Schedule, Settings, Workspace } from '../api/types'
+import type { NetworkConfigDto, NetworkSummaryDto } from '../api/dto'
+import type { AuthResult, Captcha, NetStatus, Schedule, Settings, Workspace } from '../api/types'
 import { applyTheme } from './themes'
 import { OperationEpoch, saveSemesters, scheduleForTerm, saveWeek } from './schedule-state'
-import { loadSemester } from './schedule-loading'
+import { cacheMissingSemesters, loadSemester } from './schedule-loading'
+import { personalTerms } from './schedule-view'
 import { observeScheduleJobs, readScheduleCache } from './schedule-jobs'
-import type { CourseBlock } from './course-blocks'
 import { now, weekOf } from './time'
+import { StoreContext, type Store, type View, type Sheet } from './store-context'
 
-export type View = 'week' | 'today' | 'net' | 'settings'
-export type Sheet = { type: 'course'; course: Course | CourseBlock } | { type: 'devices' } | { type: 'network' } | null
-interface Store {
-  preview: boolean; phase: 'loading' | 'anonymous' | 'ready'
-  user: Workspace | null; authOpen: boolean; authBusy: boolean; authError: string; captcha: Captcha | null
-  schedule: Schedule | null; semesterSchedule: Schedule | null; currentSchedule: Schedule | null; browsing: boolean; settings: Settings | null; net: NetStatus | null
-  netBusy: boolean; netError: string; syncing: boolean; refreshing: boolean; scheduleError: string; selectedWeek: number
-  weekLoaded: boolean; jobs: { network: JobStateDto; schedule: JobStateDto } | null
-  jobsError: string
-  networkConfig: NetworkConfigDto | null
-  networkSummary: NetworkSummaryDto | null; summaryBusy: boolean; summaryError: string
-  view: View; sheet: Sheet; toast: { id: number; text: string; action?: { label: string; run(): void } } | null
-  setView(v: View): void; openSheet(s: Sheet): void; notify(text: string, action?: { label: string; run(): void }, duration?: number): void
-  login(user: string, password: string): Promise<void>; connect(): Promise<void>
-  submitCaptcha(code: string): Promise<void>; openAuth(): void; cancelAuth(): void; logout(): Promise<void>
-  sync(): Promise<void>; selectWeek(week: number): Promise<void>; selectTerm(term: string): Promise<void>
-  refreshNet(): Promise<void>; toggleNet(): Promise<void>; kick(id: string): Promise<void>
-  updateSettings(p: Partial<Settings>): Promise<void>
-  loadNetworkConfig(): Promise<void>
-  loadNetworkSummary(): Promise<void>
-  saveNetworkConfig(p: Record<string, string | number | boolean | string[]>): Promise<boolean>
-  refreshJobs(): Promise<void>
-}
-const Ctx = createContext<Store | null>(null)
 const message = (error: unknown) => error instanceof Error ? error.message : '操作失败，请重试'
 const initialView = (): View => {
   const v = new URLSearchParams(location.search).get('v')
@@ -67,13 +44,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [jobGeneration, setJobGeneration] = useState(0)
   const jobObserver = useRef<ReturnType<typeof observeScheduleJobs> | null>(null)
   const appliedJobRun = useRef<string | null>(null)
-  const [view, setView] = useState<View>(initialView)
+  const [view, setViewState] = useState<View>(initialView)
+  const visibleView = useRef(view)
+  const knownOnline = useRef<boolean | undefined>(undefined)
   const [sheet, openSheet] = useState<Sheet>(null)
   const [toast, setToast] = useState<Store['toast']>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const epoch = useRef(new OperationEpoch())
   const selection = useRef(new OperationEpoch())
-  const semesterSelection = useRef(new OperationEpoch())
   const workspaceAccount = useRef<string | null>(null)
   const boot = useRef<Promise<Workspace | null> | null>(null)
   const settingsQueue = useRef(Promise.resolve())
@@ -97,8 +75,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const connected = user?.connected ?? false
   const authenticated = !!user
   const clearWorkspace = useCallback(() => {
-    epoch.current.next(); selection.current.next(); semesterSelection.current.next(); api.clearSession()
-    workspaceAccount.current = null
+    epoch.current.next(); selection.current.next(); api.clearSession()
+    workspaceAccount.current = null; knownOnline.current = undefined
     setUser(null); setSettings(null); setSemesters([]); setCurrentTerm(''); setViewedTerm(null); setWeeks([]); setNet(null)
     setNetworkConfig(null); setJobs(null); setJobsError(''); appliedJobRun.current = null; jobObserver.current?.stop(); setCaptcha(null); setAuthOpen(false); setAuthError(''); openSheet(null)
     setAuthBusy(false); setSyncing(false); setRefreshing(false); setNetBusy(false); setNetError(''); setScheduleError('')
@@ -117,12 +95,47 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     }
   }, [clearWorkspace, notify])
+  const loadNetworkSummary = useCallback(async () => {
+    if (!workspaceAccount.current) return
+    const ticket = epoch.current.current()
+    if (summaryRequest.current?.epoch === ticket) return
+    const request = { epoch: ticket }
+    summaryRequest.current = request
+    const valid = () => epoch.current.matches(ticket) && summaryRequest.current === request
+    setSummaryBusy(true); setSummaryError('')
+    try {
+      const result = await api.getNetworkSummary()
+      if (valid()) { setNetworkSummary(result); setSummaryError(result.message) }
+    } catch (error) {
+      if (valid()) { setSummaryError(message(error)); await handleError(error, 'inline') }
+    } finally {
+      if (summaryRequest.current === request) {
+        summaryRequest.current = null
+        if (epoch.current.matches(ticket)) setSummaryBusy(false)
+      }
+    }
+  }, [handleError])
+  const setView = useCallback((next: View) => {
+    const changed = visibleView.current !== next
+    visibleView.current = next
+    setViewState(next)
+    if (changed && next === 'net') {
+      // Entry refreshes the summary; its first status probe only establishes the new baseline.
+      knownOnline.current = undefined
+      void loadNetworkSummary()
+    }
+  }, [loadNetworkSummary])
+  const acceptNetworkStatus = useCallback((result: NetStatus) => {
+    const changed = knownOnline.current !== undefined && knownOnline.current !== result.online
+    knownOnline.current = result.online
+    setNet(result)
+    if (changed && visibleView.current === 'net') void loadNetworkSummary()
+  }, [loadNetworkSummary])
   const acceptWorkspace = useCallback((workspace: Workspace) => {
     const ticket = epoch.current.next(); selection.current.next()
     setJobGeneration(ticket)
-    const semesterTicket = semesterSelection.current.next()
     const sameAccount = workspaceAccount.current === workspace.student.student_id
-    workspaceAccount.current = workspace.student.student_id
+    workspaceAccount.current = workspace.student.student_id; knownOnline.current = undefined
     setUser(workspace); setSettings(workspace.settings); applyTheme(workspace.settings.theme)
     setCurrentTerm((old) => workspace.schedule?.term.id || (sameAccount ? old : ''))
     setViewedTerm(null)
@@ -139,22 +152,34 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setNet(null); setNetError(''); setNetworkConfig(null); setJobs(null); setJobsError(''); appliedJobRun.current = null; jobObserver.current?.stop()
     setNetworkSummary((old) => sameAccount ? old : null); setSummaryBusy(false); setSummaryError('')
     if (!api.preview) {
-      // Week navigation does not cancel restoration of the same semester.
-      const valid = () => epoch.current.matches(ticket) && semesterSelection.current.matches(semesterTicket)
+      // Account cache restoration survives navigation; only logout/re-authentication invalidates it.
+      const valid = () => epoch.current.matches(ticket)
+      let restored = workspace.schedule
       void loadSemester(api, {
         context: workspace.schedule, connected: workspace.connected, refresh: true, isCurrent: valid,
         accept: (result) => {
+          restored = result
           setSemesters((old) => saveSemesters(old, result))
           setCurrentTerm((old) => old || result.term.id || '')
         },
         acceptWeek: (result) => setWeeks((old) => saveWeek(old, result)),
+      }).then(async () => {
+        if (!valid() || !workspace.connected || !restored?.semesterLoaded) return
+        const terms = personalTerms(restored, workspace.student.enrollment_date || '', restored.term.id)
+          .map((item) => item.value).filter((id) => id !== restored!.term.id)
+        const accountIsCurrent = () => epoch.current.matches(ticket)
+        const failed = await cacheMissingSemesters(api, terms, {
+          isCurrent: accountIsCurrent, accept: (result) => setSemesters((old) => saveSemesters(old, result)),
+        })
+        if (accountIsCurrent() && failed.length) notify('部分历史学期暂未同步，可选择学期重试', undefined, 6000)
       }).catch(async (error) => {
         if (!valid()) return
         notify(message(error), undefined, 6000)
         if (error instanceof ApiError && error.status === 401) await handleError(error, 'inline')
       })
     }
-  }, [handleError, notify])
+    if (visibleView.current === 'net') void loadNetworkSummary()
+  }, [handleError, notify, loadNetworkSummary])
   useEffect(() => {
     let active = true
     const ticket = epoch.current.current()
@@ -183,7 +208,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [acceptWorkspace, handleError])
   const login = useCallback((account: string, password: string) => authAction(() => api.login(account, password)), [authAction])
   const cancelAuth = useCallback(() => {
-    setJobGeneration(epoch.current.next()); selection.current.next(); semesterSelection.current.next(); api.cancelAuth()
+    setJobGeneration(epoch.current.next()); selection.current.next(); api.cancelAuth()
     setCaptcha(null); setAuthOpen(false); setAuthBusy(false); setSyncing(false); setRefreshing(false); setNetBusy(false); setAuthError('')
     setPhase((old) => old === 'loading' ? 'anonymous' : old)
     pendingWeek.current = null
@@ -237,7 +262,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const ticket = selection.current.next()
     setSelectedWeek(week); setSyncing(true); setRefreshing(force); setScheduleError(''); openSheet(null)
     pendingWeek.current = week
-    const valid = () => epoch.current.matches(authTicket) && selection.current.matches(ticket)
+    const accountIsCurrent = () => epoch.current.matches(authTicket)
+    const valid = () => accountIsCurrent() && selection.current.matches(ticket)
     try {
       let result: Schedule | Captcha
       if (force) result = await api.syncSchedule(week, term)
@@ -254,7 +280,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       else {
         if (!api.preview && (result.viewedWeek !== week || term && result.term.id !== term)) throw new Error('教务返回的学期或周次对不上，课表没动')
         setWeeks((old) => saveWeek(old, result))
-        if (force) notify(result.cached ? '已保留较新的本地课表' : '课表已更新')
+        if (force) {
+          let full = result
+          await loadSemester(api, { term, context: result, connected, fetchMissing: true, refresh: true, isCurrent: accountIsCurrent,
+            accept: (semester) => { full = semester; setSemesters((old) => saveSemesters(old, semester)) } })
+          if (!accountIsCurrent()) return
+          const terms = personalTerms(full, user?.student.enrollment_date || '', activeTerm)
+            .map((item) => item.value).filter((id) => id !== full.term.id)
+          if (valid()) notify('课表已更新')
+          void cacheMissingSemesters(api, terms, {
+            isCurrent: accountIsCurrent, accept: (semester) => setSemesters((old) => saveSemesters(old, semester)),
+          }).then((failed) => {
+            if (accountIsCurrent() && failed.length) notify('部分历史学期暂未同步，可选择学期重试', undefined, 6000)
+          }).catch(async (error) => {
+            if (!accountIsCurrent()) return
+            notify(message(error), undefined, 6000)
+            await handleError(error, 'inline')
+          })
+        }
       }
     } catch (error) {
       if (valid()) {
@@ -262,7 +305,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         await handleError(error, 'inline')
       }
     } finally { if (valid()) { setSyncing(false); setRefreshing(false) } }
-  }, [authenticated, term, connected, handleError, notify, schedule])
+  }, [authenticated, term, connected, handleError, notify, schedule, user, activeTerm])
   const selectWeek = useCallback((week: number) => loadWeek(week), [loadWeek])
   const sync = useCallback(async () => {
     if (!authenticated) { setView('settings'); return }
@@ -279,11 +322,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       } catch (error) { if (epoch.current.matches(ticket)) { setScheduleError(message(error)); await handleError(error) } }
       finally { if (epoch.current.matches(ticket)) { setSyncing(false); setRefreshing(false) } }
     }
-  }, [authenticated, syncing, captcha, schedule, selectedWeek, loadWeek, handleError])
+  }, [authenticated, syncing, captcha, schedule, selectedWeek, loadWeek, handleError, setView])
   const selectTerm = useCallback(async function selectTerm(id: string): Promise<void> {
     if (!authenticated || id === term) return
     const authTicket = epoch.current.current(); const ticket = selection.current.next()
-    semesterSelection.current.next()
     setSyncing(true); setRefreshing(false); setScheduleError(''); openSheet(null); setCaptcha(null)
     const valid = () => epoch.current.matches(authTicket) && selection.current.matches(ticket)
     const isCurrentTerm = id === activeTerm
@@ -294,17 +336,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
     try {
       const saved = scheduleForTerm(semesters, weeks, id, 1)
-      if (saved) { applySelection(saved); return }
+      if (saved?.semesterLoaded) { applySelection(saved); return }
       const loaded = await loadSemester(api, {
-        term: id, context: schedule, connected, isCurrent: valid,
+        term: id, context: schedule, connected, fetchMissing: true, isCurrent: valid,
         accept: (result) => { setSemesters((old) => saveSemesters(old, result)); applySelection(result) },
         acceptWeek: (result) => { setWeeks((old) => saveWeek(old, result)); applySelection(result) },
       })
-      if (valid() && !loaded) notify('这个学期还没有保存课表', { label: '重试', run: () => void selectTerm(id) }, 6000)
+      if (valid() && !loaded) notify('这个学期尚未获取课表', { label: '重试', run: () => void selectTerm(id) }, 6000)
     } catch (error) {
-      if (valid()) { notify(message(error), { label: '重试', run: () => void selectTerm(id) }, 6000); await handleError(error, 'inline') }
+      if (valid()) { notify(message(error), error instanceof ApiError && error.status === 401 ? { label: '连接教务', run: openAuth } : { label: '重试', run: () => void selectTerm(id) }, 6000); await handleError(error, 'inline') }
     } finally { if (valid()) { setSyncing(false); setRefreshing(false) } }
-  }, [authenticated, term, activeTerm, semesters, weeks, schedule, connected, handleError, notify])
+  }, [authenticated, term, activeTerm, semesters, weeks, schedule, connected, handleError, notify, openAuth])
   const requestNetwork = useCallback(async (action: () => Promise<NetStatus>, announce = true) => {
     if (!authenticated) return
     const ticket = epoch.current.current()
@@ -313,7 +355,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     try {
       const result = await action()
       if (epoch.current.matches(ticket)) {
-        setNet(result)
+        acceptNetworkStatus(result)
         if (announce) setNetError(result.error || (result.online ? '' : result.message || '未能连接校园网'))
         // A successful read-only probe must not erase a rejected authentication attempt.
       }
@@ -323,17 +365,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (networkRequest.current === ticket) networkRequest.current = null
       if (epoch.current.matches(ticket)) setNetBusy(false)
     }
-  }, [authenticated, handleError])
+  }, [authenticated, handleError, acceptNetworkStatus])
   const refreshNet = useCallback(() => requestNetwork(() => api.getNetStatus(), false), [requestNetwork])
   const toggleNet = useCallback(() => requestNetwork(() =>
     net?.online && net.disconnectSupported !== false ? api.netLogout() : api.netLogin()), [requestNetwork, net])
   const kick = useCallback(async (id: string) => {
     if (!authenticated) return
     const ticket = epoch.current.current()
-    try { const result = await api.kickDevice(id); if (epoch.current.matches(ticket)) { setNet(result); notify('已让该设备下线') } }
+    try { const result = await api.kickDevice(id); if (epoch.current.matches(ticket)) { acceptNetworkStatus(result); notify('已让该设备下线') } }
     catch (error) { if (epoch.current.matches(ticket)) await handleError(error) }
-  }, [authenticated, handleError, notify])
-  const updateSettings = useCallback(async (patch: Partial<Settings>) => {
+  }, [authenticated, handleError, notify, acceptNetworkStatus])
+  const updateSettings = useCallback(async (patch: Partial<Settings>, presentation: 'toast' | 'inline' = 'toast') => {
     if (!authenticated) return
     const ticket = epoch.current.current()
     const save = async () => {
@@ -343,39 +385,34 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (epoch.current.matches(ticket)) { setSettings(result); applyTheme(result.theme) }
       } catch (error) {
         if (epoch.current.matches(ticket)) {
-          await handleError(error)
+          await handleError(error, presentation)
           try { const actual = await api.getSettings(); if (epoch.current.matches(ticket)) { setSettings(actual); applyTheme(actual.theme) } } catch { /* retain previous visible values */ }
+          if (presentation === 'inline') throw error
         }
       }
     }
-    settingsQueue.current = settingsQueue.current.then(save)
-    await settingsQueue.current
+    const pending = settingsQueue.current.then(save)
+    // Drain a failed save before the next one, while preserving its error for an inline caller.
+    settingsQueue.current = pending.catch(() => {})
+    await pending
+  }, [authenticated, handleError])
+  const updateNickname = useCallback(async (nickname: string) => {
+    if (!authenticated) throw new ApiError(401, '请先登录')
+    const ticket = epoch.current.current()
+    try {
+      const student = await api.updateNickname(nickname)
+      if (!epoch.current.matches(ticket)) throw new ApiError(409, '账号已切换')
+      setUser((old) => old ? { ...old, student } : old)
+    } catch (error) {
+      if (epoch.current.matches(ticket)) await handleError(error, 'inline')
+      throw error
+    }
   }, [authenticated, handleError])
   const loadNetworkConfig = useCallback(async () => {
     if (!authenticated) return
     const ticket = epoch.current.current()
     try { const result = await api.getNetworkConfig(); if (epoch.current.matches(ticket)) setNetworkConfig(result) }
     catch (error) { if (epoch.current.matches(ticket)) await handleError(error) }
-  }, [authenticated, handleError])
-  const loadNetworkSummary = useCallback(async () => {
-    if (!authenticated) return
-    const ticket = epoch.current.current()
-    if (summaryRequest.current?.epoch === ticket) return
-    const request = { epoch: ticket }
-    summaryRequest.current = request
-    const valid = () => epoch.current.matches(ticket) && summaryRequest.current === request
-    setSummaryBusy(true); setSummaryError('')
-    try {
-      const result = await api.getNetworkSummary()
-      if (valid()) { setNetworkSummary(result); setSummaryError(result.message) }
-    } catch (error) {
-      if (valid()) { setSummaryError(message(error)); await handleError(error, 'inline') }
-    } finally {
-      if (summaryRequest.current === request) {
-        summaryRequest.current = null
-        if (epoch.current.matches(ticket)) setSummaryBusy(false)
-      }
-    }
   }, [authenticated, handleError])
   const saveNetworkConfig = useCallback(async (patch: Record<string, string | number | boolean | string[]>) => {
     if (!authenticated) return false
@@ -446,19 +483,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     document.addEventListener('visibilitychange', refreshVisible)
     return () => { clearInterval(interval); document.removeEventListener('visibilitychange', refreshVisible) }
   }, [phase, view, refreshNet])
-  useEffect(() => { if (phase === 'ready' && view === 'net') void loadNetworkSummary() }, [phase, view, loadNetworkSummary, user?.student.student_id, net?.online])
   const weekLoaded = api.preview || schedule?.scope === 'week'
   const value: Store = {
     preview: api.preview, phase, user, authOpen, authBusy, authError, captcha, schedule, semesterSchedule, currentSchedule, browsing, settings, net,
     netBusy, netError, syncing, refreshing, scheduleError, selectedWeek, weekLoaded, jobs, jobsError, networkConfig,
     networkSummary, summaryBusy, summaryError, loadNetworkSummary,
     view, sheet, toast, setView, openSheet, notify, login, connect, submitCaptcha, openAuth, cancelAuth, logout,
-    sync, selectWeek, selectTerm, refreshNet, toggleNet, kick, updateSettings, loadNetworkConfig, saveNetworkConfig, refreshJobs,
+    sync, selectWeek, selectTerm, refreshNet, toggleNet, kick, updateSettings, updateNickname, loadNetworkConfig, saveNetworkConfig, refreshJobs,
   }
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>
-}
-export function useStore() {
-  const store = useContext(Ctx)
-  if (!store) throw new Error('useStore outside provider')
-  return store
+  return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
 }

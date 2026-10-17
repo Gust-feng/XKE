@@ -1,7 +1,8 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
-import { useStore } from '../../lib/store'
-import { DETENT, Ticker } from './parts'
+import { useStore } from '../../lib/store-context'
+import { Ticker } from './parts'
+import { DETENT } from './presentation'
 import { NetField } from './NetField'
 
 const d = (i: number) => ({ '--i': i }) as CSSProperties

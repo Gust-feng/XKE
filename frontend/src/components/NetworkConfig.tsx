@@ -1,7 +1,7 @@
 import { useEffect, useId, useState } from 'react'
 import type { NetworkConfigDto, NetworkSettingsDto } from '../api/dto'
 import { networkPatch } from '../api/network-patch'
-import { useStore } from '../lib/store'
+import { useStore } from '../lib/store-context'
 import { SwToggle } from '../editions/one/SwissSettings'
 
 const PROVIDERS: { value: NetworkSettingsDto['provider']; label: string }[] = [

@@ -54,7 +54,15 @@ npm --prefix frontend run build:demo
 npm --prefix frontend run build:preview
 ```
 
-build 写入 dist/，标记 mode=runtime 且不包含 demo chunk。build:demo 写入 dist-preview/，build:preview 写入可单独打开的 preview/index.html；两者标记 mode=preview。显式 VITE_XKE_PREVIEW=true 构建也只输出 dist-preview/，打包门禁仍拒绝 preview。
+build 写入 dist/，标记 mode=runtime 且不包含 demo chunk。build:demo 写入 dist-preview/，build:preview 复用同一 Vite 配置，将多文件静态预览写入 preview/（index.html + assets）；两者标记 mode=preview。显式 VITE_XKE_PREVIEW=true 构建也只输出 dist-preview/，打包门禁仍拒绝 preview。
+
+预览导出不再使用单文件插件，也不再支持通过 file:// 直接双击 HTML；使用现有本地服务打开：
+
+```sh
+npm --prefix frontend run preview -- --outDir preview
+```
+
+lint 采用 oxlint --deny-warnings，警告和错误都会阻止检查通过。StoreProvider 位于 src/lib/store.tsx，消费者从 src/lib/store-context.ts 导入 useStore 与状态类型，避免组件与 Hook 混合导出。
 
 ## 结构和交互
 

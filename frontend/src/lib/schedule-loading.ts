@@ -6,6 +6,7 @@ interface SemesterLoad {
   context?: Schedule | null
   connected: boolean
   refresh?: boolean
+  fetchMissing?: boolean
   isCurrent(): boolean
   accept(schedule: Schedule): void
   acceptWeek?(schedule: Schedule): void
@@ -57,9 +58,29 @@ export async function loadSemester(api: Pick<Api, 'getLocalSemester' | 'getSemes
       if (!(error instanceof ApiError && error.status === 404)) throw error
     }
   }
-  if (!load.connected || local && !load.refresh) return !!local || weekHit
+  if (local && !load.refresh || !load.connected && !load.fetchMissing) return !!local || weekHit
   const refreshed = await api.getSemester(term, context)
   if (!load.isCurrent()) return false
   load.accept(refreshed)
   return true
+}
+
+/** Serial cache fill over an already filtered school directory; never changes the selected semester. */
+export async function cacheMissingSemesters(
+  api: Pick<Api, 'getLocalSemester' | 'getSemester' | 'getSchedule'>,
+  terms: string[],
+  options: { isCurrent(): boolean; accept(schedule: Schedule): void },
+): Promise<string[]> {
+  const failed: string[] = []
+  for (const term of new Set(terms)) {
+    if (!options.isCurrent()) break
+    try {
+      await loadSemester(api, { term, connected: true, isCurrent: options.isCurrent, accept: options.accept })
+    } catch (error) {
+      if (!options.isCurrent()) break
+      if (error instanceof ApiError && error.status === 401) throw error
+      failed.push(term)
+    }
+  }
+  return failed
 }

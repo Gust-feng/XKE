@@ -7,9 +7,9 @@
     "dev": "vite",
     "dev:preview": "vite --mode preview",
     "build": "tsc -b && vite build",
-    "lint": "oxlint",
+    "lint": "oxlint --deny-warnings",
     "preview": "vite preview",
-    "build:preview": "tsc -b && vite build -c vite.preview.config.ts",
+    "build:preview": "tsc -b && vite build --mode preview --outDir preview",
     "check": "tsc -b",
     "test": "vitest run",
     "test:integration": "vitest run tests/runtime.integration.test.ts",
@@ -26,10 +26,10 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
+    "happy-dom": "^21.0.3",
     "oxlint": "^1.81.0",
     "typescript": "~6.0.2",
     "vite": "^8.3.0",
-    "vite-plugin-singlefile": "^2.3.3",
     "vitest": "^5.0.3"
   }
 }

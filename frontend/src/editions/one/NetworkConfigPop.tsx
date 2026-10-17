@@ -1,5 +1,5 @@
 import { NetworkConfigBody } from '../../components/NetworkConfig'
-import { useStore } from '../../lib/store'
+import { useStore } from '../../lib/store-context'
 import { CardPopover } from './CardPopover'
 
 export function NetworkConfigPop() {

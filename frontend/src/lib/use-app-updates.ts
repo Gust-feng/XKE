@@ -3,7 +3,8 @@ import { api } from '../api'
 import { emptyUpdateObservation, observeAppUpdates, type UpdateAction } from './app-updates'
 
 /** Only an open, visible panel polls. One initial local read supplies the compact version entry. */
-export function useAppUpdates(open: boolean) {
+export function useAppUpdates() {
+  const [open, setOpen] = useState(false)
   const [state, setState] = useState(emptyUpdateObservation)
   const [noUpdate, setNoUpdate] = useState(false)
   const resultTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -35,10 +36,15 @@ export function useAppUpdates(open: boolean) {
       if (observer.current === current) observer.current = null
     }
   }, [clearResult])
-  useEffect(() => {
-    if (!open) clearResult()
-    opened.current = open
-    observer.current?.setVisible(open && document.visibilityState === 'visible')
-  }, [open, clearResult])
-  return { ...state, noUpdate, run: (action: UpdateAction) => { clearResult(); return observer.current?.run(action) }, refresh: () => observer.current?.refresh() }
+  const openPanel = useCallback(() => {
+    opened.current = true
+    clearResult(); setOpen(true)
+    observer.current?.setVisible(document.visibilityState === 'visible')
+  }, [clearResult])
+  const closePanel = useCallback(() => {
+    opened.current = false
+    observer.current?.setVisible(false)
+    clearResult(); setOpen(false)
+  }, [clearResult])
+  return { ...state, open, openPanel, closePanel, noUpdate, run: (action: UpdateAction) => { clearResult(); return observer.current?.run(action) }, refresh: () => observer.current?.refresh() }
 }

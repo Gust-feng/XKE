@@ -26,20 +26,26 @@ export function courseBlocks(courses: Course[], week: number): CourseBlock[] {
     }
   }
   const blocks: CourseBlock[] = []
+  const occurrences = new Map<string, number>()
   for (const course of ordered) {
     const previous = blocks.at(-1)
     const gap = previous ? toMin(course.start) - toMin(previous.end) : -1
     // Overlapping lessons are kept separate and must not be bridged by a later block.
     const adjacent = previous && previous.weekday === course.weekday && gap >= 0 && gap <= BREAK_MINUTES
       && !overlaps.has(course) && !previous.parts.some((p) => overlaps.has(p))
-    if (adjacent && room(previous) && room(previous) === room(course) && identity(previous) === identity(course)) {
+    const sameCourse = adjacent && identity(previous) === identity(course)
+    if (sameCourse && room(previous) && room(previous) === room(course)) {
       const parts = [...previous.parts, course]
       blocks[blocks.length - 1] = { ...previous, end: course.end, parts, periods: periods(parts),
         timeSegments: parts.map((p) => `${p.start}–${p.end}`) }
     } else {
-      blocks.push({ ...course, id: `block:${week}:${course.id}`, weeks: [[week, week]], parts: [course],
+      // Source row IDs/order differ between semester and weekly snapshots; an occurrence keeps its display identity.
+      const anchor = JSON.stringify([week, course.weekday, course.start, identity(course), room(course)])
+      const occurrence = occurrences.get(anchor) || 0
+      occurrences.set(anchor, occurrence + 1)
+      blocks.push({ ...course, id: `block:${anchor}:${occurrence}`, weeks: [[week, week]], parts: [course],
         timeSegments: [`${course.start}–${course.end}`],
-        moveFrom: adjacent && room(previous) && room(course) && room(previous) !== room(course)
+        moveFrom: sameCourse && room(previous) && room(course) && room(previous) !== room(course)
           ? { room: previous.room, previousId: previous.id } : undefined })
     }
   }

@@ -1,7 +1,7 @@
 import { demoData } from './demo-data'
 import { now } from '../lib/time'
 import type { Api, NetStatus, Schedule, Settings } from './types'
-import type { NetworkConfigDto, NetworkSettingsDto } from './dto'
+import type { NetworkConfigDto, NetworkSettingsDto, StudentDto } from './dto'
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 let schedule: Schedule = structuredClone(demoData.schedule)
@@ -9,6 +9,8 @@ let net: NetStatus = structuredClone(demoData.net)
 let autoUpdate = false
 let networkConfig: NetworkConfigDto = structuredClone(demoData.networkConfig)
 const SETTINGS_KEY = 'xke.design-v7.settings'
+let student: StudentDto = { student_id: demoData.settings.portalAccount, name: '演示学生', nickname: '', use_nickname: false,
+  academy_name: '', major_name: '', class_name: '', training_level: '', campus_name: '', program_duration_years: null, enrollment_date: '2024-09-01' }
 
 const loadSettings = (): Settings => {
   try {
@@ -24,8 +26,7 @@ export const mockApi: Api = {
   cancelAuth() {},
   clearSession() {},
   async bootstrap() {
-    return { student: { student_id: demoData.settings.portalAccount, name: '演示学生', nickname: '', use_nickname: false,
-      academy_name: '', major_name: '', class_name: '', training_level: '', campus_name: '', program_duration_years: null, enrollment_date: '2024-09-01' },
+    return { student: { ...student },
       connected: true, settings: loadSettings(), schedule: { ...schedule, scope: 'semester',
         currentWeek: Math.floor((now().getTime() - new Date(`${schedule.term.startDate}T00:00:00`).getTime()) / (7 * 864e5)) + 1 } }
   },
@@ -33,6 +34,11 @@ export const mockApi: Api = {
   async connect() { return { kind: 'authenticated', workspace: (await this.bootstrap())! } },
   async session() { return (await this.bootstrap())! },
   async logout() {},
+  async updateNickname(nickname: string) {
+    await wait(180)
+    student = { ...student, nickname: nickname.trim(), use_nickname: !!nickname.trim() }
+    return { ...student }
+  },
   async submitCaptcha() { throw new Error('预览不运行验证码协议') },
   async getLocalSemester() { return { ...schedule, scope: 'semester', cached: true } },
   async getSemester() { return { ...schedule, scope: 'semester' } },

@@ -158,24 +158,41 @@ export class RuntimeApi implements Api {
   downloadAppUpdate(signal?: AbortSignal) { return this.updateAction('download', signal) }
   applyAppUpdate(signal?: AbortSignal) { return this.updateAction('apply', signal) }
 
+  private authForSession(sessionId: string) {
+    if (this.auth?.session_id !== sessionId) throw new ApiError(409, '账号已切换')
+    return this.auth
+  }
   async getSettings() {
     if (!this.auth) throw new ApiError(401, '请先登录')
+    const sessionId = this.auth.session_id
     const dto = await this.http.request<{ settings: AccountSettingsDto }>('/api/auth/preferences')
-    this.auth = { ...this.auth, settings: dto.settings }
+    this.auth = { ...this.authForSession(sessionId), settings: dto.settings }
     return this.workspace().settings
   }
   async updateSettings(patch: Partial<Settings>) {
     if (!this.auth) throw new ApiError(401, '请先登录')
+    const sessionId = this.auth.session_id
     const { account, desktop } = settingsPatches(patch)
     if (Object.keys(account).length) {
       const dto = await this.http.request<{ settings: AccountSettingsDto }>('/api/auth/preferences', account)
-      this.auth = { ...this.auth, settings: dto.settings }
+      this.auth = { ...this.authForSession(sessionId), settings: dto.settings }
     }
     if (Object.keys(desktop).length) {
       if (!this.desktopMode) throw new ApiError(501, '当前运行环境不支持桌面设置')
-      this.desktop = await this.http.request<DesktopPayloadDto>('/api/desktop/settings', desktop)
+      const result = await this.http.request<DesktopPayloadDto>('/api/desktop/settings', desktop)
+      this.authForSession(sessionId)
+      this.desktop = result
     }
     return this.workspace().settings
+  }
+  async updateNickname(nickname: string) {
+    if (!this.auth) throw new ApiError(401, '请先登录')
+    const attempt = this.authAttempt, sessionId = this.auth.session_id
+    const value = nickname.trim()
+    const result = await this.http.request<{ student: import('./dto').StudentDto }>('/api/auth/profile', { nickname: value, use_nickname: !!value })
+    if (attempt !== this.authAttempt || this.auth?.session_id !== sessionId) throw new ApiError(409, '账号已切换')
+    this.auth = { ...this.auth, student: result.student }
+    return result.student
   }
   async getNetStatus() {
     return adaptNetwork(await this.http.request<NetworkStatusDto>('/api/network/status'), this.auth?.student.student_id || '')

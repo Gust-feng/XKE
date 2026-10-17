@@ -2,24 +2,22 @@ import { scheduleJobNotice } from '../../lib/schedule-jobs'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { createPortal } from 'react-dom'
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { useStore } from '../../lib/store'
+import { useStore } from '../../lib/store-context'
 import { DAY, WEEKDAY_CN, at, inWeek, minOfDay, mondayOf, pad, toMin, useNow, weekOf, weekday } from '../../lib/time'
-import { Ticker, kindClass } from './parts'
-import { DETENT } from './parts'
+import { Ticker } from './parts'
+import { DETENT, kindClass } from './presentation'
 import { semesterRuler, personalTerms, termLabel, weekTimeRange } from '../../lib/schedule-view'
 import { courseBlocks, nextCourseBlock } from '../../lib/course-blocks'
 
 const d = (i: number) => ({ '--i': i }) as CSSProperties
 
-export function SwissWeek() {
+export function SwissWeek({ toolbarSlot: slot = null }: { toolbarSlot?: HTMLElement | null }) {
   const { schedule, semesterSchedule, settings, openSheet, selectedWeek, selectWeek, selectTerm, currentSchedule, browsing, syncing, refreshing, sync, scheduleError, weekLoaded, captcha, authOpen, sheet, phase, user, setView } = useStore()
   const t = useNow(1000)
   const reduce = useReducedMotion()
   const term = schedule?.term
   const thisWeek = browsing ? null : term?.startDate ? weekOf(term, t) : schedule?.currentWeek ?? null
   const [dir, setDir] = useState(0)
-  const [slot, setSlot] = useState<HTMLElement | null>(null)
-  useEffect(() => setSlot(document.getElementById('one-slot')), [])
   const w = selectedWeek
   const { total, counts: load, peak } = useMemo(() => semesterRuler(semesterSchedule, schedule, w, thisWeek), [semesterSchedule, schedule, w, thisWeek])
   const blocks = useMemo(() => courseBlocks(schedule?.courses ?? [], w), [schedule, w])
@@ -123,7 +121,7 @@ export function SwissWeek() {
 
       <div className="sw-days">
         <motion.div
-          key={w}
+          key={`${term.id || term.name}:${w}`}
           className="sw-days-in"
           style={{ gridTemplateColumns: cols }}
           initial={reduce || !dir ? false : { x: dir * 56, opacity: 0 }}

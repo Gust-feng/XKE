@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useStore } from '../lib/store'
+import { useStore } from '../lib/store-context'
 import { useNow } from '../lib/time'
 import '../editions/one/one.css'
 import '../styles/runtime.css'

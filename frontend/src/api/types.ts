@@ -143,6 +143,7 @@ export interface Api {
 
   getSettings(): Promise<Settings>
   updateSettings(patch: Partial<Settings>): Promise<Settings>
+  updateNickname(nickname: string): Promise<import('./dto').StudentDto>
   getNetworkConfig(): Promise<import('./dto').NetworkConfigDto>
   saveNetworkConfig(patch: Record<string, string | number | boolean | string[]>): Promise<import('./dto').NetworkConfigDto>
   getJobs(signal?: AbortSignal): Promise<{ network: import('./dto').JobStateDto; schedule: import('./dto').JobStateDto }>

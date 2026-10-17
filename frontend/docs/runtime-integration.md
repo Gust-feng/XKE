@@ -1,5 +1,11 @@
 # 前端 runtime 接手说明
 
+## 2026-10-18 预览构建与状态入口收敛
+
+build:preview已移除旧单文件插件/独立vite.preview.config.ts，复用vite.config.ts显式preview模式，输出仍为preview/，但必须通过HTTP服务打开（npm run preview -- --outDir preview），不再双击HTML。mode=preview及发布拒绝边界不变；runtime仍为dist/、mode=runtime，不包含合成数据。
+
+StoreProvider保留在lib/store.tsx，Hook/Context/类型放lib/store-context.ts；公共组件与presentation工具、更新演示组件与入口分离。更新面板开关在useAppUpdates同一所有者中清反馈和取消读取；周次portal接收父布局callback-ref。校园网摘要按认证恢复/进入页面/实际在线状态变化触发，不因普通等价轮询重复读取。当前lint和依赖审计均为0，验证明细见frontend任务板。
+
 ## 2026-10-17 更新状态复用动作按钮（最新反馈，覆盖预留区方案）
 
 用户拒绝预留进度空间，要求取消多余空白与独立进度条，复用已有组件。本轮删除one-update-feedback/track/download及相关样式；面板由真实header/version/auto/actions四行自然组成，不为未出现内容设占位。右下动作始终112×40px：检查更新/下载更新→下载百分比→重启更新，下载时黑底保持不透明、禁点并以内嵌progressbar语义播报数值，无可见横条。必要错误及设置保存失败复用不参与布局的右下通知，暂无可用更新仍只由显式检查触发一次。
@@ -202,7 +208,7 @@ WebView2由原生给同源API注入能力头，前端不保存令牌；普通浏
 | npm run build | dist/ | runtime |
 | npm run dev:preview | Vite 预览服务 | 显式 preview |
 | npm run build:demo | dist-preview/ | preview |
-| npm run build:preview | preview/index.html，可单文件打开 | preview |
+| npm run build:preview | preview/index.html，多文件静态预览，使用HTTP打开 | preview |
 
 VITE_XKE_PREVIEW=true 也只输出 dist-preview。frontend-build.json 对实际 bundle 计算 build id。只有 preview 引入 mock/demo JSON 与设计偏好 localStorage，并接受 URL t 时钟覆盖；runtime 的密码、session、trusted token 不进入浏览器存储或 URL。
 

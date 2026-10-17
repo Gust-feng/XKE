@@ -1,5 +1,5 @@
 import type { Course } from '../../api/types'
-import { useStore } from '../../lib/store'
+import { useStore } from '../../lib/store-context'
 import type { CourseBlock } from '../../lib/course-blocks'
 import { CardPopover } from './CardPopover'
 

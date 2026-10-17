@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'motion/react'
 import type { CSSProperties } from 'react'
-import { useStore } from '../../lib/store'
+import { useStore } from '../../lib/store-context'
 
 /** 校园网左栏：一张账户卡 + 每台在线设备一张卡。连接设置只在「设置」里有入口。 */
 export function NetworkRail() {

@@ -1,6 +1,7 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { useStore } from '../../lib/store'
+import { createSemesterMotion, type SemesterMotion, type SemesterMotionState } from './semester-motion'
+import { useStore } from '../../lib/store-context'
 import { useNow } from '../../lib/time'
 import { semesterProgress, type SemesterProgress } from '../../lib/semester-progress'
 
@@ -54,7 +55,7 @@ export function SemesterField() {
   return <SemesterDots key={(currentSchedule?.term.id || currentSchedule?.term.name || '') + ':' + data.cells.join(',')} data={data} />
 }
 
-function SemesterDots({ data }: { data: SemesterProgress }) {
+const SemesterDots = memo(function SemesterDots({ data }: { data: SemesterProgress }) {
   // 回放进度：filled = 已经长出来的课时；null 表示静止
   const [filled, setFilled] = useState<number | null>(null)
   const raf = useRef(0)
@@ -80,6 +81,7 @@ function SemesterDots({ data }: { data: SemesterProgress }) {
 
   // 行数：一条细带铺满设置页宽度，课时多了就多一行
   const box = useRef<HTMLDivElement>(null)
+  const motion = useRef<SemesterMotion | null>(null)
   const [rows, setRows] = useState(5)
   const total = data.cells.length
   useLayoutEffect(() => {
@@ -106,32 +108,18 @@ function SemesterDots({ data }: { data: SemesterProgress }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [total])
 
-  // 彩蛋：点击课时区域，每一个方点都离开原位，汇成「已上 | 还剩」两个数：
-  // 上过的课按先后汇成左边的数（最早的课落在第一笔），没上的汇成右边的数，红色的此刻站在两者之间。
-  // 停一会儿，所有方点各回原位。egg = 'in' 汇聚中/停住，'out' 回家，null 平时。
-  const [egg, setEgg] = useState<null | 'in' | 'out'>(null)
-  const [pitch, setPitch] = useState<[number, number]>([CELL + 3, CELL + 3])
-  const eggT = useRef(0)
-  const endEgg = () => { clearTimeout(eggT.current); setEgg('out'); eggT.current = window.setTimeout(() => setEgg(null), 1500) }
+  // 主运动不打断，连点合为一次待切换；所有点接近到位时沿当前位置和速度衔接。
+  const [egg, setEgg] = useState<SemesterMotionState>(null)
+  const pitch = useRef<[number, number]>([CELL + 3, CELL + 3])
   const startEgg = () => {
-    if (egg === 'in') { endEgg(); return }
-    if (egg || !targets || matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    if (!targets || matchMedia('(prefers-reduced-motion: reduce)').matches) return
     const grid = box.current?.firstElementChild as HTMLElement | null
     const cols = Math.ceil(total / rows)
-    if (grid) setPitch([cols > 1 ? (grid.clientWidth - CELL) / (cols - 1) : CELL + 3, CELL + 3])
-    cancelAnimationFrame(raf.current); setFilled(null)
-    clearTimeout(eggT.current); setEgg('in')
-    eggT.current = window.setTimeout(endEgg, 4200)
+    if (grid) pitch.current = [cols > 1 ? (grid.clientWidth - CELL) / (cols - 1) : CELL + 3, CELL + 3]
+    cancelAnimationFrame(raf.current)
+    setFilled(null)
+    motion.current?.toggle()
   }
-  useEffect(() => {
-    if (!egg) return
-    const k = (e: KeyboardEvent) => { if (e.key === 'Escape' && egg === 'in') endEgg() }
-    const resize = () => { clearTimeout(eggT.current); setEgg(null) }
-    addEventListener('keydown', k); addEventListener('resize', resize)
-    return () => { removeEventListener('keydown', k); removeEventListener('resize', resize) }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [egg])
-  useEffect(() => () => clearTimeout(eggT.current), [])
 
   // 每个方点的去处：dx/dy 以格为单位，dl 是出发延迟
   const targets = useMemo(() => {
@@ -156,6 +144,44 @@ function SemesterDots({ data }: { data: SemesterProgress }) {
     })
   }, [data, total, rows])
 
+  useLayoutEffect(() => {
+    const dots = box.current?.querySelectorAll<HTMLElement>('.one-sf-d')
+    setEgg(null)
+    if (!targets || !dots) return
+    const controller = createSemesterMotion(targets.map((t, i) => ({
+      delay: t.dl,
+      render: (progress: number) => {
+        if (progress === 0) dots[i].style.removeProperty('transform')
+        else dots[i].style.transform = `translate3d(${t.dx * pitch.current[0] * progress}px, ${t.dy * pitch.current[1] * progress}px, 0)`
+      },
+    })), setEgg)
+    motion.current = controller
+    return () => {
+      motion.current = null
+      controller.destroy()
+    }
+  }, [targets])
+
+  useEffect(() => {
+    const media = matchMedia('(prefers-reduced-motion: reduce)')
+    const keydown = (event: KeyboardEvent) => { if (event.key === 'Escape') motion.current?.restore() }
+    const reset = () => motion.current?.reset()
+    const reduceMotion = () => {
+      if (!media.matches) return
+      cancelAnimationFrame(raf.current)
+      setFilled(null)
+      reset()
+    }
+    addEventListener('keydown', keydown)
+    addEventListener('resize', reset)
+    media.addEventListener('change', reduceMotion)
+    return () => {
+      removeEventListener('keydown', keydown)
+      removeEventListener('resize', reset)
+      media.removeEventListener('change', reduceMotion)
+    }
+  }, [])
+
   const playing = filled !== null
   let pastIndex = 0
 
@@ -169,15 +195,12 @@ function SemesterDots({ data }: { data: SemesterProgress }) {
         {data.cells.map((c, i) => {
           const ordinal = c === 'past' ? pastIndex++ : -1
           const s = playing && (c === 'now' || (c === 'past' && ordinal >= filled!)) ? 'future' : c
-          const t = targets?.[i]
-          const st = egg && t ? {
-            transform: egg === 'in' ? `translate(${(t.dx * pitch[0]).toFixed(1)}px, ${(t.dy * pitch[1]).toFixed(1)}px)` : undefined,
-            transitionDelay: `${egg === 'in' ? t.dl : 360 - Math.min(360, t.dl)}ms`,
-          } as CSSProperties : undefined
-          return <i key={i} className="one-sf-d" data-s={s} style={st} />
+          return <i key={i} className="one-sf-d" data-s={s} />
         })}
       </div>
     </div>
     {targets && <button type="button" className="one-sf-trigger" onClick={startEgg} aria-label={`已上 ${data.done} 节，共 ${total} 节`} aria-pressed={egg === 'in'} />}
   </section>
-}
+}, (previous, next) => previous.data.done === next.data.done
+  && previous.data.cells.length === next.data.cells.length
+  && previous.data.cells.every((cell, i) => cell === next.data.cells[i]))
