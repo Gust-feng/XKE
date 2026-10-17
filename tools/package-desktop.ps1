@@ -1,231 +1,120 @@
+#Requires -Version 7.0
+<#
+.SYNOPSIS
+Build the single formal Windows release using repository-local Velopack 1.2.161.
+.DESCRIPTION
+Requires a runtime frontend build. Defaults to Directory.Build.props Version and
+self-contained .NET 8.0.32. No credentials/private schedule configuration are copied.
+Produces Setup, Portable, full update package and Velopack feeds in a new/empty output.
+Does not install, launch, upload or modify the user's runtime data/registry.
+.EXAMPLE
+pwsh -File tools/package-desktop.ps1
+.EXAMPLE
+pwsh -File tools/package-desktop.ps1 -Version 1.0.0 -OutputDir artifacts/releases/1.0.0
+#>
+[CmdletBinding()]
 param(
-    [string]$Configuration = "Release",
-    [string]$RuntimeIdentifier = "win-x64",
+    [ValidateSet('Release')][string]$Configuration = 'Release',
+    [ValidateSet('win-x64')][string]$RuntimeIdentifier = 'win-x64',
     [string]$OutputDir,
-    [string]$PrivateConfigPath,
+    [string]$WebRoot,
     [string]$Version,
-    [switch]$SelfContained,
-    [switch]$CreateRootLauncher,
-    [switch]$LocalOnly,
-    [switch]$NoInject
+    [ValidateSet('win')][string]$Channel = 'win',
+    [string]$CampusSelfServiceConfigPath,
+    # Deprecated arguments are rejected, rather than silently copying private material or using an old launcher.
+    [string]$ScheduleApiConfigPath,
+    [switch]$SelfContained = $true,
+    [switch]$CreateRootLauncher
 )
 
-$ErrorActionPreference = "Stop"
-
+$ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'package-release-validation.ps1')
 $repoRoot = Split-Path -Parent $PSScriptRoot
-if ([string]::IsNullOrWhiteSpace($OutputDir)) {
-    $OutputDir = Join-Path $repoRoot "artifacts\publish\Xke.DesktopHost"
+$runtimeVersion = '8.0.32'
+if (-not (Test-Path -LiteralPath (Join-Path $repoRoot 'THIRD-PARTY-NOTICES.txt') -PathType Leaf)) { throw 'Third-party notices are required before publishing.' }
+if ($ScheduleApiConfigPath) { throw 'Formal releases never accept ScheduleApiConfigPath or API tokens. Configure private services locally after installation.' }
+if (-not $SelfContained) { throw 'Formal desktop releases must be self-contained.' }
+if ($CreateRootLauncher) { throw 'Velopack generates the official launcher; CreateRootLauncher is retired.' }
+if (@(Get-ChildItem Env: | Where-Object Name -Like 'VPK_*').Count -gt 0) { throw 'Formal packaging does not accept VPK_* environment overrides.' }
+$Version = Get-DesktopReleaseVersion $repoRoot $Version
+if (-not $OutputDir) { $OutputDir = "artifacts/releases/$Version" }
+$finalRoot = Resolve-ReleasePath $OutputDir $repoRoot
+Assert-EmptyReleaseOutput $finalRoot
+$frontendRoot = if ($WebRoot) { Resolve-ReleasePath $WebRoot $repoRoot } else { Join-Path $repoRoot 'frontend/dist' }
+$null = Assert-FrontendRuntime $frontendRoot
+$campusConfig = $null
+if ($CampusSelfServiceConfigPath) {
+    $campusConfig = Read-CampusReleaseConfig (Resolve-ReleasePath $CampusSelfServiceConfigPath $repoRoot)
 }
-
-function Resolve-FullPath {
-    param([string]$Path)
-
-    if ([System.IO.Path]::IsPathRooted($Path)) {
-        return [System.IO.Path]::GetFullPath($Path)
-    }
-
-    return [System.IO.Path]::GetFullPath((Join-Path $repoRoot $Path))
+$manifestPath = Join-Path $repoRoot '.config/dotnet-tools.json'
+$manifest = Read-ReleaseJsonObject $manifestPath
+if ($manifest.tools.vpk.version -cne '1.2.161' -or $manifest.tools.vpk.commands -cnotcontains 'vpk' -or -not $manifest.isRoot) {
+    throw 'Repository local tool manifest must pin vpk 1.2.161.'
 }
+Assert-ReleaseRuntimeAvailable $RuntimeIdentifier $runtimeVersion
 
-function Sync-WebRuntime {
-    param(
-        [string]$SourceRoot,
-        [string]$DestinationRoot
-    )
-
-    $resolvedSourceRoot = [System.IO.Path]::GetFullPath($SourceRoot)
-    if (-not (Test-Path $resolvedSourceRoot)) {
-        throw "Web runtime source directory not found: $resolvedSourceRoot"
+$env:DOTNET_CLI_HOME = Join-Path $repoRoot '.dotnet_cli'
+$env:DOTNET_SKIP_FIRST_TIME_EXPERIENCE = '1'
+$env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'
+Push-Location $repoRoot
+$stageRoot = $null
+try {
+    & dotnet tool restore --tool-manifest $manifestPath
+    if ($LASTEXITCODE -ne 0) { throw 'Could not restore pinned local vpk 1.2.161.' }
+    # Stage next to the final directory so the final rename is same-volume and atomic.
+    $parent = Split-Path -Parent $finalRoot
+    New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    $stageRoot = Join-Path $parent ('.xke-package-' + [Guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $stageRoot | Out-Null
+    $publishRoot = Join-Path $stageRoot 'publish'
+    $releaseRoot = Join-Path $stageRoot 'releases'
+    $project = Join-Path $repoRoot 'src/Xke.DesktopHost/Xke.DesktopHost.csproj'
+    & dotnet publish $project -c $Configuration -r $RuntimeIdentifier --self-contained true `
+        --artifacts-path (Join-Path $stageRoot 'build') -o $publishRoot `
+        "-p:Version=$Version" "-p:RuntimeFrameworkVersion=$runtimeVersion" -p:TargetLatestRuntimePatch=true `
+        -p:PublishSingleFile=false -p:PublishTrimmed=false -p:DebugSymbols=false -p:DebugType=None
+    if ($LASTEXITCODE -ne 0) { throw 'dotnet publish failed; no release output was installed.' }
+    # Referenced WebHost is hosted in-process; do not ship a second launchable server or runtime diagnostics.
+    foreach ($name in @('createdump.exe', 'Xke.WebHost.exe', 'Xke.WebHost.deps.json', 'Xke.WebHost.runtimeconfig.json')) {
+        $path = Join-Path $publishRoot $name
+        if (Test-Path -LiteralPath $path -PathType Leaf) { Remove-Item -LiteralPath $path }
     }
-
-    $resolvedDestinationRoot = [System.IO.Path]::GetFullPath($DestinationRoot)
-    $targetWebRoot = [System.IO.Path]::GetFullPath((Join-Path $resolvedDestinationRoot "web"))
-    $publishRootWithSeparator = $resolvedDestinationRoot.TrimEnd('\') + '\'
-    if (-not $targetWebRoot.StartsWith($publishRootWithSeparator, [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "Unsafe web runtime target path: $targetWebRoot"
+    $webTarget = Join-Path $publishRoot 'web'
+    if (Test-Path -LiteralPath $webTarget) { throw 'dotnet publish unexpectedly included web content; only the explicit runtime source is permitted.' }
+    New-Item -ItemType Directory -Path $webTarget | Out-Null
+    foreach ($file in Assert-FrontendRuntime $frontendRoot) {
+        $relative = [IO.Path]::GetRelativePath($frontendRoot, $file.FullName)
+        $target = Join-Path $webTarget $relative
+        New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
+        Copy-Item -LiteralPath $file.FullName -Destination $target
     }
-
-    if (Test-Path $targetWebRoot) {
-        Remove-Item -LiteralPath $targetWebRoot -Recurse -Force
+    if ($null -ne $campusConfig) {
+        $campusConfig | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $publishRoot 'xke.campus-self-service.json') -Encoding utf8
     }
-
-    New-Item -ItemType Directory -Force -Path $targetWebRoot | Out-Null
-
-    foreach ($relativePath in @("index.html", "assets", "favicon.ico", "manifest.webmanifest", "robots.txt", "shell-static")) {
-        $sourcePath = Join-Path $resolvedSourceRoot $relativePath
-        if (-not (Test-Path $sourcePath)) {
-            continue
-        }
-
-        Copy-Item -LiteralPath $sourcePath -Destination (Join-Path $targetWebRoot $relativePath) -Recurse -Force
-    }
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'THIRD-PARTY-NOTICES.txt') -Destination (Join-Path $publishRoot 'THIRD-PARTY-NOTICES.txt')
+    Assert-DesktopPublish $publishRoot $RuntimeIdentifier $runtimeVersion ($null -ne $campusConfig)
+    # Official bootstrap installs/checks WebView2. Do NOT request .NET bootstrap: the runtime is bundled.
+    # No --skipVeloAppCheck, custom updater, root-launcher compilation or GitHub upload is allowed here.
+    & dotnet tool run vpk -- --skip-updates pack --packId XKE --packVersion $Version --packTitle XKE `
+        --packAuthors Gust-feng --packDir $publishRoot --mainExe Xke.DesktopHost.exe `
+        --runtime $RuntimeIdentifier --channel $Channel --framework webview2 `
+        --icon (Join-Path $repoRoot 'src/Xke.DesktopHost/Assets/app.ico') --outputDir $releaseRoot
+    if ($LASTEXITCODE -ne 0) { throw 'Velopack packaging failed; no partial final release was published.' }
+    Assert-VelopackRelease $releaseRoot $Version $Channel ($null -ne $campusConfig)
+    Assert-EmptyReleaseOutput $finalRoot
+    if (Test-Path -LiteralPath $finalRoot) { [IO.Directory]::Delete($finalRoot, $false) }
+    [IO.Directory]::Move($releaseRoot, $finalRoot)
+    Write-Host "Verified formal release $Version (channel $Channel): $finalRoot"
+    Get-ChildItem -LiteralPath $finalRoot -File | ForEach-Object { Write-Host "  $($_.Name)" }
+    # Delete only this command's generated staging directory, never a computed user output/data root.
+    $resolvedStage = [IO.Path]::GetFullPath($stageRoot)
+    if ([IO.Path]::GetDirectoryName($resolvedStage) -ne $parent -or
+        [IO.Path]::GetFileName($resolvedStage) -cnotmatch '^\.xke-package-[0-9a-f]{32}$') { throw 'Unsafe staging cleanup path.' }
+    Assert-NoReleaseLinks $resolvedStage
+    Remove-Item -LiteralPath $resolvedStage -Recurse -Force
+} catch {
+    if ($stageRoot) { Write-Warning "Packaging stopped. Isolated staging retained for inspection: $stageRoot" }
+    throw
+} finally {
+    Pop-Location
 }
-
-function Write-RootLauncher {
-    param([string]$DestinationRoot)
-
-    $resolvedDestinationRoot = [System.IO.Path]::GetFullPath($DestinationRoot)
-    $releaseRoot = Split-Path -Parent $resolvedDestinationRoot
-    $folderName = Split-Path -Leaf $resolvedDestinationRoot
-    $desktopExecutable = Join-Path $resolvedDestinationRoot "Xke.DesktopHost.exe"
-    if (-not (Test-Path -LiteralPath $desktopExecutable -PathType Leaf)) {
-        throw "Desktop executable not found: $desktopExecutable"
-    }
-
-    $launcherPath = Join-Path $releaseRoot "$folderName.exe"
-    $escapedFolderName = $folderName.Replace("\", "\\").Replace('"', '\"')
-    $source = @"
-using System;
-using System.Diagnostics;
-using System.IO;
-using System.Windows.Forms;
-
-internal static class Program
-{
-    [STAThread]
-    private static int Main()
-    {
-        var baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
-        var folderName = "$escapedFolderName";
-        var targetPath = Path.Combine(baseDirectory, folderName, "Xke.DesktopHost.exe");
-        if (!File.Exists(targetPath))
-        {
-            MessageBox.Show(
-                "未找到程序文件夹。请保持启动器和 " + folderName + " 文件夹在同一目录。",
-                folderName,
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Error);
-            return 1;
-        }
-
-        Process.Start(new ProcessStartInfo
-        {
-            FileName = targetPath,
-            WorkingDirectory = Path.GetDirectoryName(targetPath),
-            UseShellExecute = true
-        });
-        return 0;
-    }
-}
-"@
-
-    if (Test-Path -LiteralPath $launcherPath) {
-        Remove-Item -LiteralPath $launcherPath -Force
-    }
-
-    $frameworkCsc = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
-    if (-not (Test-Path -LiteralPath $frameworkCsc -PathType Leaf)) {
-        $frameworkCsc = Join-Path $env:WINDIR "Microsoft.NET\Framework\v4.0.30319\csc.exe"
-    }
-
-    if (Test-Path -LiteralPath $frameworkCsc -PathType Leaf) {
-        $sourcePath = Join-Path ([System.IO.Path]::GetTempPath()) "xke-launcher-$([Guid]::NewGuid().ToString('N')).cs"
-        try {
-            Set-Content -LiteralPath $sourcePath -Value $source -Encoding UTF8
-            $compilerArgs = @(
-                "/nologo",
-                "/target:winexe",
-                "/platform:anycpu",
-                "/out:$launcherPath",
-                "/reference:System.dll",
-                "/reference:System.Windows.Forms.dll"
-            )
-            $iconPath = Join-Path $repoRoot "src\Xke.DesktopHost\Assets\app.ico"
-            if (Test-Path -LiteralPath $iconPath -PathType Leaf) {
-                $compilerArgs += "/win32icon:$iconPath"
-            }
-
-            $compilerArgs += $sourcePath
-            & $frameworkCsc @compilerArgs
-            if ($LASTEXITCODE -ne 0) {
-                throw "Root launcher compilation failed."
-            }
-        }
-        finally {
-            if (Test-Path -LiteralPath $sourcePath) {
-                Remove-Item -LiteralPath $sourcePath -Force
-            }
-        }
-    } else {
-        Add-Type `
-            -TypeDefinition $source `
-            -ReferencedAssemblies @("System.dll", "System.Windows.Forms.dll") `
-            -OutputAssembly $launcherPath `
-            -OutputType WindowsApplication
-    }
-
-    Write-Host "Root launcher: $launcherPath"
-}
-
-$publishDir = Resolve-FullPath $OutputDir
-$projectPath = Join-Path $repoRoot "src\Xke.DesktopHost\Xke.DesktopHost.csproj"
-$updaterProjectPath = Join-Path $repoRoot "src\Xke.Updater\Xke.Updater.csproj"
-$selfContainedValue = if ($SelfContained) { "true" } else { "false" }
-$versionArguments = @()
-if (-not [string]::IsNullOrWhiteSpace($Version)) {
-    $versionArguments = @("/p:Version=$($Version.Trim())")
-}
-
-$env:DOTNET_CLI_HOME = Join-Path $repoRoot ".dotnet_cli"
-$env:DOTNET_SKIP_FIRST_TIME_EXPERIENCE = "1"
-$env:DOTNET_CLI_TELEMETRY_OPTOUT = "1"
-
-New-Item -ItemType Directory -Force -Path $publishDir | Out-Null
-
-Write-Host "Publishing Xke.DesktopHost..."
-& dotnet publish $projectPath `
-    -c $Configuration `
-    -r $RuntimeIdentifier `
-    --self-contained $selfContainedValue `
-    -o $publishDir `
-    @versionArguments
-if ($LASTEXITCODE -ne 0) {
-    throw "dotnet publish failed."
-}
-
-Write-Host "Publishing Xke.Updater..."
-& dotnet publish $updaterProjectPath `
-    -c $Configuration `
-    -r $RuntimeIdentifier `
-    --self-contained $selfContainedValue `
-    -o $publishDir `
-    @versionArguments
-if ($LASTEXITCODE -ne 0) {
-    throw "dotnet publish Xke.Updater failed."
-}
-
-$updaterExe = Join-Path $publishDir "Xke.Updater.exe"
-$updaterDll = Join-Path $publishDir "Xke.Updater.dll"
-if (-not (Test-Path $updaterExe) -and -not (Test-Path $updaterDll)) {
-    throw "Published package is missing Xke.Updater."
-}
-
-Write-Host "Syncing web runtime..."
-Sync-WebRuntime -SourceRoot (Join-Path $repoRoot "web") -DestinationRoot $publishDir
-if ($CreateRootLauncher) {
-    Write-RootLauncher -DestinationRoot $publishDir
-}
-
-if ($LocalOnly) {
-    $localOnlyConfig = [ordered]@{
-        schema_version = 1
-        local_only = $true
-    } | ConvertTo-Json
-    Set-Content -LiteralPath (Join-Path $publishDir "xke.runtime.json") -Value $localOnlyConfig -Encoding UTF8
-    Write-Host "Local-only runtime config written."
-}
-elseif (-not $NoInject) {
-    $injectArgs = @{
-        PublishDir = $publishDir
-    }
-    if (-not [string]::IsNullOrWhiteSpace($PrivateConfigPath)) {
-        $injectArgs.PrivateConfigPath = $PrivateConfigPath
-    }
-
-    & (Join-Path $PSScriptRoot "inject-private-cloud-config.ps1") @injectArgs
-    if ($LASTEXITCODE -ne 0) {
-        throw "Private cloud config injection failed."
-    }
-}
-
-Write-Host "Package output: $publishDir"
