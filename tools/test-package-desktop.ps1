@@ -58,7 +58,7 @@ function Write-SyntheticZip {
     } finally { $zip.Dispose() }
 }
 function New-ReleaseFixture {
-    param([string]$Channel = 'win', [string]$ExtraArchivePath)
+    param([string]$Channel = 'win', [string]$ExtraArchivePath, [switch]$IncludeCampusConfig)
     $path = Join-Path $root ([Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $path | Out-Null
     $names = Get-VelopackReleaseNames 1.0.0 $Channel
@@ -68,6 +68,11 @@ function New-ReleaseFixture {
     foreach ($relative in @('Xke.DesktopHost.exe', 'Xke.DesktopHost.dll', 'Velopack.dll', 'Xke.DesktopHost.deps.json', 'Xke.DesktopHost.runtimeconfig.json', 'sq.version', 'web/index.html', 'web/frontend-build.json', 'THIRD-PARTY-NOTICES.txt')) {
         $full["lib/app/$relative"] = 'synthetic'
         $portable["current/$relative"] = 'synthetic'
+    }
+    if ($IncludeCampusConfig) {
+        $config = '{"endpoint":"https://campus.example.invalid/Self","timeout_seconds":8}'
+        $full['lib/app/xke.campus-self-service.json'] = $config
+        $portable['current/xke.campus-self-service.json'] = $config
     }
     $full['lib/app/Squirrel.exe'] = 'synthetic'
     $full['lib/app/XKE_ExecutionStub.exe'] = 'synthetic'
@@ -214,7 +219,7 @@ try {
             Assert-Rejected { Assert-VelopackRelease $r 1.0.0 win $false } 'Unexpected|Unsafe'
         }
     }
-    foreach ($scenario in @('complete', 'private-publish-file', 'output-race')) {
+    foreach ($scenario in @('complete', 'complete-campus', 'private-publish-file', 'output-race')) {
         Test-Case "synthetic complete script flow: $scenario" {
             $frontend = New-FrontendFixture
             $final = Join-Path $root ('mock-output-' + [Guid]::NewGuid().ToString('N'))
@@ -234,7 +239,12 @@ try {
                     foreach ($file in Get-ChildItem -LiteralPath $fixture -File) { Copy-Item -LiteralPath $file.FullName -Destination $destination }
                 } elseif ($arguments -contains 'pack') {
                     $destination = $arguments[[Array]::IndexOf($arguments, '--outputDir') + 1]
-                    Copy-Item -LiteralPath (New-ReleaseFixture) -Destination $destination -Recurse
+                    $release = New-ReleaseFixture -IncludeCampusConfig:($scenario -eq 'complete-campus')
+                    Copy-Item -LiteralPath $release -Destination $destination -Recurse
+                    if ($scenario -eq 'complete-campus') {
+                        $publishedConfig = Read-CampusReleaseConfig (Join-Path $arguments[[Array]::IndexOf($arguments, '--packDir') + 1] 'xke.campus-self-service.json')
+                        if ($publishedConfig.Count -ne 2) { throw 'Unexpected campus release configuration fields.' }
+                    }
                     if ($scenario -eq 'output-race') {
                         New-Item -ItemType Directory -Path $final | Out-Null
                         'preserve-me' | Set-Content (Join-Path $final 'concurrent.synthetic')
@@ -242,10 +252,16 @@ try {
                 } elseif ($arguments[0] -ne 'tool' -or $arguments[1] -ne 'restore') { throw 'Unexpected mocked command.' }
             }
             try {
-                $action = { & (Join-Path $PSScriptRoot 'package-desktop.ps1') -Version 1.0.0 -WebRoot $frontend -OutputDir $final }
-                if ($scenario -eq 'complete') {
+                $packageArgs = @{ Version = '1.0.0'; WebRoot = $frontend; OutputDir = $final }
+                if ($scenario -eq 'complete-campus') {
+                    $campusInput = Join-Path $mockParent 'campus.local.synthetic.json'
+                    '{"endpoint":"https://campus.example.invalid/Self","timeout_seconds":8}' | Set-Content -LiteralPath $campusInput
+                    $packageArgs.CampusSelfServiceConfigPath = $campusInput
+                }
+                $action = { & (Join-Path $PSScriptRoot 'package-desktop.ps1') @packageArgs }
+                if ($scenario -in @('complete', 'complete-campus')) {
                     & $action
-                    Assert-VelopackRelease $final 1.0.0 win $false
+                    Assert-VelopackRelease $final 1.0.0 win ($scenario -eq 'complete-campus')
                     if (@(Get-ChildItem -LiteralPath $mockParent -Directory -Force).Count -ne 1) { throw 'Successful staging was not cleaned.' }
                 } elseif ($scenario -eq 'private-publish-file') {
                     Assert-Rejected $action 'Unexpected desktop publish file'

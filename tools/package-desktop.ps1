@@ -45,6 +45,9 @@ $null = Assert-FrontendRuntime $frontendRoot
 $campusConfig = $null
 if ($CampusSelfServiceConfigPath) {
     $campusConfig = Read-CampusReleaseConfig (Resolve-ReleasePath $CampusSelfServiceConfigPath $repoRoot)
+    Write-Host 'Campus account summary: endpoint configuration included (no credentials).'
+} else {
+    Write-Warning 'Campus account summary is not configured: use -CampusSelfServiceConfigPath for a release that includes account information.'
 }
 $manifestPath = Join-Path $repoRoot '.config/dotnet-tools.json'
 $manifest = Read-ReleaseJsonObject $manifestPath
@@ -103,7 +106,7 @@ try {
     Assert-VelopackRelease $releaseRoot $Version $Channel ($null -ne $campusConfig)
     Assert-EmptyReleaseOutput $finalRoot
     if (Test-Path -LiteralPath $finalRoot) { [IO.Directory]::Delete($finalRoot, $false) }
-    [IO.Directory]::Move($releaseRoot, $finalRoot)
+    Move-Item -LiteralPath $releaseRoot -Destination $finalRoot -ErrorAction Stop
     Write-Host "Verified formal release $Version (channel $Channel): $finalRoot"
     Get-ChildItem -LiteralPath $finalRoot -File | ForEach-Object { Write-Host "  $($_.Name)" }
     # Delete only this command's generated staging directory, never a computed user output/data root.

@@ -1,5 +1,23 @@
 # V1.0.0 发布与自动更新（2026-10-17）
 
+## 2026-10-18 Actions正式发布流程
+
+用户已授权本轮必要源码提交、合入main、推送和首个V1.0.0公开发布；本条覆盖下方历史“尚未授权/未执行”的阶段描述，不授予后续自动发布许可。公开仓库目前没有既有Release，仍使用1.0.0，不覆盖或伪造已发布版本。
+
+.github/workflows/release.yml提供Windows2022验证：锁文件安装、依赖审计、源码/测试类型、零警告lint、前端测试/runtime构建、完整.NET测试、隔离HTTP集成和80项发布门禁。PR/main执行验证；正式v标签验证通过后才进入独立contents:write发布任务。官方Actions按已核对的完整commit SHA固定；版本必须与Directory.Build.props一致，且标签源码必须已合入origin/main，不允许重复版本或降低稳定版本。
+
+Actions需要仓库secret XKE_CAMPUS_SELF_SERVICE_CONFIG，只允许endpoint和timeout_seconds；必须经现有白名单验证。该地址是发布包的服务入口，不是服务端密钥，不能混入账户/密码/token/Cookie。正式CI要求此最小配置以保留校园网自助摘要功能，普通本地打包脚本仍可不配置；未配置不影响单纯网络连接，但不能把缺摘要的包当完整CI正式包。
+
+发布保留既有六资产，额外提供SHA256SUMS.txt。先创建草稿并上传，重新下载七资产逐一比对本地SHA256，全部一致才取消draft并标latest；任何失败都停在未公开草稿，不覆盖旧资产。下载哈希校验不等同Authenticode签名，当前仍未签名。真实跨版本升级、缺WebView2新机安装等仍按既有验收边界说明，不由CI成功冒充。
+
+本地可用tools/test-frontend-integration.ps1运行显式合成宿主和真实HTTP闭环；固定合成桌面证明仅存在测试宿主/测试transport，集成同时验证无证明的桌面写请求403，未放宽生产策略。构建/签名/发布状态以对应Actions运行和Release实际资产为准。
+
+## 2026-10-17 校园网账户摘要发布配置
+
+本校测试包必须显式传入`-CampusSelfServiceConfigPath`，由Read-CampusReleaseConfig仅接收并重建endpoint/timeout_seconds，账号、密码和token仍在用户本地填写；不复制整个私有开发文件。未传配置的通用包会明确输出账户摘要不可用的警告，不能把“校园网连接可用”当成自助摘要已配置。
+
+完整合成打包用例已增加带校园网配置的分支，校验发布目录/便携包/更新包都包含最小配置，合计80项门禁；包中任意凭据/额外字段仍拒绝。实际私有地址不写入本文。最后同卷移动改用原生PowerShell Move-Item，保留前置空输出与目录范围检查，解决本机Directory.Move访问拒绝；同样保留并发非空目标拒绝用例。
+
 ## 当前边界
 
 用户最新要求：版本定为 **1.0.0**，支持检查、自动下载与安装；个人本地软件不另建更新服务器。公开仓库已核对为 https://github.com/Gust-feng/XKE ，核对时没有Release。当前公开main仍是旧源码，工作区大量变更尚未提交；本轮没有stage/commit/push、打tag或公开Release，不能把旧main当本次版本源码。

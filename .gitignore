@@ -33,3 +33,6 @@ xke.campus-self-service.json
 .env.*
 !.env.example
 !.env.template
+
+# Dependency caches are never source artifacts
+**/node_modules/

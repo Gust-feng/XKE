@@ -1,0 +1,160 @@
+name: Windows validation and release
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: xke-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      DOTNET_CLI_HOME: ${{ github.workspace }}/.dotnet_cli
+      DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1'
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      XKE_DOTNET_DATA_DIR: ${{ github.workspace }}/artifacts/ci-data
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+          dotnet-version: '8.0.x'
+      - name: Install locked frontend dependencies
+        run: npm --prefix frontend ci
+      - name: Audit frontend dependencies
+        run: npm --prefix frontend audit
+      - name: Check frontend source, lint, tests and runtime build
+        shell: pwsh
+        run: ./tools/frontend-smoke.ps1 -SkipInstall
+      - name: Type-check frontend tests
+        run: npx --prefix frontend tsc -p frontend/tsconfig.tests.json --noEmit
+      - name: Test the complete .NET solution
+        run: dotnet test XKE.DotNet8.sln --configuration Release --logger trx --results-directory "${{ runner.temp }}/test-results"
+      - name: Test isolated frontend and API integration
+        shell: pwsh
+        run: ./tools/test-frontend-integration.ps1
+      - name: Verify release content gates
+        shell: pwsh
+        run: ./tools/test-package-desktop.ps1
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v') && github.repository == 'Gust-feng/XKE'
+    needs: validate
+    runs-on: windows-2022
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      DOTNET_CLI_HOME: ${{ github.workspace }}/.dotnet_cli
+      DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1'
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify tag, version and main ancestry
+        shell: pwsh
+        run: |
+          if ($env:RELEASE_TAG -cnotmatch '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') { throw 'A stable version tag is required.' }
+          [xml]$props = Get-Content Directory.Build.props -Raw
+          $version = [string]$props.Project.PropertyGroup.Version
+          if ($env:RELEASE_TAG -cne "v$version") { throw 'Tag and product version differ.' }
+          git merge-base --is-ancestor HEAD origin/main
+          if ($LASTEXITCODE -ne 0) { throw 'Release source must be merged into main.' }
+          $releases = gh release list --limit 100 --json tagName,isDraft,isPrerelease | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot verify existing releases.' }
+          foreach ($release in $releases) {
+            if ($release.tagName -ceq $env:RELEASE_TAG) { throw 'This version already exists; never overwrite release assets.' }
+            if (-not $release.isDraft -and -not $release.isPrerelease -and $release.tagName -cmatch '^v([0-9]+\.[0-9]+\.[0-9]+)$' -and [version]$Matches[1] -ge [version]$version) {
+              throw 'A release must advance the published stable version.'
+            }
+          }
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+          dotnet-version: '8.0.x'
+      - run: npm --prefix frontend ci
+      - run: npm --prefix frontend run build
+      - name: Package the verified runtime without personal data
+        shell: pwsh
+        env:
+          CAMPUS_CONFIG: ${{ secrets.XKE_CAMPUS_SELF_SERVICE_CONFIG }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:CAMPUS_CONFIG)) { throw 'Campus summary endpoint configuration is missing.' }
+          $path = Join-Path $env:RUNNER_TEMP 'xke-campus-release.json'
+          try {
+            [IO.File]::WriteAllText($path, $env:CAMPUS_CONFIG)
+            ./tools/package-desktop.ps1 -OutputDir artifacts/github-release -CampusSelfServiceConfigPath $path
+          } finally {
+            if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force }
+          }
+      - name: Upload a draft, verify downloaded assets, then publish
+        shell: pwsh
+        run: |
+          . ./tools/package-release-validation.ps1
+          [xml]$props = Get-Content Directory.Build.props -Raw
+          $version = [string]$props.Project.PropertyGroup.Version
+          $releaseRoot = (Resolve-Path artifacts/github-release).Path
+          Assert-VelopackRelease $releaseRoot $version win $true
+          $files = @(Get-ChildItem -LiteralPath $releaseRoot -File | Sort-Object Name)
+          $checksums = Join-Path $env:RUNNER_TEMP 'SHA256SUMS.txt'
+          $lines = $files | ForEach-Object { '{0}  {1}' -f (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), $_.Name }
+          [IO.File]::WriteAllLines($checksums, [string[]]$lines)
+          $notes = Join-Path $env:RUNNER_TEMP 'xke-release-notes.md'
+          $body = @"
+          ## XKE $version
+          - Windows x64 个人课表与校园网工具，包含账号恢复、历史学期课表、课前提醒与托盘常驻。
+          - 支持 GitHub Releases 检查更新、自动下载及退出/重启安装。
+          - 个人账号、密码、Cookie、课表和校园网缓存不随安装包发布或更新覆盖。
+
+          **下载**：首次安装使用 XKE-win-Setup.exe；免安装使用 XKE-win-Portable.zip，完整解压后运行根目录 XKE.exe。
+          **环境**：内置 .NET 8 运行时，界面依赖 WebView2；安装程序可检查/安装 WebView2，便携版需自行具备该运行时。
+          **本地测试包**：若此前使用同版本1.0.0测试包，请用本次正式Setup安装一次；自动更新只接受更高版本。
+          **校验**：SHA256SUMS.txt 提供全部六个发布资产的校验值。当前未配置 Authenticode 签名，不能视为已签名安装包。
+
+          Source commit: $env:GITHUB_SHA
+          "@
+          [IO.File]::WriteAllText($notes, $body)
+          $upload = @($files.FullName) + $checksums
+          gh release create $env:RELEASE_TAG @upload --verify-tag --draft --title "V$version" --notes-file $notes
+          if ($LASTEXITCODE -ne 0) { throw 'Draft release creation failed.' }
+          $download = Join-Path $env:RUNNER_TEMP 'xke-release-download-check'
+          New-Item -ItemType Directory -Path $download | Out-Null
+          gh release download $env:RELEASE_TAG --dir $download
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot verify uploaded assets; release remains a draft.' }
+          if (@(Get-ChildItem -LiteralPath $download -File).Count -ne 7) { throw 'Uploaded release asset set differs; release remains a draft.' }
+          foreach ($file in @($files) + (Get-Item -LiteralPath $checksums)) {
+            $copy = Join-Path $download $file.Name
+            if (-not (Test-Path -LiteralPath $copy -PathType Leaf) -or (Get-FileHash -LiteralPath $copy -Algorithm SHA256).Hash -cne (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash) {
+              throw 'Downloaded release content differs; release remains a draft.'
+            }
+          }
+          gh release edit $env:RELEASE_TAG --draft=false --latest
+          if ($LASTEXITCODE -ne 0) { throw 'Publishing the verified draft failed.' }
+          "Published $env:RELEASE_TAG from $env:GITHUB_SHA with seven verified assets." >> $env:GITHUB_STEP_SUMMARY

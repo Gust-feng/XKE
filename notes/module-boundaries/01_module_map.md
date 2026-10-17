@@ -14,4 +14,4 @@
 
 唯一活动前端为 `frontend/` 的 React + TypeScript；runtime 接本机 API，合成数据仅在显式 preview 中使用。Core 采用 namespace 模块化，不为每个功能拆分 csproj。
 
-旧移动协议仅保留测试兼容入口；默认 Auth/Schedule 使用 JW 表单协议。旧云控制、公告、遥测、反馈、选课及旧 Updater 不恢复。后续退出兼容路径时先保留相应覆盖，不在仓库整理中顺带改写认证链路。
+旧移动教务实现、注入开关及缓存回退已移除。Auth/Schedule 使用 JW 表单/Cookie 协议；快照服务消费保留。资料解析采用 JwStudentProfileParser，旧 StudentProfileNormalizer 已删除；完整工作区重新认证失败的回滚测试保留在当前协议路径。旧云控制、公告、遥测、反馈、选课及旧 Updater 不恢复。

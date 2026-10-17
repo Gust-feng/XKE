@@ -2,7 +2,9 @@
 
 ## V1.0.0 与更新
 
-公开仓库：[Gust-feng/XKE](https://github.com/Gust-feng/XKE)；发布页：[Releases](https://github.com/Gust-feng/XKE/releases)。V1.0.0候选包正在本地验收，尚未公开发布。
+公开仓库：[Gust-feng/XKE](https://github.com/Gust-feng/XKE)；发布页：[Releases](https://github.com/Gust-feng/XKE/releases)。正式版本由GitHub Actions验证、构建并发布，以Releases中的已发布资产为准。
+
+如此前使用同版本1.0.0本地测试包，请先用本次正式Setup安装一次；自动更新只接受更高版本。
 
 设置→系统标题旁的版本入口可检查更新、自动下载、立即重启安装；自动模式不强退使用中的程序，在真正退出或下次启动应用。使用Velopack正式安装/便携包，开发bin不自我覆盖。数据保留在原本机目录，不随更新替换，不上传账号/课表/校园网凭据。
 
@@ -11,7 +13,7 @@
 个人课表与校园网工具。Windows版由.NET8后端与WPF/WebView2宿主运行，React + TypeScript负责界面。
 现第七版「合成」设计锚定为产品第一版，保持原布局与动效。新增独立ProtocolHost用于未来云服务器部署，复用同一学校HTTP协议和数据解析。
 
-当前为 V1.0.0 本地候选阶段，源码归档与公开发布分别进行。已有实现、定向测试和真实使用的验证边界以任务板记录为准；开发期不新增旧业务文件迁移，正式发布后的数据变更须评估升级兼容。
+当前主版本为 V1.0.0，正式标签对应已合入main的源码。已有实现、定向测试和真实使用的验证边界以任务板记录为准；开发期不新增旧业务文件迁移，正式发布后的数据变更须评估升级兼容。
 
 ## 接手入口
 
@@ -23,7 +25,7 @@
 
 源码、合成测试、依赖锁文件和必要技术说明参与版本管理。设计压缩包、编辑器状态、运行数据、构建/发布产物及真实配置只保留在本地；忽略文件不等于打包白名单，正式发布仍由独立门禁校验。
 
-当前必要源码经用户授权按依赖分批本地提交；推送、tag 和公开发布仍需另行授权。分批提交的依赖与待确认项见[实施步骤](notes/development-docs/personal-runtime/01_implementation_steps.md)顶部；精确文件清单在本地 `artifacts/repository-preparation/20261017/`，不作为产品源码提交。
+必要源码按依赖分批提交，缓存、产物、真实配置及个人研究材料不提交。合入main并完成检查后，推送与Directory.Build.props版本一致的正式标签（例如v1.0.0）触发Actions；流程先验证，再生成草稿发布，上传资产重新下载校验后才公开。构建配置中的校园网自助地址通过Actions最小配置secret注入，不写入源码；不允许注入账号、密码、Cookie或token。
 
 ## 构建与本地运行
 
@@ -46,10 +48,10 @@ React开发可指定 `VITE_XKE_API_BASE_URL` 指向本机API。默认runtime同�
 # 定向前端检查，不启动浏览器
 ./tools/frontend-smoke.ps1 -SkipInstall
 # 实际WebHost + 假学校/校园网/Windows调用，临时数据根：
-dotnet run --project tests/Xke.FrontendIntegrationHost -- frontend/dist
+./tools/test-frontend-integration.ps1
 ```
 
-隔离宿主只用于开发验证，不创建WPF窗口或读取真实密码。Windows宿主构建：`dotnet build src/Xke.DesktopHost`。
+隔离HTTP验证使用合成宿主，自动启动/关闭并清理其临时数据，不创建WPF窗口或读取真实密码。Windows宿主构建：`dotnet build src/Xke.DesktopHost`。
 独立协议服务需配置 `XKE_PROTOCOL_API_KEY`、`XKE_PROTOCOL_DATA_DIR`、`XKE_DDDDOCR_URL`，启动步骤见部署手册。
 
 ## 工程结构
@@ -76,7 +78,7 @@ dotnet run --project tests/Xke.FrontendIntegrationHost -- frontend/dist
 - 桌面个人快照服务优先，失败回退JW；学校失败保留缓存。校园网保活与课表刷新由C#后台执行，不依赖React页面生命周期。
 - 桌面课前提醒由 C# 后台发送，使用已知课程日期与真实时间，支持关闭及 15/30/45 分钟提前量；普通业务回执用于防止重启后重复提醒。
 - 当前校园网不支持主动断开、设备列表、流量统计或踢设备；设计预览不代表这些能力已经实现。
-- 应用更新使用固定 GitHub 来源和 Velopack；旧 Updater、公告、遥测、反馈、云控制/同步和选课不进入默认装配。旧移动协议仅保留测试兼容入口。
+- 应用更新使用固定 GitHub 来源和 Velopack；旧 Updater、公告、遥测、反馈、云控制/同步和选课不进入默认装配。旧移动教务实现、测试开关和缓存回退已退役；当前仅保留 JW 表单/Cookie 协议及已配置的课表快照来源。
 
 ## 数据
 

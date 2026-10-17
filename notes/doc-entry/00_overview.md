@@ -1,5 +1,13 @@
 # notes 活动入口
 
+## 2026-10-18 正式发布流程
+
+本轮已获必要源码提交、main合并及GitHub Actions发布授权。当前发布入口为 [发布与更新手册](../development-docs/personal-runtime/08_release_and_updates.md) 顶部：先验证，再草稿上传及下载回验，完成后公开。旧日期的未授权/未发布记录保留历史语境；真实账号/缓存/私有配置不入源码或发布包。
+
+## 2026-10-17 当前退役边界
+
+移动教务生产实现、测试seam与缓存回退已删除；合成测试数据内联或位于所属测试项目，不再要求顶层fixtures目录。当前实现以personal-runtime/03、05和02顶部为准；长期历史资料不据此删除，六项既有冻结修改保持原样。
+
 ## 2026-10-17 仓库整理与提交准备
 
 当前 React/C# 第一版、后台提醒、固定 GitHub/Velopack 更新及直接启动窗口均已有实现。正在按实际工程边界整理公开源码：压缩包、编辑器计划、缓存、运行数据与私有配置只保留本地；旧目录和历史过程不删除。提交批次以 personal-runtime/01_implementation_steps.md 顶部为准，精确本地清单放 ignored artifacts/repository-preparation/20261017。整理阶段未暂存或提交；后续已获用户授权按清单分批本地commit，仍不推送或发布，也不顺带实施业务重构。
@@ -37,7 +45,7 @@
 3. 前端重做：[README](../development-docs/frontend-rebuild/README.md)、[当前焦点](../development-docs/frontend-rebuild/00_current_focus.md)、[实施步骤](../development-docs/frontend-rebuild/01_implementation_steps.md)、[任务板](../development-docs/frontend-rebuild/02_task_board.md)。
 4. [API 交接](../development-docs/personal-runtime/03_api_contract.md) 与 [校园网自助后台协议](../development-docs/personal-runtime/07_self_service_protocol.md)。
 5. [当前方向](../roadmap/00_development_direction.md)、[当前问题](../review-issues/00_current_issues.md)；审查同时读 [审查发现](../review-issues/01_review_findings.md)。
-6. 涉及认证、运行数据或私有服务时先读 [敏感总览](../sensitive-index/00_overview.md)、[边界规则](../sensitive-index/01_boundary_rules.md)、[教务声明](../sensitive-index/教务系统/00_声明.md)；旧移动兼容维护另读 [移动声明](../sensitive-index/移动教务/00_声明.md)。
+6. 涉及认证、运行数据或私有服务时先读 [敏感总览](../sensitive-index/00_overview.md)、[边界规则](../sensitive-index/01_boundary_rules.md)、[教务声明](../sensitive-index/教务系统/00_声明.md)；历史移动资料查阅另读 [移动声明](../sensitive-index/移动教务/00_声明.md)。
 7. [历史开发项目](../development-docs/README.md#历史开发项目) 和 [长期教务资料](../sensitive-index/教务系统/01_接入资料索引.md) 按需引用，保留原有过程和参考角色。
 
 ## 本目录文件
@@ -63,7 +71,7 @@
 - **JW 表单协议（传统 Web 教务）**：默认联网登录、显式连接及直接课表刷新；登录与课表续跑分别使用验证码入口。
 - **个人课表服务**：自动/手动课表的优先快照来源，失败回退直接 JW；不是密码校验或旧 CloudSync。
 - **本地可信状态**：由 C# 受控存储恢复的本地账号和缓存，不等同远端连接成功；新前端 session 仅驻内存。
-- **移动教务**：仅旧兼容测试入口。长期索引的旧主线表述保留历史语境，当前行为以 personal-runtime/API 为准；本机 OCR、选课及云模块不进入默认装配。
+- **移动教务**：实现及测试兼容入口已退役，仅保留长期历史资料。长期索引的旧主线表述保留历史语境，当前行为以 personal-runtime/API 为准；本机 OCR、选课及云模块不进入默认装配。
 
 ## 文档更新规则
 

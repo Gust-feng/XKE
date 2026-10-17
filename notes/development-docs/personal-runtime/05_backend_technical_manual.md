@@ -1,5 +1,9 @@
 # 后端技术手册与 Agent 接手入口
 
+## 2026-10-17 退役收尾（当前）
+
+MobileJw认证与课表实现、测试专用注入开关和fixtures顶层目录已由上一轮移除；本轮同步收敛存储来源、mapper默认值和测试样本，删除无调用的StudentProfileNormalizer/TryLoadCachedSchedule。TraditionalJwClient、NativeJwScheduleClient仍是当前Cookie/学期链路，不因旧命名删除或改写。当前测试必须覆盖完整工作区重新认证失败后原凭据/会话/缓存仍可用；生产代码不读测试HTML文件。历史移动/fixtures/纯后置描述只作资料，不再作为实现要求。
+
 ## 2026-10-17 V1.0.0 自动更新增量
 
 用户最新授权检查/自动下载/安装更新，当前实现以Core/Releases＋Velopack1.2.161为准，公开来源Gust-feng/XKE，稳定win渠道与PackageId=XKE；不恢复旧Updater/云控制。新机器设置auto_update_enabled与原生受控/api/app/updates状态/检查/下载/安装入口已接入。HTTP下载仅排队，C#持有并在关闭时排空；校验后退出应用，不强退到托盘的软件。关闭自动更新不会自动安装本地已下载包。
@@ -89,7 +93,7 @@ REL-02内容门禁、REL-03 runtime8.0.32发布基线已在新打包流程实现
 
 前端当前按服务器入学日期筛选个人学期目录，简短学期与刷新收在左栏学期尺；时间轴优先使用服务器block_times，缺少时使用已加载学期的真实课程范围，完整学期裁尾部空周。内部semesterLoaded表示全学期覆盖，scope仍表示所选周来源，不是后端DTO新字段。校园网连接前后同一布局，页面可见期间每30秒只读status，不在前端调度保活；无能力统计不做空占位。详细规则和当前桌面加载状态见前端交接及任务板。
 
-连堂合并属于前端按目标周计算的显示模型：course-blocks.ts生成CourseBlock，parts保留全部原课时，moveFrom仅表示相邻换教室。后端仍保存原始规范化周/学期与精确分段，不在API或JSON/CSV增加这些字段；新单周覆盖先于显示聚合。不同周规则只在共同出现周聚合显示，换教室/重叠/不同教师不得误合；课间倒计时保留真实休息。未来提醒/导出应基于原课时，不把合并显示跨度当成连续授课时间。
+连堂合并属于前端按目标周计算的显示模型：course-blocks.ts生成CourseBlock，parts保留全部原课时，moveFrom仅表示相邻且同名/同教师/同类别连续课在不同已知教室间的换教室。后端仍保存原始规范化周/学期与精确分段，不在API或JSON/CSV增加这些字段；新单周覆盖先于显示聚合。不同周规则只在共同出现周聚合显示，换教室/重叠/不同教师不得误合；课间倒计时保留真实休息。未来提醒/导出应基于原课时，不把合并显示跨度当成连续授课时间。
 
 本轮用户确认既有学校表单登录协议此前实测可用；`DirectJwLoginProtocol` 与已提交登录基线无差异，继续复用，不重新研究协议。新增OCR/宿主组合的验证与历史协议可用性分开记录。
 
@@ -152,7 +156,7 @@ flowchart LR
 | trusted_login_token | 本机已建立工作区的恢复材料 | C# 本机存储，前端不持久化 |
 | challenge_id | 一次验证码与对应 HTTP 会话 | 短时内存；登录和课表续跑分开 |
 
-学校响应通常是 HTML，当前 Cookie 协议不能当作 JWT 接口。旧移动 token 不参与默认登录。
+学校响应通常是 HTML，当前 Cookie 协议不能当作 JWT 接口。旧移动 token 模型和认证实现已经移除。
 普通浏览器的 localStorage/sessionStorage 不保存密码、session 或 trusted token。
 
 ### 学校表单协议（默认）
@@ -203,7 +207,7 @@ IP 域和学校 JW 域不可随意互换；服务端实际跳转及 Set-Cookie �
 
 `TraditionalJwClient.BeginLoginAsync` 保留 SSO 预登录、动态密码编码、门户 ticket 换 JW 的旧实现和测试；
 `DirectJwLoginProtocol` 才是当前默认装配入口。不要因旧资料写“必须 SSO”而重接默认流程。
-移动认证 seam 仅用于旧测试；不要在表单登录失败后自动切到移动协议。
+移动教务实现、测试 seam 和移动课表缓存回退已退役；表单登录失败不切换其他认证协议。测试通过显式 JW 协议工厂、合成响应与临时数据根验证当前行为。
 
 ## 已确认的数据请求
 
