@@ -212,23 +212,8 @@ public sealed class StoredCredentialDocument
     [JsonPropertyName("trusted_login_token")]
     public string TrustedLoginToken { get; init; } = string.Empty;
 
-    [JsonPropertyName("mobile_jw")]
-    public MobileJwEncryptedCredentialDocument? MobileJw { get; init; }
-
     [JsonPropertyName("updated_at")]
     public string UpdatedAt { get; init; } = string.Empty;
-}
-
-public sealed class MobileJwEncryptedCredentialDocument
-{
-    [JsonPropertyName("encrypted_password")]
-    public string EncryptedPassword { get; init; } = string.Empty;
-
-    [JsonPropertyName("generated_at")]
-    public string GeneratedAt { get; init; } = string.Empty;
-
-    [JsonPropertyName("expires_at")]
-    public string ExpiresAt { get; init; } = string.Empty;
 }
 
 public sealed class JwSessionDocument

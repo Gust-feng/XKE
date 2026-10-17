@@ -36,7 +36,7 @@ public sealed class SemesterCacheTests
         Assert.Equal(schedule.UpdatedAt, data.GetProperty("updated_at").GetString());
         Assert.Equal("Room A", data.GetProperty("rows")[0].GetProperty("room").GetString());
         Assert.Equal(0, school.CookieCalls);
-        Assert.Equal(0, school.PreferredCalls);
+        Assert.Equal(0, school.CookieCalls);
         using var missing = await host.Client.GetAsync("/api/schedule/semester/local?academic_term=2025-2026-2");
         Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
     }

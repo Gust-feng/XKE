@@ -19,12 +19,7 @@ public sealed class XkeWebHostOptions
     public string? DesktopRequestToken { get; init; }
     public IDesktopNotifier? DesktopNotifier { get; init; }
     public bool EnableBackgroundTasks { get; init; } = true;
-    public IJwAuthClient? JwAuthClient { get; init; }
     public Func<string, string, DirectJwLoginProtocol>? JwLoginProtocolFactory { get; init; }
-    // Test-only seam for the retired mobile authentication client. Production
-    // hosts always use the JW form protocol.
-    public bool UseLegacyMobileAuthentication { get; init; }
-    public bool UseLegacyMobileScheduleForTests { get; init; }
     public IJwScheduleClient? JwScheduleClient { get; init; }
     public IScheduleSnapshotSource? ScheduleSnapshotSource { get; init; }
     public ScheduleApiOptions? ScheduleApiOptions { get; init; }

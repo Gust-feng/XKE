@@ -248,10 +248,10 @@ public sealed class AuthStorageTests
         var scheduleStore = studentStore.Schedules();
         var payload = new Dictionary<string, object?>
         {
-            ["source"] = "移动教务课表",
-            ["source_label"] = "移动教务课表",
-            ["source_key"] = "mobile_schedule",
-            ["source_type"] = "mobile",
+            ["source"] = "教务系统课表",
+            ["source_label"] = "教务系统课表",
+            ["source_key"] = "jw_schedule",
+            ["source_type"] = "jw",
             ["week_label"] = "第7周",
             ["current_week_label"] = "第7周",
             ["updated_at"] = "2026-04-23T12:00:00Z",
@@ -284,18 +284,18 @@ public sealed class AuthStorageTests
             ["data"] = new List<object?>(),
         };
 
-        var savedFiles = scheduleStore.SaveSourceSchedule(payload, raw, "mobile_schedule", "第7周");
-        var restoredByWeek = scheduleStore.LoadScheduleForWeek("7", ["mobile"]);
-        var restoredLatest = scheduleStore.LoadLatestSourceSchedule(["mobile"]);
-        var inferredWeek = scheduleStore.FindScheduleWeekLabelForDate(new DateOnly(2026, 4, 22), ["mobile"]);
+        var savedFiles = scheduleStore.SaveSourceSchedule(payload, raw, "jw_schedule", "第7周");
+        var restoredByWeek = scheduleStore.LoadScheduleForWeek("7", ["jw"]);
+        var restoredLatest = scheduleStore.LoadLatestSourceSchedule(["jw"]);
+        var inferredWeek = scheduleStore.FindScheduleWeekLabelForDate(new DateOnly(2026, 4, 22), ["jw"]);
 
         Assert.Equal("2026_0001", studentStore.StudentId);
         Assert.Equal("第7周", restoredByWeek!.GetValueOrDefault("week_label"));
         Assert.Equal("第7周", restoredLatest!.GetValueOrDefault("week_label"));
         Assert.Equal("第7周", inferredWeek);
-        Assert.Contains(savedFiles, path => path.EndsWith("mobile_schedule.json", StringComparison.Ordinal));
-        Assert.Contains(savedFiles, path => path.EndsWith("mobile_schedule_raw.json", StringComparison.Ordinal));
-        var csvRelativePath = Assert.Single(savedFiles, path => path.EndsWith("mobile_schedule.csv", StringComparison.Ordinal));
+        Assert.Contains(savedFiles, path => path.EndsWith("jw_schedule.json", StringComparison.Ordinal));
+        Assert.Contains(savedFiles, path => path.EndsWith("jw_schedule_raw.json", StringComparison.Ordinal));
+        var csvRelativePath = Assert.Single(savedFiles, path => path.EndsWith("jw_schedule.csv", StringComparison.Ordinal));
         var csvPath = Path.Combine(workspace.RootPath, csvRelativePath.Replace('/', Path.DirectorySeparatorChar));
         var csv = File.ReadAllText(csvPath);
         Assert.Contains("student_id,academic_term,week_label,weekday,course_name,teacher,room,section_numbers,week_numbers,time_segments,weeks,credit,hours_text", csv);
@@ -378,10 +378,10 @@ public sealed class AuthStorageTests
         var scheduleStore = new XkeScheduleStore(root, studentStore, () => new DateOnly(2026, 4, 27));
         var payload = new Dictionary<string, object?>
         {
-            ["source"] = "移动教务课表",
-            ["source_label"] = "移动教务课表",
-            ["source_key"] = "mobile_schedule",
-            ["source_type"] = "mobile",
+            ["source"] = "教务系统课表",
+            ["source_label"] = "教务系统课表",
+            ["source_key"] = "jw_schedule",
+            ["source_type"] = "jw",
             ["week_label"] = "第8周",
             ["updated_at"] = "2026-04-27T08:00:00+08:00",
             ["week_dates"] = new Dictionary<string, object?>
@@ -392,9 +392,9 @@ public sealed class AuthStorageTests
             ["rows"] = new List<object?> { new Dictionary<string, object?> { ["course_name"] = "高等数学" } },
         };
 
-        scheduleStore.SaveSourceSchedule(payload, [], "mobile_schedule", "第8周");
+        scheduleStore.SaveSourceSchedule(payload, [], "jw_schedule", "第8周");
 
-        Assert.Equal("第8周", scheduleStore.FindScheduleWeekLabelForDate(null, ["mobile"]));
+        Assert.Equal("第8周", scheduleStore.FindScheduleWeekLabelForDate(null, ["jw"]));
     }
 
     [Fact]
@@ -423,6 +423,69 @@ public sealed class AuthStorageTests
             Environment.SetEnvironmentVariable("XKE_PORTABLE_DATA_DIR", previousPortable);
             Environment.SetEnvironmentVariable("XKE_DOTNET_DATA_DIR", previousDotNet);
         }
+    }
+
+    [Fact]
+    public void ScheduleStore_DefaultReadsIgnoreRetiredSourceFilesWithoutDeletingThem()
+    {
+        using var workspace = new TemporaryDirectory();
+        var root = CreateTemporaryDataRoot(workspace);
+        var student = root.ForStudent("20260001");
+        var store = new XkeScheduleStore(root, student, () => new DateOnly(2026, 4, 20));
+        var directory = Path.Combine(student.SchedulesDirectory, "2025-2026-2", "weeks", "第7周");
+        Directory.CreateDirectory(directory);
+        var retiredPath = Path.Combine(directory, "mobile_schedule.json");
+        var retired = JsonSerializer.Serialize(new Dictionary<string, object?>
+        {
+            ["source_key"] = "mobile_schedule", ["week_label"] = "第7周", ["updated_at"] = "2026-04-25T12:00:00+08:00",
+            ["term"] = new { academic_term = "2025-2026-2" },
+            ["week_dates"] = new Dictionary<string, string> { ["星期一"] = "2026-04-20" },
+            ["rows"] = Array.Empty<object>(),
+        });
+        File.WriteAllText(retiredPath, retired);
+        var defaults = XkeScheduleStore.ResolveSourceKeys("preferred");
+        Assert.Null(store.LoadLatestSourceSchedule(defaults));
+        Assert.Null(store.LoadScheduleForWeek("第7周", defaults));
+        Assert.Null(store.LoadLatestTermSourceSchedule(defaults));
+        Assert.Null(store.FindSemesterStartDate("2025-2026-2", defaults));
+        Assert.Equal(string.Empty, store.FindScheduleWeekLabelForDate(null, defaults));
+        Assert.Null(store.LoadLatestSourceSchedule([]));
+
+        store.SaveSourceSchedule(new Dictionary<string, object?>
+        {
+            ["source_key"] = "jw_schedule", ["week_label"] = "第7周", ["updated_at"] = "2026-04-20T12:00:00+08:00",
+            ["term"] = new { academic_term = "2025-2026-2" }, ["rows"] = Array.Empty<object>(),
+        }, [], "jw_schedule", "第7周");
+        Assert.Equal("jw_schedule", store.LoadLatestSourceSchedule(defaults)!["source_key"]);
+        Assert.Equal("jw_schedule", store.LoadScheduleForWeek("第7周", [])!["source_key"]);
+        Assert.Equal(retired, File.ReadAllText(retiredPath));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("preferred")]
+    [InlineData("cookie")]
+    [InlineData("jw")]
+    [InlineData("jw_schedule")]
+    [InlineData(" JW ")]
+    public void ScheduleStore_CurrentSourceAliasesResolveToTheSameCache(string source)
+    {
+        Assert.Equal("jw_schedule", XkeScheduleStore.NormalizeSourceKey(source));
+        Assert.Equal(new[] { "jw_schedule" }, XkeScheduleStore.ResolveSourceKeys(source));
+    }
+
+    [Theory]
+    [InlineData("mobile")]
+    [InlineData("encrypted")]
+    [InlineData("mobile_schedule")]
+    [InlineData("unknown")]
+    public void ScheduleStore_RejectsUnsupportedSourceWrites(string source)
+    {
+        using var workspace = new TemporaryDirectory();
+        var store = CreateTemporaryDataRoot(workspace).ForStudent("20260001").Schedules();
+        Assert.Throws<ArgumentException>(() => store.SaveSourceSchedule(new(), new(), source, "第1周"));
+        Assert.Throws<ArgumentException>(() => XkeScheduleStore.ResolveSourceKeys(source));
+        Assert.False(Directory.Exists(store.SchedulesDirectory));
     }
 
     private static XkeDataRoot CreateTemporaryDataRoot(TemporaryDirectory workspace)

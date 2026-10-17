@@ -12,19 +12,15 @@ public sealed class ScheduleService : IScheduleRefresh, IDisposable
     private readonly XkeDataRoot _dataRoot;
     private readonly IJwScheduleClient _scheduleClient;
     private readonly IScheduleSnapshotSource? _snapshotSource;
-    private readonly MobileSessionRuntimeStore _mobileSessionRuntime;
     private readonly JwCaptchaChallengeStore _captchaChallengeStore;
     private readonly IJwCaptchaSolver _captchaSolver;
-    private readonly bool _useLegacyMobileSchedule;
     private readonly Func<string?>? _activeSession;
 
     public ScheduleService(
         XkeDataRoot dataRoot,
         IJwScheduleClient scheduleClient,
-        MobileSessionRuntimeStore mobileSessionRuntime,
         JwCaptchaChallengeStore captchaChallengeStore,
         IJwCaptchaSolver captchaSolver,
-        bool useLegacyMobileSchedule = false,
         IScheduleSnapshotSource? snapshotSource = null,
         Func<string?>? activeSession = null)
     {
@@ -32,10 +28,8 @@ public sealed class ScheduleService : IScheduleRefresh, IDisposable
         _scheduleClient = scheduleClient;
         _snapshotSource = snapshotSource;
         _activeSession = activeSession;
-        _mobileSessionRuntime = mobileSessionRuntime;
         _captchaChallengeStore = captchaChallengeStore;
         _captchaSolver = captchaSolver;
-        _useLegacyMobileSchedule = useLegacyMobileSchedule;
     }
 
     public async Task<(string Message, SemesterScheduleData Payload)> FetchSemesterAsync(string sessionId, string academicTerm,
@@ -130,7 +124,9 @@ public sealed class ScheduleService : IScheduleRefresh, IDisposable
     public (string Message, Dictionary<string, object?> Payload) LoadLocal(string sessionId, string weekLabel, string source, string academicTerm = "")
     {
         var context = LoadContext(sessionId);
-        var sourceKeys = XkeScheduleStore.ResolveSourceKeys(source);
+        IReadOnlyList<string> sourceKeys;
+        try { sourceKeys = XkeScheduleStore.ResolveSourceKeys(source); }
+        catch (ArgumentException) { throw new ScheduleException(400, "不支持的课表来源"); }
         Dictionary<string, object?>? cached;
         if (!string.IsNullOrWhiteSpace(weekLabel))
         {
@@ -156,7 +152,7 @@ public sealed class ScheduleService : IScheduleRefresh, IDisposable
             cached: true,
             dataOrigin: "local_cache",
             sourceKey: cached.GetValueOrDefault("source_key")?.ToString() ?? string.Empty,
-            sourceLabel: cached.GetValueOrDefault("source_label")?.ToString() ?? cached.GetValueOrDefault("source")?.ToString() ?? "课表数据",
+            sourceLabel: cached.GetValueOrDefault("source_label")?.ToString() ?? cached.GetValueOrDefault("source")?.ToString() ?? string.Empty,
             sourceType: cached.GetValueOrDefault("source_type")?.ToString() ?? string.Empty,
             fallbackReason: string.Empty,
             request: null);
@@ -169,40 +165,16 @@ public sealed class ScheduleService : IScheduleRefresh, IDisposable
         ScheduleRequest request,
         CancellationToken cancellationToken = default)
     {
-        if (!_useLegacyMobileSchedule)
-        {
-            await _refreshGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                var preferredContext = LoadContext(sessionId);
-                var snapshot = await TrySnapshotAsync(preferredContext, request, cancellationToken).ConfigureAwait(false);
-                if (snapshot.Schedule is { } schedule)
-                    return ("课表已更新", SaveLivePayload(preferredContext, schedule, request, string.Empty));
-                return await FetchCookieCoreAsync(sessionId, request, cancellationToken, snapshot.FallbackReason).ConfigureAwait(false);
-            }
-            finally { _refreshGate.Release(); }
-        }
-
-        var context = LoadContext(sessionId);
+        await _refreshGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            _mobileSessionRuntime.TryGetToken(sessionId, out var existingToken);
-            var result = await _scheduleClient.FetchPreferredAsync(
-                context.Session.User,
-                context.Credentials.Password,
-                context.Session.PreloginMode,
-                request,
-                cancellationToken,
-                existingToken,
-                context.Credentials.MobileJw).ConfigureAwait(false);
-            SaveMobileJwCredentialIfNeeded(context, result.MobileJw);
-            var payload = SaveLivePayload(context, result, request, fallbackReason: string.Empty);
-            return ("课表获取成功", payload);
+            var preferredContext = LoadContext(sessionId);
+            var snapshot = await TrySnapshotAsync(preferredContext, request, cancellationToken).ConfigureAwait(false);
+            if (snapshot.Schedule is { } schedule)
+                return ("课表已更新", SaveLivePayload(preferredContext, schedule, request, string.Empty));
+            return await FetchCookieCoreAsync(sessionId, request, cancellationToken, snapshot.FallbackReason).ConfigureAwait(false);
         }
-        catch (JwScheduleException ex)
-        {
-            throw new ScheduleException(ex.StatusCode, ex.Message);
-        }
+        finally { _refreshGate.Release(); }
     }
 
     public async Task<(string Message, Dictionary<string, object?> Payload)> FetchCookieAsync(
@@ -228,8 +200,6 @@ public sealed class ScheduleService : IScheduleRefresh, IDisposable
                 context.Session.PreloginMode,
                 request,
                 cancellationToken,
-                existingToken: string.Empty,
-                mobileJw: context.Credentials.MobileJw,
                 sessionId: context.SessionId).ConfigureAwait(false);
             var payload = SaveLivePayload(context, result, request, fallbackReason: fallbackReason);
             return ("Cookie 课表获取成功", payload);
@@ -274,7 +244,7 @@ public sealed class ScheduleService : IScheduleRefresh, IDisposable
 
                 if (challenge.ContinueAsync is null)
                 {
-                    throw new ScheduleException(409, "验证码已提交，但真实教务登录续跑尚未接入；请使用开发态 HTML fixture 或等待下一切片");
+                    throw new ScheduleException(409, "教务登录上下文已失效，请重新刷新课表");
                 }
 
                 try
@@ -364,24 +334,6 @@ public sealed class ScheduleService : IScheduleRefresh, IDisposable
         string[] weekdays = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"];
         payload["week_dates"] = weekdays.Select((day, index) => new { day, date = start.AddDays((week.Value - 1) * 7 + index) })
             .ToDictionary(item => item.day, item => (object?)item.date.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture), StringComparer.Ordinal);
-    }
-
-    private void SaveMobileJwCredentialIfNeeded(ScheduleContext context, MobileJwEncryptedCredentialDocument? mobileJw)
-    {
-        if (mobileJw is null || string.IsNullOrWhiteSpace(mobileJw.EncryptedPassword))
-        {
-            return;
-        }
-
-        _dataRoot.Credentials().Save(new StoredCredentialDocument
-        {
-            User = context.Credentials.User,
-            Password = context.Credentials.Password,
-            StudentId = context.Credentials.StudentId,
-            TrustedLoginToken = context.Credentials.TrustedLoginToken,
-            MobileJw = mobileJw,
-            UpdatedAt = DateTimeOffset.Now.ToString("O"),
-        });
     }
 
     private ScheduleContext LoadContext(string sessionId)

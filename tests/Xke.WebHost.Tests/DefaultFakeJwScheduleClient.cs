@@ -6,34 +6,8 @@ namespace Xke.WebHost.Tests;
 
 internal sealed class DefaultFakeJwScheduleClient : IJwScheduleClient
 {
-    public bool FailPreferred { get; set; }
     public Exception? CookieException { get; set; }
-    public Exception? PreferredException { get; set; }
-    public int PreferredCalls { get; private set; }
     public int CookieCalls { get; private set; }
-
-    public Task<JwScheduleFetchResult> FetchPreferredAsync(
-        string user,
-        string password,
-        string preloginMode,
-        ScheduleRequest request,
-        CancellationToken cancellationToken = default,
-        string existingToken = "",
-        MobileJwEncryptedCredentialDocument? mobileJw = null)
-    {
-        PreferredCalls++;
-        if (FailPreferred)
-        {
-            throw new JwScheduleException("移动教务课表初始化失败");
-        }
-
-        if (PreferredException is not null)
-        {
-            throw PreferredException;
-        }
-
-        return Task.FromResult(BuildResult(user));
-    }
 
     public Task<JwScheduleFetchResult> FetchCookieAsync(
         string user,
@@ -41,8 +15,6 @@ internal sealed class DefaultFakeJwScheduleClient : IJwScheduleClient
         string preloginMode,
         ScheduleRequest request,
         CancellationToken cancellationToken = default,
-        string existingToken = "",
-        MobileJwEncryptedCredentialDocument? mobileJw = null,
         string sessionId = "")
     {
         CookieCalls++;
@@ -50,12 +22,15 @@ internal sealed class DefaultFakeJwScheduleClient : IJwScheduleClient
         return Task.FromResult(BuildResult(user, sourceKey: "jw_schedule", sourceLabel: "教务系统课表", sourceType: "jw", weekNumber: 8));
     }
 
+    public JwScheduleFetchResult BuildSnapshot(string user)
+        => BuildResult(user, "jw_schedule", "教务系统课表", "jw", 8);
+
     private static JwScheduleFetchResult BuildResult(
         string user,
-        string sourceKey = "mobile_schedule",
-        string sourceLabel = "移动教务课表",
-        string sourceType = "mobile",
-        int weekNumber = 7)
+        string sourceKey,
+        string sourceLabel,
+        string sourceType,
+        int weekNumber)
     {
         var weekLabel = $"第{weekNumber}周";
         return new JwScheduleFetchResult(
@@ -114,7 +89,7 @@ internal sealed class DefaultFakeJwScheduleClient : IJwScheduleClient
                 ["student_id"] = user,
                 ["source"] = sourceType,
             },
-            Remarks: sourceType == "jw" ? "Cookie 课表刷新成功" : "移动教务课表初始化成功",
+            Remarks: "Cookie 课表刷新成功",
             FallbackReason: string.Empty);
     }
 }

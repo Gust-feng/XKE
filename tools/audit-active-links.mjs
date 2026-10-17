@@ -145,7 +145,7 @@ const report = {
   remaining_deferred_top_files: byFileCount(deferredHits).slice(0, 15),
   duplicate_test_support: duplicateSummary,
   allowed_legacy_boundaries: [
-    "Retired mobile authentication and schedule paths remain test-only seams",
+    "Mobile school authentication, test-only switches and cache fallback are retired; network provider mobile is unrelated",
     "Production Auth/Schedule use the JW form protocol; old cloud and Updater modules are retired",
     "Core/Releases and DesktopHost/Updates implement the currently authorized GitHub updates",
   ],

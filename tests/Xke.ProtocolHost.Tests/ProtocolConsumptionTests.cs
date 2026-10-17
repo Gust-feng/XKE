@@ -35,7 +35,7 @@ public sealed class ProtocolConsumptionTests
         using var http = new HttpClient(transport);
         var source = new ProtocolScheduleApiClient(http, options, TimeProvider.System);
         var direct = new DirectFallback();
-        using var service = new ScheduleService(root, direct, new MobileSessionRuntimeStore(),
+        using var service = new ScheduleService(root, direct,
             new JwCaptchaChallengeStore(), new ManualCaptchaSolver(), snapshotSource: source);
 
         var request = new ScheduleRequest { Mode = "manual", ManualWeek = "1", AcademicTerm = "2026-2027-1" };
@@ -74,11 +74,8 @@ public sealed class ProtocolConsumptionTests
     private sealed class DirectFallback : IJwScheduleClient
     {
         public int Calls { get; private set; }
-        public Task<JwScheduleFetchResult> FetchPreferredAsync(string user, string password, string preloginMode,
-            ScheduleRequest request, CancellationToken cancellationToken = default, string existingToken = "", MobileJwEncryptedCredentialDocument? mobileJw = null)
-            => throw new InvalidOperationException("The retired mobile path must not run");
         public Task<JwScheduleFetchResult> FetchCookieAsync(string user, string password, string preloginMode,
-            ScheduleRequest request, CancellationToken cancellationToken = default, string existingToken = "", MobileJwEncryptedCredentialDocument? mobileJw = null, string sessionId = "")
+            ScheduleRequest request, CancellationToken cancellationToken = default, string sessionId = "")
         {
             Calls++;
             return Task.FromResult(new TraditionalJwScheduleHtmlParser().Parse("""

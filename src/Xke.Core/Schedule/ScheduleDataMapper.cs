@@ -82,9 +82,9 @@ public static class ScheduleDataMapper
     {
         var payload = new Dictionary<string, object?>(rawPayload, StringComparer.Ordinal);
         var resolvedSourceKey = XkeScheduleStore.NormalizeSourceKey(sourceKey);
-        var resolvedSourceType = NormalizeSourceType(sourceType, resolvedSourceKey);
+        var resolvedSourceType = string.IsNullOrWhiteSpace(sourceType) ? "jw" : sourceType.Trim().ToLowerInvariant();
         var resolvedSourceLabel = string.IsNullOrWhiteSpace(sourceLabel)
-            ? ResolveSourceLabel(resolvedSourceKey)
+            ? "教务系统课表"
             : sourceLabel.Trim();
         var weekLabel = CanonicalWeekLabel(payload.GetValueOrDefault("week_label")?.ToString());
         if (string.IsNullOrWhiteSpace(weekLabel))
@@ -604,22 +604,6 @@ public static class ScheduleDataMapper
             _ => -1,
         };
         return digit >= 0;
-    }
-
-    private static string NormalizeSourceType(string sourceType, string sourceKey)
-    {
-        var cleaned = (sourceType ?? string.Empty).Trim().ToLowerInvariant();
-        if (!string.IsNullOrWhiteSpace(cleaned))
-        {
-            return cleaned;
-        }
-
-        return sourceKey == "jw_schedule" ? "jw" : "mobile";
-    }
-
-    private static string ResolveSourceLabel(string sourceKey)
-    {
-        return sourceKey == "jw_schedule" ? "教务系统课表" : "移动教务课表";
     }
 
     private static string NormalizeTimestamp(object? value)

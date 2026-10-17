@@ -16,20 +16,14 @@ public sealed class AuthService : IDisposable
     public string? ActiveSessionId => Volatile.Read(ref _activeSessionId);
 
     private readonly XkeDataRoot _dataRoot;
-    private readonly IJwAuthClient _jwClient;
     private readonly ScheduleService _scheduleService;
-    private readonly MobileSessionRuntimeStore _mobileSessionRuntime;
     private readonly TraditionalJwSessionRuntimeStore _traditionalJwSessions;
     private readonly ConcurrentDictionary<string, PendingProtocolLogin> _protocolLogins = new(StringComparer.Ordinal);
-    private readonly object _connectedSessionsGate = new();
-    private readonly HashSet<string> _connectedSessions = new(StringComparer.Ordinal);
 
-    public AuthService(XkeDataRoot dataRoot, IJwAuthClient jwClient, ScheduleService scheduleService, MobileSessionRuntimeStore mobileSessionRuntime, TraditionalJwSessionRuntimeStore traditionalJwSessions, Func<string, string, DirectJwLoginProtocol>? protocolFactory = null)
+    public AuthService(XkeDataRoot dataRoot, ScheduleService scheduleService, TraditionalJwSessionRuntimeStore traditionalJwSessions, Func<string, string, DirectJwLoginProtocol>? protocolFactory = null)
     {
         _dataRoot = dataRoot;
-        _jwClient = jwClient;
         _scheduleService = scheduleService;
-        _mobileSessionRuntime = mobileSessionRuntime;
         _traditionalJwSessions = traditionalJwSessions;
         _protocolFactory = protocolFactory ?? ((user, password) => new DirectJwLoginProtocol(user, password));
     }
@@ -123,6 +117,8 @@ public sealed class AuthService : IDisposable
 
             var previousJwSession = _dataRoot.JwSessions().Load(pending.User);
             var store = _dataRoot.ForStudent(profile.StudentId);
+            var displayPreference = store.LoadProfile();
+            if (displayPreference is not null) profile = WithNickname(profile, displayPreference.Nickname, displayPreference.UseNickname);
             using var snapshot = StudentInitializationSnapshot.Capture(_dataRoot, store);
             var credentials = new StoredCredentialDocument
             {
@@ -164,57 +160,6 @@ public sealed class AuthService : IDisposable
     }
 
     public int SessionCount => _dataRoot.Sessions().Count();
-
-    public async Task<(string Message, AuthPayload Payload)> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
-    {
-        var user = NormalizeRequired(request.User, "账号不能为空");
-        var password = NormalizeRequired(request.Password, "密码不能为空");
-        var preloginMode = NormalizePreloginMode(request.PreloginMode);
-        var credentialStore = _dataRoot.Credentials();
-        var existingCredentials = credentialStore.Load(user);
-
-        if (existingCredentials is not null)
-        {
-            if (!string.Equals(existingCredentials.Password, password, StringComparison.Ordinal))
-            {
-                throw new AuthException(401, "本地账号或密码不正确");
-            }
-
-            // Existing local accounts must stay on the local-trust path: verify
-            // the persisted credential, then admit only fully initialized local workspaces.
-            var restoredWorkspace = RestoreTrustedWorkspace(existingCredentials, preloginMode);
-
-            return (
-                "登录成功（本地凭据校验通过，已恢复本地可信状态）",
-                restoredWorkspace.Payload);
-        }
-
-        return await InitializeRemoteStateAsync(
-            user,
-            password,
-            preloginMode,
-            previousCredentials: null,
-            successMessage: "首次登录成功，已使用移动教务认证完成本地初始化",
-            failurePrefix: "首次初始化未完成",
-            cancellationToken).ConfigureAwait(false);
-    }
-
-    public async Task<(string Message, AuthPayload Payload)> ReinitializeAsync(LoginRequest request, CancellationToken cancellationToken = default)
-    {
-        var user = NormalizeRequired(request.User, "账号不能为空");
-        var password = NormalizeRequired(request.Password, "密码不能为空");
-        var preloginMode = NormalizePreloginMode(request.PreloginMode);
-        var previousCredentials = _dataRoot.Credentials().Load(user);
-
-        return await InitializeRemoteStateAsync(
-            user,
-            password,
-            preloginMode,
-            previousCredentials,
-            successMessage: "重新初始化成功，已刷新本地可信状态",
-            failurePrefix: "重新初始化未完成",
-            cancellationToken).ConfigureAwait(false);
-    }
 
     public (string Message, AuthPayload Payload) TrustedLogin(TrustedLoginRequest request)
     {
@@ -293,66 +238,6 @@ public sealed class AuthService : IDisposable
         }, forceRemote: true, cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task<(string Message, AuthPayload Payload)> ConnectAsync(string sessionId, ConnectRequest request, CancellationToken cancellationToken = default)
-    {
-        var context = LoadContext(sessionId);
-        var requestedMode = string.IsNullOrWhiteSpace(request.PreloginMode)
-            ? context.Session.PreloginMode
-            : request.PreloginMode;
-        var preloginMode = NormalizePreloginMode(requestedMode);
-
-        JwAuthResult result;
-        try
-        {
-            result = await _jwClient.ConnectAsync(
-                context.Session.User,
-                context.Credentials.Password,
-                preloginMode,
-                cancellationToken,
-                context.Credentials.MobileJw).ConfigureAwait(false);
-        }
-        catch (JwAuthException ex)
-        {
-            throw new AuthException(401, ex.Message);
-        }
-
-        var profile = EnsureRemoteProfile(result.Profile, "移动教务连接失败：未返回可用身份信息");
-        var mobileToken = EnsureRemoteMobileToken(result.MobileToken, "移动教务连接失败：未返回有效 Token");
-        if (!string.Equals(profile.StudentId, context.Profile.StudentId, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new AuthException(409, "移动教务返回身份与本地初始化账号不一致，已保留本地可信状态");
-        }
-
-        var studentStore = _dataRoot.ForStudent(profile.StudentId);
-        studentStore.SaveProfile(profile);
-        var settings = AuthSettingsCatalog.WithPreloginMode(studentStore.LoadPreferences() ?? context.Settings, preloginMode);
-        var nextSession = new StoredSessionDocument
-        {
-            SessionIdHash = context.Session.SessionIdHash,
-            User = context.Session.User,
-            StudentId = profile.StudentId,
-            PreloginMode = preloginMode,
-            CreatedAt = context.Session.CreatedAt,
-            UpdatedAt = DateTimeOffset.Now.ToString("O"),
-        };
-        _dataRoot.Sessions().Save(sessionId, nextSession);
-        MarkSessionConnected(sessionId, mobileToken);
-
-        var nextCredentials = new StoredCredentialDocument
-        {
-            User = context.Credentials.User,
-            Password = context.Credentials.Password,
-            StudentId = profile.StudentId,
-            TrustedLoginToken = context.Credentials.TrustedLoginToken,
-            MobileJw = result.MobileJw ?? context.Credentials.MobileJw,
-            UpdatedAt = DateTimeOffset.Now.ToString("O"),
-        };
-        _dataRoot.Credentials().Save(nextCredentials);
-
-        var cachedSchedule = TryLoadCachedSchedule(sessionId);
-        return ("移动教务连接成功", BuildPayload(sessionId, profile, studentStore, settings, nextCredentials.TrustedLoginToken, cachedSchedule, connected: true));
-    }
-
     public (string Message, AuthPreferencesPayload Payload) GetPreferences(string sessionId)
     {
         var context = LoadContext(sessionId);
@@ -393,24 +278,23 @@ public sealed class AuthService : IDisposable
     public (string Message, AuthProfilePayload Payload) UpdateProfile(string sessionId, ProfileRequest request)
     {
         var context = LoadContext(sessionId);
-        var nickname = (request.Nickname ?? string.Empty).Trim();
-        var updatedProfile = new StudentProfileDocument
-        {
-            StudentId = context.Profile.StudentId,
-            Name = context.Profile.Name,
-            Nickname = nickname,
-            UseNickname = request.UseNickname && !string.IsNullOrWhiteSpace(nickname),
-            ClassName = context.Profile.ClassName,
-            MajorName = context.Profile.MajorName,
-            AcademyName = context.Profile.AcademyName,
-            TrainingLevel = context.Profile.TrainingLevel,
-            CampusName = context.Profile.CampusName,
-            ProgramDurationYears = context.Profile.ProgramDurationYears,
-            EnrollmentDate = context.Profile.EnrollmentDate,
-            UpdatedAt = DateTimeOffset.Now.ToString("O"),
-        };
+        var updatedProfile = WithNickname(context.Profile, request.Nickname ?? string.Empty, request.UseNickname);
         context.StudentStore.SaveProfile(updatedProfile);
         return ("昵称已保存", new AuthProfilePayload(BuildStudentSummary(updatedProfile, ResolveAvatarUrl(sessionId, context.StudentStore))));
+    }
+
+    private static StudentProfileDocument WithNickname(StudentProfileDocument profile, string nickname, bool useNickname)
+    {
+        var value = nickname.Trim();
+        return new StudentProfileDocument
+        {
+            StudentId = profile.StudentId, Name = profile.Name,
+            Nickname = value, UseNickname = useNickname && value.Length > 0,
+            ClassName = profile.ClassName, MajorName = profile.MajorName, AcademyName = profile.AcademyName,
+            TrainingLevel = profile.TrainingLevel, CampusName = profile.CampusName,
+            ProgramDurationYears = profile.ProgramDurationYears, EnrollmentDate = profile.EnrollmentDate,
+            UpdatedAt = DateTimeOffset.Now.ToString("O"),
+        };
     }
 
     public string GetAvatarPath(string sessionId)
@@ -454,29 +338,9 @@ public sealed class AuthService : IDisposable
         var session = EnsureSessionExists(sessionId);
         Interlocked.CompareExchange(ref _activeSessionId, null, sessionId);
         _dataRoot.Sessions().Remove(sessionId);
-        MarkSessionDisconnected(sessionId);
         _traditionalJwSessions.Remove(sessionId);
         _dataRoot.JwSessions().Remove(session.User);
         return "已注销";
-    }
-
-    public bool IsSessionConnected(string sessionId)
-    {
-        var cleaned = (sessionId ?? string.Empty).Trim();
-        if (string.IsNullOrWhiteSpace(cleaned))
-        {
-            return false;
-        }
-
-        lock (_connectedSessionsGate)
-        {
-            return _connectedSessions.Contains(cleaned);
-        }
-    }
-
-    public bool TryGetMobileToken(string sessionId, out string token)
-    {
-        return _mobileSessionRuntime.TryGetToken(sessionId, out token);
     }
 
     public string ResolveSessionStudentId(string sessionId)
@@ -500,8 +364,6 @@ public sealed class AuthService : IDisposable
     {
         return AuthSettingsCatalog.NormalizePreloginMode(value);
     }
-
-
 
     private async Task<bool> TryRestorePersistedJwSessionAsync(
         string sessionId,
@@ -529,7 +391,10 @@ public sealed class AuthService : IDisposable
                 return false;
             }
 
-            _dataRoot.ForStudent(profile.StudentId).SaveProfile(profile);
+            var studentStore = _dataRoot.ForStudent(profile.StudentId);
+            var displayPreference = studentStore.LoadProfile();
+            if (displayPreference is not null) profile = WithNickname(profile, displayPreference.Nickname, displayPreference.UseNickname);
+            studentStore.SaveProfile(profile);
             _traditionalJwSessions.Store(sessionId, client);
             _dataRoot.JwSessions().Save(client.ExportStoredSession());
             return true;
@@ -616,7 +481,6 @@ public sealed class AuthService : IDisposable
             Password = credentials.Password,
             StudentId = credentials.StudentId,
             TrustedLoginToken = CreateTrustedLoginToken(),
-            MobileJw = credentials.MobileJw,
             UpdatedAt = DateTimeOffset.Now.ToString("O"),
         };
         credentialStore.Save(updated);
@@ -636,97 +500,10 @@ public sealed class AuthService : IDisposable
             Password = credentials.Password,
             StudentId = credentials.StudentId,
             TrustedLoginToken = credentials.TrustedLoginToken,
-            MobileJw = credentials.MobileJw,
             UpdatedAt = DateTimeOffset.Now.ToString("O"),
         };
         credentialStore.Save(updated);
         return updated;
-    }
-
-    private async Task<(string Message, AuthPayload Payload)> InitializeRemoteStateAsync(
-        string user,
-        string password,
-        string preloginMode,
-        StoredCredentialDocument? previousCredentials,
-        string successMessage,
-        string failurePrefix,
-        CancellationToken cancellationToken)
-    {
-        JwAuthResult remoteResult;
-        try
-        {
-            remoteResult = await _jwClient.InitializeAsync(
-                user,
-                password,
-                preloginMode,
-                cancellationToken,
-                previousCredentials?.MobileJw).ConfigureAwait(false);
-        }
-        catch (JwAuthException ex)
-        {
-            throw new AuthException(401, ex.Message);
-        }
-
-        var profileFromRemote = EnsureRemoteProfile(remoteResult.Profile, $"{failurePrefix}：移动教务未返回可用身份信息");
-        var mobileToken = EnsureRemoteMobileToken(remoteResult.MobileToken, $"{failurePrefix}：移动教务未返回有效 Token");
-        var remoteStore = _dataRoot.ForStudent(profileFromRemote.StudentId);
-        // Remote initialization writes profile/preferences/schedule before the final success gate;
-        // snapshotting keeps a failed repair from polluting an existing trusted workspace.
-        using var studentSnapshot = StudentInitializationSnapshot.Capture(_dataRoot, remoteStore);
-        var credentialStore = _dataRoot.Credentials();
-        var createdSessionId = string.Empty;
-        try
-        {
-            remoteStore.SaveProfile(profileFromRemote);
-            var settingsDocument = AuthSettingsCatalog.WithPreloginMode(remoteStore.LoadPreferences() ?? AuthSettingsCatalog.CreateDefault(), preloginMode);
-            remoteStore.SavePreferences(settingsDocument);
-
-            var credentials = new StoredCredentialDocument
-            {
-                User = user,
-                Password = password,
-                StudentId = profileFromRemote.StudentId,
-                TrustedLoginToken = string.IsNullOrWhiteSpace(previousCredentials?.TrustedLoginToken)
-                    ? CreateTrustedLoginToken()
-                    : previousCredentials.TrustedLoginToken,
-                MobileJw = remoteResult.MobileJw,
-                UpdatedAt = DateTimeOffset.Now.ToString("O"),
-            };
-            credentialStore.Save(credentials);
-
-            var createdSession = _dataRoot.Sessions().Create(user, profileFromRemote.StudentId, preloginMode);
-            createdSessionId = createdSession.SessionId;
-            // First-time or repair initialization is only valid after identity and
-            // schedule have both been materialized locally.
-            MarkSessionConnected(createdSessionId, mobileToken);
-            var cachedSchedule = await InitializeCurrentScheduleAsync(
-                createdSessionId,
-                cancellationToken).ConfigureAwait(false);
-
-            return (
-                successMessage,
-                BuildPayload(createdSessionId, profileFromRemote, remoteStore, settingsDocument, credentials.TrustedLoginToken, cachedSchedule, connected: true));
-        }
-        catch (AuthException)
-        {
-            RollbackRemoteInitialization(createdSessionId, user, studentSnapshot, previousCredentials);
-            throw;
-        }
-        catch (ScheduleException ex)
-        {
-            RollbackRemoteInitialization(createdSessionId, user, studentSnapshot, previousCredentials);
-            throw new AuthException(500, $"{failurePrefix}：{ex.Detail}");
-        }
-        catch (OperationCanceledException)
-        {
-            RollbackRemoteInitialization(createdSessionId, user, studentSnapshot, previousCredentials);
-            throw;
-        }
-        catch (Exception ex)
-        {
-            RollbackRemoteInitialization(createdSessionId, user, studentSnapshot, previousCredentials);
-            throw new AuthException(500, $"{failurePrefix}：本地初始化失败：{ex.Message}", ex);
-        }
     }
 
     private AuthPayload BuildPayload(
@@ -752,19 +529,6 @@ public sealed class AuthService : IDisposable
             TrustedLoginToken: trustedLoginToken);
     }
 
-    private async Task<Dictionary<string, object?>> InitializeCurrentScheduleAsync(string sessionId, CancellationToken cancellationToken)
-    {
-        var result = await _scheduleService.FetchPreferredAsync(
-            sessionId,
-            new ScheduleRequest
-            {
-                Mode = "current",
-            },
-            cancellationToken).ConfigureAwait(false);
-        // Source clients distinguish an empty week from failed parsing.
-        return result.Payload;
-    }
-
     private Dictionary<string, object?> LoadRequiredCachedSchedule(string sessionId)
     {
         Dictionary<string, object?> cachedSchedule;
@@ -784,43 +548,6 @@ public sealed class AuthService : IDisposable
         return cachedSchedule;
     }
 
-    private Dictionary<string, object?>? TryLoadCachedSchedule(string sessionId)
-    {
-        try
-        {
-            var result = _scheduleService.LoadLocal(sessionId, string.Empty, "preferred");
-            return result.Payload;
-        }
-        catch (ScheduleException)
-        {
-            return null;
-        }
-    }
-
-    private void RollbackRemoteInitialization(
-        string sessionId,
-        string user,
-        StudentInitializationSnapshot studentSnapshot,
-        StoredCredentialDocument? previousCredentials)
-    {
-        if (!string.IsNullOrWhiteSpace(sessionId))
-        {
-            _dataRoot.Sessions().Remove(sessionId);
-            MarkSessionDisconnected(sessionId);
-        }
-
-        if (previousCredentials is null)
-        {
-            _dataRoot.Credentials().Remove(user);
-        }
-        else
-        {
-            _dataRoot.Credentials().Save(previousCredentials);
-        }
-
-        studentSnapshot.Restore();
-    }
-
     private AuthStudentSummary BuildStudentSummary(StudentProfileDocument profile, string avatarUrl)
     {
         return new AuthStudentSummary(
@@ -837,27 +564,6 @@ public sealed class AuthService : IDisposable
             UpdatedAt: profile.UpdatedAt,
             ProgramDurationYears: profile.ProgramDurationYears,
             EnrollmentDate: profile.EnrollmentDate);
-    }
-
-    private static StudentProfileDocument EnsureRemoteProfile(StudentProfileDocument profile, string errorMessage)
-    {
-        if (!string.IsNullOrWhiteSpace(profile.StudentId) && !string.IsNullOrWhiteSpace(profile.Name))
-        {
-            return profile;
-        }
-
-        throw new AuthException(502, errorMessage);
-    }
-
-    private static string EnsureRemoteMobileToken(string mobileToken, string errorMessage)
-    {
-        var cleaned = (mobileToken ?? string.Empty).Trim();
-        if (string.IsNullOrWhiteSpace(cleaned))
-        {
-            throw new AuthException(502, errorMessage);
-        }
-
-        return cleaned;
     }
 
     private static StudentProfileDocument LoadInitializedProfile(XkeStudentStore studentStore)
@@ -881,38 +587,6 @@ public sealed class AuthService : IDisposable
 
         var version = File.GetLastWriteTimeUtc(avatarPath).Ticks;
         return $"/api/auth/avatar?v={version}";
-    }
-
-    private void MarkSessionConnected(string sessionId, string mobileToken)
-    {
-        var cleaned = (sessionId ?? string.Empty).Trim();
-        if (string.IsNullOrWhiteSpace(cleaned))
-        {
-            return;
-        }
-
-        lock (_connectedSessionsGate)
-        {
-            _connectedSessions.Add(cleaned);
-        }
-
-        _mobileSessionRuntime.StoreToken(cleaned, mobileToken);
-    }
-
-    private void MarkSessionDisconnected(string sessionId)
-    {
-        var cleaned = (sessionId ?? string.Empty).Trim();
-        if (string.IsNullOrWhiteSpace(cleaned))
-        {
-            return;
-        }
-
-        lock (_connectedSessionsGate)
-        {
-            _connectedSessions.Remove(cleaned);
-        }
-
-        _mobileSessionRuntime.Remove(cleaned);
     }
 
     private AuthContext LoadContext(string sessionId)

@@ -18,7 +18,7 @@ public sealed class TraditionalJwClientTests
         var handler = new TraditionalJwFakeHandler();
         using var http = new HttpClient(handler);
         using var sessions = new TraditionalJwSessionRuntimeStore();
-        var client = new NativeJwScheduleClient(http, sessions, new XkeDataRoot(data.RootPath));
+        var client = new NativeJwScheduleClient(sessions, new XkeDataRoot(data.RootPath));
 
         var error = await Assert.ThrowsAsync<JwScheduleException>(() => client.FetchExistingSessionAsync(
             "20260001", "test-password", "auto", new ScheduleRequest { Mode = "current" }, "session", default));
@@ -268,10 +268,7 @@ public sealed class TraditionalJwClientTests
         using var traditionalHttp = new HttpClient(handler);
         var runtimeStore = new TraditionalJwSessionRuntimeStore();
         var factoryCalls = 0;
-        using var mobileHttp = new HttpClient(new ThrowingHandler());
         var native = new NativeJwScheduleClient(
-            mobileHttp,
-            new MobileJwLoginClient(mobileHttp),
             new TraditionalJwScheduleHtmlParser(),
             runtimeStore,
             (user, password, preloginMode) =>
@@ -327,11 +324,8 @@ public sealed class TraditionalJwClientTests
             ],
         });
         var handler = new TraditionalJwFakeHandler();
-        using var mobileHttp = new HttpClient(new ThrowingHandler());
         using var traditionalHttp = new HttpClient(handler);
         var native = new NativeJwScheduleClient(
-            mobileHttp,
-            new MobileJwLoginClient(mobileHttp),
             new TraditionalJwScheduleHtmlParser(),
             new TraditionalJwSessionRuntimeStore(),
             (user, password, preloginMode) => new TraditionalJwClient(user, password, preloginMode, TraditionalJwOptions.FromDataRoot(root), traditionalHttp),

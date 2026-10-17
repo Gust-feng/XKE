@@ -408,33 +408,17 @@ public sealed class XkeScheduleStore
     }
 
     private static IReadOnlyList<string> NormalizeSourceKeys(IReadOnlyList<string> sourceKeys)
-    {
-        return sourceKeys.Count == 0
-            ? ["jw_schedule", "mobile_schedule"]
-            : sourceKeys.Select(NormalizeSourceKey).Distinct(StringComparer.Ordinal).ToArray();
-    }
+        => sourceKeys.Count == 0 ? ["jw_schedule"] : sourceKeys.Select(NormalizeSourceKey).Distinct(StringComparer.Ordinal).ToArray();
 
     public static string NormalizeSourceKey(string source)
-    {
-        return (source ?? string.Empty).Trim().ToLowerInvariant() switch
+        => (source ?? string.Empty).Trim().ToLowerInvariant() switch
         {
-            "mobile" or "encrypted" or "mobile_schedule" => "mobile_schedule",
-            "preferred" => "jw_schedule",
-            "cookie" or "jw" or "jw_schedule" => "jw_schedule",
-            var value when !string.IsNullOrWhiteSpace(value) => XkeDataRoot.SanitizePathSegment(value),
-            _ => "jw_schedule",
+            "" or "preferred" or "cookie" or "jw" or "jw_schedule" => "jw_schedule",
+            _ => throw new ArgumentException("不支持的课表来源", nameof(source)),
         };
-    }
 
     public static IReadOnlyList<string> ResolveSourceKeys(string source)
-    {
-        return (source ?? string.Empty).Trim().ToLowerInvariant() switch
-        {
-            "mobile" or "encrypted" or "mobile_schedule" => ["mobile_schedule"],
-            "cookie" or "jw" or "jw_schedule" => ["jw_schedule", "mobile_schedule"],
-            _ => ["jw_schedule", "mobile_schedule"],
-        };
-    }
+        => [NormalizeSourceKey(source)];
 
     private static string NormalizeWeekLabel(string weekLabel)
     {

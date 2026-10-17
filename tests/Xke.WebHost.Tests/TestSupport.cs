@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.Json;
 using Xke.Core.Auth.Jw;
 using Xke.Core.Desktop;
@@ -86,35 +87,35 @@ internal static class WebHostTestServer
         TemporaryWebRoot webRoot,
         TemporaryDirectory? dataRoot = null,
         string hostMode = "test-host",
-        IJwAuthClient? jwAuthClient = null,
         IJwScheduleClient? jwScheduleClient = null,
         HttpMessageHandler? networkHttpMessageHandler = null,
         INetworkCommandExecutor? networkCommandExecutor = null,
         IDesktopWindowController? desktopWindowController = null,
-        IDesktopStartupRegistrar? desktopStartupRegistrar = null)
+        IDesktopStartupRegistrar? desktopStartupRegistrar = null,
+        Func<string, string, DirectJwLoginProtocol>? jwLoginProtocolFactory = null)
     {
         return await StartAsync(
             webRoot.RootPath,
             dataRoot,
             hostMode,
-            jwAuthClient,
             jwScheduleClient,
             networkHttpMessageHandler,
             networkCommandExecutor,
             desktopWindowController,
-            desktopStartupRegistrar);
+            desktopStartupRegistrar,
+            jwLoginProtocolFactory);
     }
 
     public static async Task<StartedWebHost> StartAsync(
         string webRootPath,
         TemporaryDirectory? dataRoot = null,
         string hostMode = "test-host",
-        IJwAuthClient? jwAuthClient = null,
         IJwScheduleClient? jwScheduleClient = null,
         HttpMessageHandler? networkHttpMessageHandler = null,
         INetworkCommandExecutor? networkCommandExecutor = null,
         IDesktopWindowController? desktopWindowController = null,
-        IDesktopStartupRegistrar? desktopStartupRegistrar = null)
+        IDesktopStartupRegistrar? desktopStartupRegistrar = null,
+        Func<string, string, DirectJwLoginProtocol>? jwLoginProtocolFactory = null)
     {
         var ownedDataRoot = dataRoot is null ? new TemporaryDirectory() : null;
         var service = new XkeWebHostService(new XkeWebHostOptions
@@ -126,10 +127,9 @@ internal static class WebHostTestServer
             EnableBackgroundTasks = false,
             ScheduleApiOptions = new Xke.Core.Schedule.ScheduleApiOptions(),
             AuthDataRootPath = (dataRoot ?? ownedDataRoot!).RootPath,
-            JwAuthClient = jwAuthClient,
-            UseLegacyMobileAuthentication = true,
-            UseLegacyMobileScheduleForTests = true,
             JwScheduleClient = jwScheduleClient,
+            // Tests that do not assert on school-protocol traffic get a working fake login.
+            JwLoginProtocolFactory = jwLoginProtocolFactory ?? ((user, password) => new DirectJwLoginProtocol(user, password, new HttpClient(new ProtocolHandler()))),
             NetworkHttpMessageHandler = networkHttpMessageHandler,
             NetworkCommandExecutor = networkCommandExecutor,
             DesktopWindowController = desktopWindowController,
@@ -157,5 +157,29 @@ internal static class WebHostTestJson
     {
         var text = await response.Content.ReadAsStringAsync();
         return JsonDocument.Parse(text);
+    }
+}
+
+internal sealed class ProtocolHandler : HttpMessageHandler
+{
+    public int Requests { get; private set; }
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        Requests++;
+        var uri = request.RequestUri!;
+        if (uri.AbsolutePath == "/verifycode.servlet")
+        {
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent([1, 2, 3]) });
+        }
+        var response = new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            RequestMessage = request,
+            Content = new StringContent(uri.Query.Contains("flag=sess", StringComparison.Ordinal)
+                ? "abcdefghijklmnopqrstuvwxyz#11111111111111111111"
+                : "<table><tr><th>学号</th><td>20260001</td><th>姓名</th><td>测试同学</td></tr><tr><th>学院</th><td>信息工程学院</td><th>专业</th><td>软件技术</td></tr><tr><th>班级</th><td>软件一班</td><th>培养层次</th><td>专科</td><th>校区</th><td>主校区</td></tr></table>"),
+        };
+        if (uri.AbsolutePath == "/Logon.do" && !uri.Query.Contains("flag=sess", StringComparison.Ordinal))
+            response.Headers.Location = new Uri("http://jw.hnsoftedu.com/jsxsd/framework/xsMainV.jsp");
+        return Task.FromResult(response);
     }
 }

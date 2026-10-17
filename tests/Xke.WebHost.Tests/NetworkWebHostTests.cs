@@ -28,7 +28,6 @@ public sealed class NetworkWebHostTests
             webRoot,
             dataRoot,
             hostMode: "test-network",
-            jwAuthClient: new FakeJwAuthClient(),
             jwScheduleClient: new DefaultFakeJwScheduleClient(),
             networkHttpMessageHandler: handler,
             networkCommandExecutor: executor);
@@ -97,7 +96,7 @@ public sealed class NetworkWebHostTests
         using var web = new TemporaryWebRoot();
         var executor = new FakeNetworkCommandExecutor();
         await using var host = await WebHostTestServer.StartAsync(web, data,
-            jwAuthClient: new FakeJwAuthClient(), jwScheduleClient: new DefaultFakeJwScheduleClient(),
+            jwScheduleClient: new DefaultFakeJwScheduleClient(),
             networkHttpMessageHandler: new FakeNetworkHttpMessageHandler(), networkCommandExecutor: executor);
         var sid = await LoginAsync(host.Client, "20260001");
         using var response = await host.Client.PostAsJsonAsync("/api/network/config?session_id=" + sid, new
@@ -122,7 +121,7 @@ public sealed class NetworkWebHostTests
         var handler = new ConfigurableNetworkHandler();
         var executor = new FakeNetworkCommandExecutor();
         await using var host = await WebHostTestServer.StartAsync(web, data,
-            jwAuthClient: new FakeJwAuthClient(), jwScheduleClient: new DefaultFakeJwScheduleClient(),
+            jwScheduleClient: new DefaultFakeJwScheduleClient(),
             networkHttpMessageHandler: handler, networkCommandExecutor: executor);
         var sid = await LoginAsync(host.Client, "20260001");
         using var save = await host.Client.PostAsJsonAsync("/api/network/config?session_id=" + sid, new NetworkConfigRequest
@@ -158,7 +157,7 @@ public sealed class NetworkWebHostTests
     {
         using var data = new TemporaryDirectory(); using var web = new TemporaryWebRoot();
         var handler = new FakeNetworkHttpMessageHandler();
-        await using var host = await WebHostTestServer.StartAsync(web, data, jwAuthClient: new FakeJwAuthClient(),
+        await using var host = await WebHostTestServer.StartAsync(web, data,
             jwScheduleClient: new DefaultFakeJwScheduleClient(), networkHttpMessageHandler: handler, networkCommandExecutor: new FakeNetworkCommandExecutor());
         var sid = await LoginAsync(host.Client, "20260001");
         var root = new XkeDataRoot(data.RootPath);
@@ -190,7 +189,7 @@ public sealed class NetworkWebHostTests
     {
         using var data = new TemporaryDirectory(); using var web = new TemporaryWebRoot();
         var handler = new FakeNetworkHttpMessageHandler { LoginBody = "dr1001(" + JsonSerializer.Serialize(new { result = 0, msg = message }) + ");", InternetInitially = alreadyOnline };
-        await using var host = await WebHostTestServer.StartAsync(web, data, jwAuthClient: new FakeJwAuthClient(),
+        await using var host = await WebHostTestServer.StartAsync(web, data,
             jwScheduleClient: new DefaultFakeJwScheduleClient(), networkHttpMessageHandler: handler, networkCommandExecutor: new FakeNetworkCommandExecutor());
         var sid = await LoginAsync(host.Client, "20260001");
         using var save = await host.Client.PostAsJsonAsync("/api/network/config?session_id=" + sid, new NetworkConfigRequest { CampusAccount = "isolated-user", CampusPassword = "isolated-secret" });
@@ -213,7 +212,7 @@ public sealed class NetworkWebHostTests
     {
         using var data = new TemporaryDirectory(); using var web = new TemporaryWebRoot();
         var handler = new FakeNetworkHttpMessageHandler();
-        await using var host = await WebHostTestServer.StartAsync(web, data, jwAuthClient: new FakeJwAuthClient(),
+        await using var host = await WebHostTestServer.StartAsync(web, data,
             jwScheduleClient: new DefaultFakeJwScheduleClient(), networkHttpMessageHandler: handler, networkCommandExecutor: new FakeNetworkCommandExecutor());
         var sid = await LoginAsync(host.Client, "20260001");
         using var response = await host.Client.PostAsJsonAsync("/api/network/maintain?session_id=" + sid, new NetworkActionRequest { Force = true });
@@ -229,7 +228,7 @@ public sealed class NetworkWebHostTests
     public async Task NetworkConfig_RejectsInvalidHeartbeatIntervalsWithoutSaving(int minutes)
     {
         using var data = new TemporaryDirectory(); using var web = new TemporaryWebRoot();
-        await using var host = await WebHostTestServer.StartAsync(web, data, jwAuthClient: new FakeJwAuthClient(),
+        await using var host = await WebHostTestServer.StartAsync(web, data,
             jwScheduleClient: new DefaultFakeJwScheduleClient(), networkHttpMessageHandler: new FakeNetworkHttpMessageHandler(), networkCommandExecutor: new FakeNetworkCommandExecutor());
         var sid = await LoginAsync(host.Client, "20260001");
         using var response = await host.Client.PostAsJsonAsync("/api/network/config?session_id=" + sid, new { heartbeat_interval_minutes = minutes });
@@ -247,7 +246,7 @@ public sealed class NetworkWebHostTests
     {
         using var data = new TemporaryDirectory(); using var web = new TemporaryWebRoot();
         var handler = new FakeNetworkHttpMessageHandler { LoginBody = body, LoginStatus = (HttpStatusCode)statusCode };
-        await using var host = await WebHostTestServer.StartAsync(web, data, jwAuthClient: new FakeJwAuthClient(),
+        await using var host = await WebHostTestServer.StartAsync(web, data,
             jwScheduleClient: new DefaultFakeJwScheduleClient(), networkHttpMessageHandler: handler, networkCommandExecutor: new FakeNetworkCommandExecutor());
         var sid = await LoginAsync(host.Client, "20260001");
         using var save = await host.Client.PostAsJsonAsync("/api/network/config?session_id=" + sid, new NetworkConfigRequest { CampusAccount = "isolated-user", CampusPassword = "isolated-secret" });
@@ -267,7 +266,7 @@ public sealed class NetworkWebHostTests
     {
         using var data = new TemporaryDirectory(); using var web = new TemporaryWebRoot();
         var handler = new FakeNetworkHttpMessageHandler { LoginBody = "dr1001(" + JsonSerializer.Serialize(new { result = 0, msg = "当前IP不在允许范围" }) + ")" };
-        await using var host = await WebHostTestServer.StartAsync(web, data, jwAuthClient: new FakeJwAuthClient(),
+        await using var host = await WebHostTestServer.StartAsync(web, data,
             jwScheduleClient: new DefaultFakeJwScheduleClient(), networkHttpMessageHandler: handler, networkCommandExecutor: new FakeNetworkCommandExecutor());
         var sid = await LoginAsync(host.Client, "20260001");
         using var save = await host.Client.PostAsJsonAsync("/api/network/config?session_id=" + sid, new Dictionary<string, object>
@@ -287,7 +286,15 @@ public sealed class NetworkWebHostTests
             prelogin_mode = "capture",
         });
         var document = await ReadJsonAsync(login);
-        return GetData(document).GetProperty("session_id").GetString()!;
+        var challengeId = GetData(document).GetProperty("challenge_id").GetString()!;
+        var submit = await client.PostAsJsonAsync("/api/auth/captcha", new
+        {
+            challenge_id = challengeId,
+            captcha_code = "1234",
+        });
+        var submitText = await submit.Content.ReadAsStringAsync();
+        if (!submit.IsSuccessStatusCode) throw new InvalidOperationException("SUBMIT FAILED: " + submit.StatusCode + " body=" + submitText);
+        return GetData(await ReadJsonAsync(submit)).GetProperty("session_id").GetString()!;
     }
 
     private static JsonElement GetData(JsonDocument document)
@@ -301,42 +308,9 @@ public sealed class NetworkWebHostTests
         return JsonDocument.Parse(text);
     }
 
-    private sealed class FakeJwAuthClient : IJwAuthClient
-    {
-        public Task<JwAuthResult> InitializeAsync(string user, string password, string preloginMode, CancellationToken cancellationToken = default, MobileJwEncryptedCredentialDocument? mobileJw = null)
-        {
-            return Task.FromResult(new JwAuthResult(BuildProfile(user), "mobile-token-initial"));
-        }
-
-        public Task<JwAuthResult> ConnectAsync(string user, string password, string preloginMode, CancellationToken cancellationToken = default, MobileJwEncryptedCredentialDocument? mobileJw = null)
-        {
-            return Task.FromResult(new JwAuthResult(BuildProfile(user), "mobile-token-connected"));
-        }
-
-        private static StudentProfileDocument BuildProfile(string user)
-        {
-            return new StudentProfileDocument
-            {
-                StudentId = user,
-                Name = "测试同学",
-                ClassName = "软件一班",
-                MajorName = "软件技术",
-                AcademyName = "信息工程学院",
-                TrainingLevel = "专科",
-                CampusName = "主校区",
-                UpdatedAt = "2026-04-23T12:00:00Z",
-            };
-        }
-    }
-
     private sealed class FakeJwScheduleClient : Xke.Core.Schedule.IJwScheduleClient
     {
-        public Task<Xke.Core.Schedule.JwScheduleFetchResult> FetchPreferredAsync(string user, string password, string preloginMode, ScheduleRequest request, CancellationToken cancellationToken = default, string existingToken = "", MobileJwEncryptedCredentialDocument? mobileJw = null)
-        {
-            throw new NotSupportedException();
-        }
-
-        public Task<Xke.Core.Schedule.JwScheduleFetchResult> FetchCookieAsync(string user, string password, string preloginMode, ScheduleRequest request, CancellationToken cancellationToken = default, string existingToken = "", MobileJwEncryptedCredentialDocument? mobileJw = null, string sessionId = "")
+        public Task<Xke.Core.Schedule.JwScheduleFetchResult> FetchCookieAsync(string user, string password, string preloginMode, ScheduleRequest request, CancellationToken cancellationToken = default, string sessionId = "")
         {
             throw new NotSupportedException();
         }

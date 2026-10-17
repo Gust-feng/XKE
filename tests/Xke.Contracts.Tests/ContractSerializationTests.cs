@@ -228,9 +228,9 @@ public sealed class ContractSerializationTests
     public void ScheduleData_UsesSnakeCaseForNestedFields()
     {
         var payload = new ScheduleData(
-            Source: "移动教务课表",
-            SourceLabel: "移动教务课表",
-            SourceType: "mobile",
+            Source: "教务系统课表",
+            SourceLabel: "教务系统课表",
+            SourceType: "jw",
             Rows:
             [
                 new ScheduleRow
@@ -280,7 +280,7 @@ public sealed class ContractSerializationTests
                     SmallSection2: "08:50-09:35",
                     BreakMinutes: 5),
             ],
-            SavedFiles: new[] { ".runtime/data/students/20260001/schedules/current/weeks/第7周/mobile_schedule.json" },
+            SavedFiles: new[] { ".runtime/data/students/20260001/schedules/current/weeks/第7周/jw_schedule.json" },
             FallbackReason: string.Empty,
             DataWarnings:
             [
@@ -303,14 +303,14 @@ public sealed class ContractSerializationTests
             DataOrigin: "local_cache",
             UpdatedAt: "2026-04-23T12:00:00Z",
             FileUpdatedAt: "2026-04-23T12:00:01Z",
-            SourceKey: "mobile_schedule");
+            SourceKey: "jw_schedule");
 
         var json = JsonSerializer.Serialize(payload);
 
         Assert.Contains("\"source_label\":", json);
-        Assert.Contains("\"source_type\":\"mobile\"", json);
-        Assert.Contains("\"source_key\":\"mobile_schedule\"", json);
-        Assert.Equal("mobile_schedule", JsonSerializer.Deserialize<ScheduleData>(json)!.SourceKey);
+        Assert.Contains("\"source_type\":\"jw\"", json);
+        Assert.Contains("\"source_key\":\"jw_schedule\"", json);
+        Assert.Equal("jw_schedule", JsonSerializer.Deserialize<ScheduleData>(json)!.SourceKey);
         Assert.Contains("\"week_label\":", json);
         Assert.Contains("\"available_weeks\":", json);
         Assert.Contains("\"current_week_number\":7", json);

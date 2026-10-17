@@ -161,6 +161,47 @@ public sealed class ScheduleSourceIntegrationTests
         await app.StopAsync();
     }
 
+    [Theory]
+    [InlineData("mobile")]
+    [InlineData("encrypted")]
+    [InlineData("mobile_schedule")]
+    [InlineData("unknown")]
+    public async Task LocalRead_RejectsUnsupportedSourcesWithABusinessError(string source)
+    {
+        using var data = new TemporaryDirectory();
+        using var web = new TemporaryWebRoot();
+        await using var app = Create(data, web, new(), new MissingSnapshot());
+        var auth = app.Services.GetRequiredService<AuthService>();
+        var session = Seed(data, auth);
+        var error = Assert.Throws<ScheduleException>(() => app.Services.GetRequiredService<ScheduleService>().LoadLocal(session, "", source));
+        Assert.Equal(400, error.StatusCode);
+        Assert.NotNull(auth.GetSession(session).Payload);
+
+        app.Urls.Add("http://127.0.0.1:0");
+        await app.StartAsync();
+        var server = app.Services.GetRequiredService<Microsoft.AspNetCore.Hosting.Server.IServer>();
+        var addresses = server.Features.Get<Microsoft.AspNetCore.Hosting.Server.Features.IServerAddressesFeature>()!;
+        using var client = new HttpClient { BaseAddress = new Uri(Assert.Single(addresses.Addresses)) };
+        client.DefaultRequestHeaders.Add("X-XKE-Session", session);
+        using var response = await client.GetAsync("/api/schedule/local?source=" + Uri.EscapeDataString(source));
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.False(body.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Equal("不支持的课表来源", body.RootElement.GetProperty("msg").GetString());
+        await app.StopAsync();
+    }
+
+    [Fact]
+    public void Mapper_DefaultSourceMetadataUsesTheCurrentProtocol()
+    {
+        var result = ScheduleDataMapper.NormalizeWeek(new() { ["rows"] = Array.Empty<object>() },
+            new StudentProfileDocument { StudentId = "20260001" }, true, "local_cache", "jw_schedule", "", "", "", null);
+        Assert.Equal("jw_schedule", result["source_key"]);
+        Assert.Equal("jw", result["source_type"]);
+        Assert.Equal("教务系统课表", result["source_label"]);
+        Assert.Equal("direct_jw", result["retrieval_channel"]);
+    }
+
     private static WebApplication Create(TemporaryDirectory data, TemporaryWebRoot web, DefaultFakeJwScheduleClient fake, IScheduleSnapshotSource source)
         => XkeWebHostApplication.Create(options: new XkeWebHostOptions
         {

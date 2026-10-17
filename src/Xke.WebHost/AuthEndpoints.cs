@@ -16,27 +16,15 @@ public static partial class XkeWebHostApplication
             return Ok(result.Message, result.Payload);
         });
 
-        auth.MapPost("/login", async (LoginRequest request, AuthService authService, XkeWebHostOptions options, HttpContext context) =>
+        auth.MapPost("/login", async (LoginRequest request, AuthService authService, HttpContext context) =>
         {
-            if (options.UseLegacyMobileAuthentication)
-            {
-                var legacyResult = await authService.LoginAsync(request, context.RequestAborted);
-                return Ok(legacyResult.Message, legacyResult.Payload);
-            }
-
             var result = await authService.BeginProtocolLoginAsync(request, cancellationToken: context.RequestAborted);
             return Ok(result.Message, result.Payload);
         });
 
-        auth.MapPost("/reinitialize", async (LoginRequest request, AuthService authService, XkeWebHostOptions options, HttpContext context) =>
+        auth.MapPost("/reinitialize", async (LoginRequest request, AuthService authService, HttpContext context) =>
         {
-            if (!options.UseLegacyMobileAuthentication)
-            {
-                var protocolResult = await authService.BeginProtocolLoginAsync(request, forceRemote: true, cancellationToken: context.RequestAborted);
-                return Ok(protocolResult.Message, protocolResult.Payload);
-            }
-
-            var result = await authService.ReinitializeAsync(request, context.RequestAborted);
+            var result = await authService.BeginProtocolLoginAsync(request, forceRemote: true, cancellationToken: context.RequestAborted);
             return Ok(result.Message, result.Payload);
         });
 
@@ -46,15 +34,10 @@ public static partial class XkeWebHostApplication
             return Ok(result.Message, result.Payload);
         });
 
-        auth.MapPost("/connect", async (ConnectRequest request, AuthService authService, XkeWebHostOptions options, HttpContext context) =>
+        auth.MapPost("/connect", async (ConnectRequest request, AuthService authService, HttpContext context) =>
         {
             var sessionId = ResolveSessionId(context);
-            if (!options.UseLegacyMobileAuthentication)
-            {
-                var protocol = await authService.ConnectProtocolAsync(sessionId, context.RequestAborted);
-                return Ok(protocol.Message, protocol.Payload);
-            }
-            var result = await authService.ConnectAsync(sessionId, request, context.RequestAborted);
+            var result = await authService.ConnectProtocolAsync(sessionId, context.RequestAborted);
             return Ok(result.Message, result.Payload);
         });
 

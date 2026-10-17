@@ -41,12 +41,9 @@ public static partial class XkeWebHostApplication
             appRoot: dotNetRoot,
             workspaceRoot: dotNetRoot,
             explicitDataRoot: hostOptions.AuthDataRootPath));
-        builder.Services.AddSingleton<IJwAuthClient>(_ =>
-            hostOptions.JwAuthClient ?? new NativeJwAuthClient(new HttpClient()));
         builder.Services.AddSingleton<TraditionalJwSessionRuntimeStore>();
         builder.Services.AddSingleton<IJwScheduleClient>(_ =>
             hostOptions.JwScheduleClient ?? new NativeJwScheduleClient(
-                new HttpClient(),
                 _.GetRequiredService<TraditionalJwSessionRuntimeStore>(),
                 _.GetRequiredService<XkeDataRoot>()));
         var scheduleApiOptions = hostOptions.ScheduleApiOptions ?? ScheduleApiOptions.Load(dotNetRoot);
@@ -57,7 +54,6 @@ public static partial class XkeWebHostApplication
         snapshotClient.ConfigurePrimaryHttpMessageHandler(services => ScheduleApiTransport.CreateHandler(services.GetRequiredService<ScheduleApiOptions>()));
         if (hostOptions.ScheduleSnapshotSource is not null)
             builder.Services.AddSingleton<IScheduleSnapshotSource>(hostOptions.ScheduleSnapshotSource);
-        builder.Services.AddSingleton<MobileSessionRuntimeStore>();
         builder.Services.AddSingleton(_ =>
             hostOptions.NetworkHttpMessageHandler is null
                 ? new HttpClient(NetworkHttpTransport.CreateHandler())
@@ -74,9 +70,7 @@ public static partial class XkeWebHostApplication
             hostOptions.DesktopWindowController ?? new NoopDesktopWindowController());
         builder.Services.AddSingleton(services => new AuthService(
             services.GetRequiredService<XkeDataRoot>(),
-            services.GetRequiredService<IJwAuthClient>(),
             services.GetRequiredService<ScheduleService>(),
-            services.GetRequiredService<MobileSessionRuntimeStore>(),
             services.GetRequiredService<TraditionalJwSessionRuntimeStore>(),
             hostOptions.JwLoginProtocolFactory));
         builder.Services.AddSingleton<JwCaptchaChallengeStore>();
@@ -84,10 +78,8 @@ public static partial class XkeWebHostApplication
         builder.Services.AddSingleton(_ => new ScheduleService(
             _.GetRequiredService<XkeDataRoot>(),
             _.GetRequiredService<IJwScheduleClient>(),
-            _.GetRequiredService<MobileSessionRuntimeStore>(),
             _.GetRequiredService<JwCaptchaChallengeStore>(),
             _.GetRequiredService<IJwCaptchaSolver>(),
-            hostOptions.UseLegacyMobileScheduleForTests,
             _.GetRequiredService<IScheduleSnapshotSource>(),
             () => _.GetRequiredService<AuthService>().ActiveSessionId));
         builder.Services.AddSingleton<IScheduleRefresh>(services => services.GetRequiredService<ScheduleService>());
@@ -451,12 +443,6 @@ public static partial class XkeWebHostApplication
     {
         return Results.Json(new ApiEnvelope(Msg: message, Data: data));
     }
-
-
-
-
-
-
 
     private static string ResolveSessionId(HttpContext context)
     {

@@ -26,6 +26,7 @@ var app = XkeWebHostApplication.Create(options: new XkeWebHostOptions
     AuthDataRootPath = dataRoot,
     RuntimeChannel = "isolated-frontend-integration",
     HostMode = "desktop-webview",
+    DesktopRequestToken = "synthetic-integration-desktop-proof",
     EnableBackgroundTasks = false,
     ScheduleApiOptions = new ScheduleApiOptions(),
     JwScheduleClient = new FixtureScheduleClient(),
@@ -120,12 +121,8 @@ internal sealed class FixtureScheduleClient : IJwScheduleClient
         });
     }
 
-    public Task<JwScheduleFetchResult> FetchPreferredAsync(string user, string password, string preloginMode, ScheduleRequest request,
-        CancellationToken cancellationToken = default, string existingToken = "", MobileJwEncryptedCredentialDocument? mobileJw = null)
-        => Task.FromResult(BuildSchedule(request));
-
     public Task<JwScheduleFetchResult> FetchCookieAsync(string user, string password, string preloginMode, ScheduleRequest request,
-        CancellationToken cancellationToken = default, string existingToken = "", MobileJwEncryptedCredentialDocument? mobileJw = null, string sessionId = "")
+        CancellationToken cancellationToken = default, string sessionId = "")
     {
         var call = Interlocked.Increment(ref _cookieCalls);
         if (call == 2)

@@ -246,10 +246,8 @@ public sealed class JwDataExtractionTests
             if (Fail) throw new JwScheduleException("Test semester failure", 503);
             return Task.FromResult(new TraditionalJwScheduleHtmlParser().ParseSemester(Semester(), string.IsNullOrEmpty(academicTerm) ? "2026-2027-1" : academicTerm));
         }
-        public Task<JwScheduleFetchResult> FetchPreferredAsync(string user, string password, string preloginMode, ScheduleRequest request, CancellationToken cancellationToken = default, string existingToken = "", MobileJwEncryptedCredentialDocument? mobileJw = null)
-            => _weekly.FetchPreferredAsync(user, password, preloginMode, request, cancellationToken, existingToken, mobileJw);
-        public Task<JwScheduleFetchResult> FetchCookieAsync(string user, string password, string preloginMode, ScheduleRequest request, CancellationToken cancellationToken = default, string existingToken = "", MobileJwEncryptedCredentialDocument? mobileJw = null, string sessionId = "")
-            => _weekly.FetchCookieAsync(user, password, preloginMode, request, cancellationToken, existingToken, mobileJw, sessionId);
+        public Task<JwScheduleFetchResult> FetchCookieAsync(string user, string password, string preloginMode, ScheduleRequest request, CancellationToken cancellationToken = default, string sessionId = "")
+            => _weekly.FetchCookieAsync(user, password, preloginMode, request, cancellationToken, sessionId);
     }
 
     private sealed class Handler(Func<HttpRequestMessage, string> body) : HttpMessageHandler

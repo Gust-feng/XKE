@@ -39,7 +39,7 @@ public sealed class ScheduleMaintenanceReliabilityTests
         var pending = f.Service.RefreshInBackgroundAsync(f.Session, default);
         await f.Source.Entered.Task.WaitAsync(TimeSpan.FromSeconds(3));
         f.Root.Sessions().Remove(f.Session);
-        f.Fake.PreferredException = new JwScheduleException("synthetic-old-failure", 401);
+        f.Fake.CookieException = new JwScheduleException("synthetic-old-failure", 401);
         f.Source.Release.SetResult();
         Assert.Equal(409, (await Assert.ThrowsAsync<ScheduleException>(() => pending)).StatusCode);
     }
@@ -97,7 +97,6 @@ public sealed class ScheduleMaintenanceReliabilityTests
         public DefaultFakeJwScheduleClient Fake { get; } = new();
         public Source Source { get; }
         public ScheduleService Service { get; }
-        private readonly MobileSessionRuntimeStore _mobile = new();
         public Fixture()
         {
             Root = new(_temp.RootPath); Student = Root.ForStudent("SCHEDULE");
@@ -105,7 +104,7 @@ public sealed class ScheduleMaintenanceReliabilityTests
             Student.SavePreferences(Settings);
             Session = Root.Sessions().Create("synthetic", Student.StudentId, "auto").SessionId; Active = Session;
             Source = new(Fake);
-            Service = new(Root, Fake, _mobile, new(), new ManualCaptchaSolver(), snapshotSource: Source, activeSession: () => Active);
+            Service = new(Root, Fake, new(), new ManualCaptchaSolver(), snapshotSource: Source, activeSession: () => Active);
         }
         public void Dispose() { Service.Dispose(); _temp.Dispose(); }
     }
@@ -116,8 +115,7 @@ public sealed class ScheduleMaintenanceReliabilityTests
         public async Task<ScheduleSnapshotAttempt> FetchAsync(string student, ScheduleRequest request, CancellationToken token)
         {
             Entered.TrySetResult(); await Release.Task.WaitAsync(token);
-            var result = await fake.FetchPreferredAsync(student, "unused", "auto", request, token);
-            return new(result with { SourceKey = "jw_schedule" }, "");
+            return new ScheduleSnapshotAttempt(fake.BuildSnapshot(student), "");
         }
     }
     private sealed class Invalidated : IScheduleRefresh
