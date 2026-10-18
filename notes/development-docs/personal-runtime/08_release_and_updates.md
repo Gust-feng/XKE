@@ -1,8 +1,12 @@
-# V1.0.0 发布与自动更新（2026-10-17）
+# 发布与自动更新（2026-10-17起）
+
+## 2026-10-18 V1.0.1修复版
+
+v1.0.0已合入main但标签验证失败，尚无公开Release，原标签保留以追溯。CI复现网络凭据仅以文件时间戳识别变更的缺口：快速替换可保持时间戳，维护错误地沿用本次流程。已用等长/等时间戳负例稳定复现并修复为加密文件SHA256摘要，网络凭据读取/摘要/原子保存共享有限锁条带，不解密轮询、不改存储格式。版本递增1.0.1，不覆盖失败标签；后续以v1.0.1触发同一Actions流程。当前无Authenticode签名，不宣称已做真实学校或新机器验收。
 
 ## 2026-10-18 Actions正式发布流程
 
-用户已授权本轮必要源码提交、合入main、推送和首个V1.0.0公开发布；本条覆盖下方历史“尚未授权/未执行”的阶段描述，不授予后续自动发布许可。公开仓库目前没有既有Release，仍使用1.0.0，不覆盖或伪造已发布版本。
+用户已授权本轮必要源码提交、合入main、推送和首个V1.0.0公开发布；本条覆盖下方历史“尚未授权/未执行”的阶段描述，不授予后续自动发布许可。原计划1.0.0已因校验缺口取消公开；当前修复版为1.0.1，不覆盖或伪造已发布版本。
 
 .github/workflows/release.yml提供Windows2022验证：锁文件安装、依赖审计、源码/测试类型、零警告lint、前端测试/runtime构建、完整.NET测试、隔离HTTP集成和80项发布门禁。PR/main执行验证；正式v标签验证通过后才进入独立contents:write发布任务。官方Actions按已核对的完整commit SHA固定；版本必须与Directory.Build.props一致，且标签源码必须已合入origin/main，不允许重复版本或降低稳定版本。
 
@@ -41,7 +45,7 @@ Actions需要仓库secret XKE_CAMPUS_SELF_SERVICE_CONFIG，只允许endpoint和t
 - POST `/api/app/updates/check`、`/download`、`/apply`：同一状态模型。download只排队启动，HTTP不等待整个大包；apply排队安全退出，不在API线程直接杀进程。
 - 桌面模式所有上述入口要求原生X-XKE-Desktop证明，不依赖学校session。自动更新开关为机器设置`auto_update_enabled`，DPAPI本地保存；默认启用，用户可关闭。
 - Core/Releases只编排状态/节流/取消；DesktopHost/Updates接Velopack，WebHost只提供受控入口及独立worker；不引入新的更新服务器或通用远程执行入口。
-- 主产品版本唯一来源Directory.Build.props Version=1.0.0。前端版本读API，不拿npm版本猜最新版本。health新增app_version/update_supported，方便验证实际运行包。
+- 主产品版本唯一来源Directory.Build.props Version=1.0.1。前端版本读API，不拿npm版本猜最新版本。health新增app_version/update_supported，方便验证实际运行包。
 
 ## 构建候选包
 
@@ -50,7 +54,7 @@ npm --prefix frontend run build
 pwsh -NoProfile -File tools/package-desktop.ps1
 ```
 
-默认输出`artifacts/releases/1.0.0`，必须不存在或为空。固定三套.NET runtime pack **8.0.32** 自包含，local vpk与SDK固定1.2.161；WebView2由官方`--framework webview2` bootstrap处理，便携版仍需要可用的WebView2 Runtime。必要校园网自助地址可通过CampusSelfServiceConfigPath显式最小字段生成，但不是连接校园网的前提；默认不注入私有课表服务或DPAPI文件。
+默认输出`artifacts/releases/1.0.1`，必须不存在或为空。固定三套.NET runtime pack **8.0.32** 自包含，local vpk与SDK固定1.2.161；WebView2由官方`--framework webview2` bootstrap处理，便携版仍需要可用的WebView2 Runtime。必要校园网自助地址可通过CampusSelfServiceConfigPath显式最小字段生成，但不是连接校园网的前提；默认不注入私有课表服务或DPAPI文件。
 
 公开发布前须维护THIRD-PARTY-NOTICES.txt，依赖版本升级时更新其中许可/通知。此文件不替项目自身选择开源许可证，打包预检与归档检查要求其存在。
 
@@ -60,14 +64,14 @@ pwsh -NoProfile -File tools/package-desktop.ps1
 
 - `XKE-win-Setup.exe`：安装版。
 - `XKE-win-Portable.zip`：便携版，解压后运行根目录XKE.exe，不单拷贝current里的exe。
-- `XKE-1.0.0-full.nupkg`：自动更新完整包。
+- `XKE-1.0.1-full.nupkg`：自动更新完整包。
 - `releases.win.json`：更新feed，不能遗漏。
 - `assets.win.json`、`RELEASES`：官方打包元数据。
 
 ## 发布到GitHub（尚未执行）
 
 1. 先获得当前改动提交/推送的明确授权；按文件审查敏感边界，不全仓库盲目暂存，不把旧main标成新版本。
-2. 让版本1.0.0对应正确源码commit，创建正式tag `v1.0.0`，标题`V1.0.0`，不标prerelease。
+2. 让Directory.Build.props的版本对应正确源码commit，创建一致的正式tag（当前`v1.0.1`），标题`V1.0.1`，不标prerelease。
 3. 上传上述全部6个资产；只上传ZIP/Setup而漏掉full.nupkg和releases.win.json，客户端不能自动更新。
 4. 后续同一PackageId/channel以递增版本发布，比如1.0.1；不覆盖已有同版本资产。无需另搭更新接口。
 5. 本地已验证的候选包不是已经公开的GitHub Release。源码许可证由用户确定，不擅自替项目选择。

@@ -10,6 +10,66 @@ namespace Xke.SecurityStorage.Tests;
 public sealed class AuthStorageTests
 {
     [Fact]
+    public void NetworkCredentialRevision_UsesOpaqueBytesWithoutDecryptingOrDependingOnTimestamp()
+    {
+        using var workspace = new TemporaryDirectory();
+        var store = CreateTemporaryDataRoot(workspace).ForStudent("20260001").NetworkCredentials();
+        Assert.Empty(store.GetRevision("campus"));
+        var path = store.GetPath("campus");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, "synthetic opaque bytes, deliberately not a DPAPI envelope");
+        var revision = store.GetRevision("campus");
+        Assert.Matches("^[0-9A-F]{64}$", revision);
+        File.SetLastWriteTimeUtc(path, new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        Assert.Equal(revision, store.GetRevision("campus"));
+    }
+
+    [Fact]
+    public async Task NetworkCredentialStore_AtomicReplacementsAllowConcurrentRevisionAndCredentialReads()
+    {
+        using var workspace = new TemporaryDirectory();
+        var store = CreateTemporaryDataRoot(workspace).ForStudent("20260001").NetworkCredentials();
+        store.Save(new StoredNetworkCredentialDocument { Provider = "campus", Account = "synthetic-user", Password = "first-pass" });
+        var readerStore = CreateTemporaryDataRoot(workspace).ForStudent("20260001").NetworkCredentials();
+        var writer = Task.Run(() =>
+        {
+            for (var i = 0; i < 20; i++)
+                store.Save(new StoredNetworkCredentialDocument { Provider = "campus", Account = "synthetic-user", Password = i % 2 == 0 ? "first-pass" : "other-pass" });
+        });
+        var reader = Task.Run(() =>
+        {
+            for (var i = 0; i < 40; i++)
+            {
+                Assert.Matches("^[0-9A-F]{64}$", readerStore.GetRevision("campus"));
+                Assert.Contains(readerStore.Load("campus")!.Password, new[] { "first-pass", "other-pass" });
+            }
+        });
+        await Task.WhenAll(writer, reader);
+    }
+
+    [Fact]
+    public void NetworkCredentialRevision_ChangesWhenTimestampAndLengthAreUnchanged()
+    {
+        using var workspace = new TemporaryDirectory();
+        var store = CreateTemporaryDataRoot(workspace).ForStudent("20260001").NetworkCredentials();
+        store.Save(new StoredNetworkCredentialDocument { Provider = "campus", Account = "synthetic-user", Password = "first-pass" });
+        var path = store.GetPath("campus");
+        var originalTime = File.GetLastWriteTimeUtc(path);
+        var originalLength = new FileInfo(path).Length;
+        var revision = store.GetRevision("campus");
+        store.Save(new StoredNetworkCredentialDocument { Provider = "campus", Account = "synthetic-user", Password = "other-pass" });
+        File.SetLastWriteTimeUtc(path, originalTime);
+        Assert.Equal(originalLength, new FileInfo(path).Length);
+        Assert.Equal(originalTime, File.GetLastWriteTimeUtc(path));
+        Assert.NotEqual(revision, store.GetRevision("campus"));
+        Assert.Equal(store.GetRevision("campus"), store.GetRevision("campus"));
+        Assert.Equal("other-pass", store.Load("campus")!.Password);
+        Assert.DoesNotContain("other-pass", File.ReadAllText(path));
+        store.Remove("campus");
+        Assert.NotEqual(revision, store.GetRevision("campus"));
+    }
+
+    [Fact]
     public void ProtectedJsonFileStore_RoundTripsPayload()
     {
         using var workspace = new TemporaryDirectory();

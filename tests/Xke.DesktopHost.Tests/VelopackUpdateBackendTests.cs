@@ -8,6 +8,7 @@ using Velopack.Locators;
 using Velopack.Logging;
 using Velopack.Sources;
 using Xke.DesktopHost.Updates;
+using Xke.Core.Releases;
 using Xunit;
 
 namespace Xke.DesktopHost.Tests;
@@ -21,7 +22,7 @@ public sealed class VelopackUpdateBackendTests
         var backend = new VelopackUpdateBackend();
         Assert.False(backend.IsInstalled); Assert.Null(backend.CurrentVersion); Assert.Null(backend.PendingVersion);
         using var service = new Xke.Core.Releases.AppUpdateService(backend, TimeProvider.System);
-        Assert.Equal("unsupported", service.State.Status); Assert.Equal("1.0.0", service.State.CurrentVersion);
+        Assert.Equal("unsupported", service.State.Status); Assert.Equal(AppRelease.Version, service.State.CurrentVersion);
     }
 
     [Theory]

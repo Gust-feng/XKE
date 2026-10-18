@@ -1,4 +1,4 @@
-Third-party notices for XKE 1.0.0
+Third-party notices for XKE 1.0.1
 
 This file preserves notices for bundled components. It does not select a license for XKE source code.
 
