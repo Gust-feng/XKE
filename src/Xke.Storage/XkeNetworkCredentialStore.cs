@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Xke.Contracts.Models;
 using Xke.Security;
 
@@ -5,6 +6,7 @@ namespace Xke.Storage;
 
 public sealed class XkeNetworkCredentialStore
 {
+    private static readonly object[] FileGates = Enumerable.Range(0, 32).Select(_ => new object()).ToArray();
     private readonly XkeDataRoot _root;
     private readonly XkeStudentStore _studentStore;
     private readonly ProtectedJsonFileStore _protectedJson = new();
@@ -17,29 +19,39 @@ public sealed class XkeNetworkCredentialStore
 
     public StoredNetworkCredentialDocument? Load(string provider)
     {
-        return _protectedJson.Read<StoredNetworkCredentialDocument>(GetPath(provider));
+        var path = GetPath(provider);
+        lock (GetFileGate(path)) return _protectedJson.Read<StoredNetworkCredentialDocument>(path);
     }
 
-    // An opaque change marker; scheduling must not decrypt passwords on every tick.
-    public long GetRevision(string provider)
+    // Hash ciphertext, not timestamps or plaintext. Rapid replacements may share a timestamp.
+    public string GetRevision(string provider)
     {
         var path = GetPath(provider);
-        return File.Exists(path) ? File.GetLastWriteTimeUtc(path).Ticks : 0;
+        lock (GetFileGate(path))
+        {
+            try
+            {
+                using var file = File.OpenRead(path);
+                return Convert.ToHexString(SHA256.HashData(file));
+            }
+            catch (FileNotFoundException) { return string.Empty; }
+            catch (DirectoryNotFoundException) { return string.Empty; }
+        }
     }
 
     public string Save(StoredNetworkCredentialDocument document)
     {
         var path = GetPath(document.Provider);
-        _protectedJson.Write(path, document);
+        lock (GetFileGate(path)) AtomicFile.Write(path, temporary => _protectedJson.Write(temporary, document));
         return _root.RelativePath(path);
     }
 
     public void Remove(string provider)
     {
         var path = GetPath(provider);
-        if (File.Exists(path))
+        lock (GetFileGate(path))
         {
-            File.Delete(path);
+            if (File.Exists(path)) File.Delete(path);
         }
     }
 
@@ -49,6 +61,10 @@ public sealed class XkeNetworkCredentialStore
             _studentStore.NetworkInfoDirectory,
             $"{NormalizeProvider(provider)}.json.dpapi");
     }
+
+    // Student-store helpers are short-lived; independent instances must share the same file gate.
+    private static object GetFileGate(string path)
+        => FileGates[(int)((uint)StringComparer.OrdinalIgnoreCase.GetHashCode(path) % (uint)FileGates.Length)];
 
     private static string NormalizeProvider(string provider)
     {

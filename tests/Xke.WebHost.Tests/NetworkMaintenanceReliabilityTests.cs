@@ -104,11 +104,17 @@ public sealed class NetworkMaintenanceReliabilityTests
     {
         using var fixture = new Fixture();
         fixture.Handler.HoldFirstProbe = true;
+        var credentialsPath = fixture.Student.NetworkCredentials().GetPath("campus");
+        var credentialsTimestamp = File.GetLastWriteTimeUtc(credentialsPath);
         var pending = fixture.Service.MaintainInBackgroundAsync(fixture.Session);
         await fixture.Handler.Entered.Task.WaitAsync(TimeSpan.FromSeconds(3));
         if (change == "logout") fixture.Root.Sessions().Remove(fixture.Session);
         else if (change == "active-session") fixture.ActiveSession = "another-active-session";
-        else if (change == "credentials") fixture.Student.NetworkCredentials().Save(new StoredNetworkCredentialDocument { Provider = "campus", Account = "changed-synthetic-user", Password = "changed-synthetic-secret" });
+        else if (change == "credentials")
+        {
+            fixture.Student.NetworkCredentials().Save(new StoredNetworkCredentialDocument { Provider = "campus", Account = "changed-synthetic-user", Password = "changed-synthetic-secret" });
+            File.SetLastWriteTimeUtc(credentialsPath, credentialsTimestamp); // Coarse timestamps must not hide a replacement.
+        }
         else fixture.Student.SavePreferences(new AppSettingsDocument { Network = new NetworkSettingsDocument
         {
             HeartbeatEnabled = change != "disable", Provider = change == "provider" ? "telecom" : "campus",

@@ -46,7 +46,7 @@ internal sealed class PersonalRuntimeWorker : BackgroundService
     {
         var (sessionId, student) = ActiveStudent();
         var settings = student?.LoadPreferences()?.Network;
-        var revision = settings?.HeartbeatEnabled == true ? student!.NetworkCredentials().GetRevision(settings.Provider) : 0;
+        var revision = settings?.HeartbeatEnabled == true ? student!.NetworkCredentials().GetRevision(settings.Provider) : string.Empty;
         await _scheduler.RunDueAsync(sessionId, settings, token, revision).ConfigureAwait(false);
     }
 

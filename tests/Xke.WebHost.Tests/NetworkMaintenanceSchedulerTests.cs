@@ -87,7 +87,7 @@ public sealed class NetworkMaintenanceSchedulerTests
         var clock = new TestClock(); var client = new MaintenanceClient();
         var scheduler = new NetworkMaintenanceScheduler(client, clock);
         var initial = new NetworkSettingsDocument { HeartbeatEnabled = true, HeartbeatIntervalMinutes = 30 };
-        await scheduler.RunDueAsync("session", initial, default, 1);
+        await scheduler.RunDueAsync("session", initial, default, "ciphertext-A");
         clock.Advance(TimeSpan.FromMinutes(1));
         var next = new NetworkSettingsDocument
         {
@@ -96,7 +96,7 @@ public sealed class NetworkMaintenanceSchedulerTests
             PortalUrl = change == "portal" ? "http://192.0.2.9/" : initial.PortalUrl,
             ConnectivityCheckUrls = change == "probe" ? ["https://connectivity.invalid/check"] : initial.ConnectivityCheckUrls,
         };
-        var revision = change == "credentials" ? 2 : 1;
+        var revision = change == "credentials" ? "ciphertext-B" : "ciphertext-A";
         await scheduler.RunDueAsync("session", next, default, revision);
         Assert.Equal(2, client.Calls);
         await scheduler.RunDueAsync("session", next, default, revision);

@@ -19,7 +19,7 @@ public sealed class NetworkMaintenanceScheduler
 
     public NetworkMaintenanceState State => Volatile.Read(ref _state);
 
-    public async Task RunDueAsync(string? sessionId, NetworkSettingsDocument? settings, CancellationToken cancellationToken, long credentialRevision = 0)
+    public async Task RunDueAsync(string? sessionId, NetworkSettingsDocument? settings, CancellationToken cancellationToken, string credentialRevision = "")
     {
         if (string.IsNullOrWhiteSpace(sessionId) || settings?.HeartbeatEnabled != true)
         {
