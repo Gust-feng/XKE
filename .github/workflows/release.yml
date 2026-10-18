@@ -138,7 +138,6 @@ jobs:
 
           **下载**：首次安装使用 XKE-win-Setup.exe；免安装使用 XKE-win-Portable.zip，完整解压后运行根目录 XKE.exe。
           **环境**：内置 .NET 8 运行时，界面依赖 WebView2；安装程序可检查/安装 WebView2，便携版需自行具备该运行时。
-          **本地测试包**：若此前使用同版本1.0.0测试包，请用本次正式Setup安装一次；自动更新只接受更高版本。
           **校验**：SHA256SUMS.txt 提供全部六个发布资产的校验值。当前未配置 Authenticode 签名，不能视为已签名安装包。
 
           Source commit: $env:GITHUB_SHA

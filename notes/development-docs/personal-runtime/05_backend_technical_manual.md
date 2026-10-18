@@ -1,5 +1,9 @@
 # 后端技术手册与 Agent 接手入口
 
+## 2026-10-18 网络凭据修订标记
+
+XkeNetworkCredentialStore.GetRevision改为加密文件SHA256，不再使用LastWriteTimeUtc，避免快速写入或文件系统时间粒度使变更漏检。NetworkMaintenanceScheduler与PersonalRuntimeWorker使用同一不透明字符串标记。网络凭据保存先写DPAPI临时文件再原子替换，读取/摘要/保存/删除共享固定32条带的进程内文件锁；短生命周期store实例不能绕开同路径同步，不为轮询解密凭据。普通业务/凭据格式不变，不新增迁移。
+
 ## 2026-10-17 退役收尾（当前）
 
 MobileJw认证与课表实现、测试专用注入开关和fixtures顶层目录已由上一轮移除；本轮同步收敛存储来源、mapper默认值和测试样本，删除无调用的StudentProfileNormalizer/TryLoadCachedSchedule。TraditionalJwClient、NativeJwScheduleClient仍是当前Cookie/学期链路，不因旧命名删除或改写。当前测试必须覆盖完整工作区重新认证失败后原凭据/会话/缓存仍可用；生产代码不读测试HTML文件。历史移动/fixtures/纯后置描述只作资料，不再作为实现要求。

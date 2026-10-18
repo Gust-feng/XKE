@@ -1,19 +1,19 @@
 # XKE
 
-## V1.0.0 与更新
+## V1.0.1 与更新
 
 公开仓库：[Gust-feng/XKE](https://github.com/Gust-feng/XKE)；发布页：[Releases](https://github.com/Gust-feng/XKE/releases)。正式版本由GitHub Actions验证、构建并发布，以Releases中的已发布资产为准。
 
-如此前使用同版本1.0.0本地测试包，请先用本次正式Setup安装一次；自动更新只接受更高版本。
+v1.0.0候选标签因CI发现凭据变更识别缺口而未发布，保留原标签；修复版以v1.0.1发布，自动更新仍只接受更高版本。
 
 设置→系统标题旁的版本入口可检查更新、自动下载、立即重启安装；自动模式不强退使用中的程序，在真正退出或下次启动应用。使用Velopack正式安装/便携包，开发bin不自我覆盖。数据保留在原本机目录，不随更新替换，不上传账号/课表/校园网凭据。
 
-构建：先`npm --prefix frontend run build`，再`pwsh -NoProfile -File tools/package-desktop.ps1`。默认生成artifacts/releases/1.0.0，严格禁止个人数据/私有密钥注入。详细发布资产及行为见[发布与更新手册](notes/development-docs/personal-runtime/08_release_and_updates.md)。
+构建：先`npm --prefix frontend run build`，再`pwsh -NoProfile -File tools/package-desktop.ps1`。默认生成artifacts/releases/1.0.1，严格禁止个人数据/私有密钥注入。详细发布资产及行为见[发布与更新手册](notes/development-docs/personal-runtime/08_release_and_updates.md)。
 
 个人课表与校园网工具。Windows版由.NET8后端与WPF/WebView2宿主运行，React + TypeScript负责界面。
 现第七版「合成」设计锚定为产品第一版，保持原布局与动效。新增独立ProtocolHost用于未来云服务器部署，复用同一学校HTTP协议和数据解析。
 
-当前主版本为 V1.0.0，正式标签对应已合入main的源码。已有实现、定向测试和真实使用的验证边界以任务板记录为准；开发期不新增旧业务文件迁移，正式发布后的数据变更须评估升级兼容。
+当前主版本为 V1.0.1，正式标签对应已合入main的源码。已有实现、定向测试和真实使用的验证边界以任务板记录为准；开发期不新增旧业务文件迁移，正式发布后的数据变更须评估升级兼容。
 
 ## 接手入口
 
@@ -25,7 +25,7 @@
 
 源码、合成测试、依赖锁文件和必要技术说明参与版本管理。设计压缩包、编辑器状态、运行数据、构建/发布产物及真实配置只保留在本地；忽略文件不等于打包白名单，正式发布仍由独立门禁校验。
 
-必要源码按依赖分批提交，缓存、产物、真实配置及个人研究材料不提交。合入main并完成检查后，推送与Directory.Build.props版本一致的正式标签（例如v1.0.0）触发Actions；流程先验证，再生成草稿发布，上传资产重新下载校验后才公开。构建配置中的校园网自助地址通过Actions最小配置secret注入，不写入源码；不允许注入账号、密码、Cookie或token。
+必要源码按依赖分批提交，缓存、产物、真实配置及个人研究材料不提交。合入main并完成检查后，推送与Directory.Build.props版本一致的正式标签（例如v1.0.1）触发Actions；流程先验证，再生成草稿发布，上传资产重新下载校验后才公开。构建配置中的校园网自助地址通过Actions最小配置secret注入，不写入源码；不允许注入账号、密码、Cookie或token。
 
 ## 构建与本地运行
 
