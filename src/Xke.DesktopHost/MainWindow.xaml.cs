@@ -29,6 +29,10 @@ public partial class MainWindow : Window, IDesktopWindowController
     private bool _stopping;
     private bool _hostStopped;
     private bool _requestBoundaryInstalled;
+    private bool _presentWhenReady;
+    private bool _webViewReady;
+    private TaskCompletionSource? _frontendReady;
+    private readonly System.Windows.Threading.DispatcherTimer _startupWatchdog;
 
     public MainWindow(XkeWebHostService webHostService, XkeDataRoot dataRoot)
     {
@@ -37,6 +41,19 @@ public partial class MainWindow : Window, IDesktopWindowController
         InitializeComponent();
         // Match the product canvas while WebView2 creates its first document.
         Browser.DefaultBackgroundColor = Drawing.Color.FromArgb(0xF2, 0xF1, 0xEC);
+        _startupWatchdog = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
+        _startupWatchdog.Tick += (_, _) => ShowErrorState(
+            "界面启动超时", "本地界面暂未就绪，可以退出后重新打开。", allowBrowserActions: _launchResult is not null);
+    }
+
+    public void PrepareStartupPresentation(bool showWhenReady)
+    {
+        _presentWhenReady = showWhenReady;
+        // Create the HWND for WebView2 without presenting an empty window or taskbar item.
+        ShowActivated = false;
+        ShowInTaskbar = false;
+        WindowState = WindowState.Minimized;
+        Show();
     }
 
     public async Task InitializeAsync(bool loadWebView = true)
@@ -53,6 +70,14 @@ public partial class MainWindow : Window, IDesktopWindowController
     {
         DesktopActivatePayload ActivateCore()
         {
+            if (!_webViewReady && ErrorPanel.Visibility != Visibility.Visible)
+            {
+                _presentWhenReady = true;
+                if (!IsVisible) PrepareStartupPresentation(showWhenReady: true);
+                EnsureWebViewLoaded();
+                return new DesktopActivatePayload(Activated: true, Visible: false, WindowState: BuildWindowState());
+            }
+            ShowActivated = true;
             ShowInTaskbar = true;
             Show();
             if (WindowState == WindowState.Minimized)
@@ -160,6 +185,9 @@ public partial class MainWindow : Window, IDesktopWindowController
 
     private async Task LoadWebViewAsync(string baseUrl, string? frontendBuild)
     {
+        var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _frontendReady = ready;
+        _webViewReady = false;
         try
         {
             var userDataFolder = Path.Combine(_dataRoot.DesktopDirectory, "webview-data");
@@ -173,13 +201,25 @@ public partial class MainWindow : Window, IDesktopWindowController
             InstallRequestBoundary();
             await InjectDesktopBridgeAsync().ConfigureAwait(true);
             Browser.Source = BuildVersionedStartupUri(baseUrl, frontendBuild);
+            await ready.Task.WaitAsync(TimeSpan.FromSeconds(15)).ConfigureAwait(true);
+            _webViewReady = true;
+            ShowWebViewState();
+            if (_presentWhenReady)
+            {
+                _presentWhenReady = false;
+                ActivateDesktopWindow();
+            }
         }
         catch (Exception ex)
         {
             ShowErrorState(
-                "内嵌界面初始化失败",
-                $"WebView2 不可用：{ex.Message}",
+                ex is TimeoutException ? "界面启动超时" : "内嵌界面初始化失败",
+                ex is TimeoutException ? "本地界面暂未就绪，请重新加载。" : $"WebView2 不可用：{ex.Message}",
                 allowBrowserActions: _launchResult is not null);
+        }
+        finally
+        {
+            if (ReferenceEquals(_frontendReady, ready)) _frontendReady = null;
         }
     }
 
@@ -237,12 +277,15 @@ public partial class MainWindow : Window, IDesktopWindowController
     private void ShowInitializationState()
     {
         Browser.Visibility = Visibility.Hidden;
-        FallbackExitButton.Visibility = Visibility.Visible;
-        ErrorPanel.Visibility = Visibility.Collapsed;
+        _webViewReady = false;
+        if (_presentWhenReady) _startupWatchdog.Start();
+        // On retry keep the actual error surface and exit action, never a bare loading shell.
+        FallbackExitButton.Visibility = ErrorPanel.Visibility == Visibility.Visible ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void ShowErrorState(string title, string detail, bool allowBrowserActions)
     {
+        _startupWatchdog.Stop();
         Browser.Visibility = Visibility.Hidden;
         FallbackExitButton.Visibility = Visibility.Visible;
         ErrorTitleText.Text = string.IsNullOrWhiteSpace(title) ? "界面加载失败" : title;
@@ -251,10 +294,16 @@ public partial class MainWindow : Window, IDesktopWindowController
             : detail;
         ErrorPanel.Visibility = Visibility.Visible;
         OpenBrowserButton.IsEnabled = allowBrowserActions && _launchResult is not null;
+        if (_presentWhenReady)
+        {
+            _presentWhenReady = false;
+            ActivateDesktopWindow();
+        }
     }
 
     private void ShowWebViewState()
     {
+        _startupWatchdog.Stop();
         ErrorPanel.Visibility = Visibility.Collapsed;
         FallbackExitButton.Visibility = Visibility.Collapsed;
         Browser.Visibility = Visibility.Visible;
@@ -314,6 +363,7 @@ public partial class MainWindow : Window, IDesktopWindowController
                 toggle_maximize_window: () => invoke('toggle_maximize_window', []),
                 close_window: () => invoke('close_window', []),
                 get_window_state: () => invoke('get_window_state', []),
+                content_ready: () => invoke('content_ready', []),
                 start_window_drag: () => invoke('start_window_drag', []),
               };
               window.dispatchEvent(new Event('pywebviewready'));
@@ -339,6 +389,8 @@ public partial class MainWindow : Window, IDesktopWindowController
             var args = root.TryGetProperty("args", out var argsElement) && argsElement.ValueKind == JsonValueKind.Array
                 ? argsElement.EnumerateArray().Select(item => item.GetString() ?? string.Empty).ToArray()
                 : Array.Empty<string>();
+            // Only the current document may release startup; a previous reload can finish late.
+            if (method == "content_ready" && !string.Equals(e.Source, Browser.Source?.AbsoluteUri, StringComparison.Ordinal)) return;
             var result = HandleBridgeCall(method, args);
             await PostBridgeResultAsync(id, ok: true, result, string.Empty).ConfigureAwait(true);
         }
@@ -358,6 +410,7 @@ public partial class MainWindow : Window, IDesktopWindowController
             "toggle_maximize_window" => ToggleMaximizeWindow(),
             "close_window" => CloseFromBridge(),
             "get_window_state" => BuildWindowState(),
+            "content_ready" => _frontendReady?.TrySetResult() ?? false,
             "start_window_drag" => false,
             _ => throw new InvalidOperationException($"Unsupported desktop bridge method: {method}"),
         };
@@ -465,6 +518,11 @@ public partial class MainWindow : Window, IDesktopWindowController
     {
         if (!e.IsSuccess)
         {
+            if (_frontendReady is { } pending)
+            {
+                pending.TrySetException(new InvalidOperationException($"WebView2 导航失败：{e.WebErrorStatus}"));
+                return;
+            }
             ShowErrorState(
                 "内嵌界面加载失败",
                 $"WebView2 导航失败：{e.WebErrorStatus}",
@@ -472,7 +530,7 @@ public partial class MainWindow : Window, IDesktopWindowController
             return;
         }
 
-        ShowWebViewState();
+        // Navigation completion alone does not mean React and account recovery have committed.
         PublishWindowState();
     }
 
@@ -612,6 +670,8 @@ public partial class MainWindow : Window, IDesktopWindowController
 
     protected override void OnClosed(EventArgs e)
     {
+        _startupWatchdog.Stop();
+        _frontendReady?.TrySetCanceled();
         DisposeTrayIcon();
         Browser.Dispose();
         base.OnClosed(e);

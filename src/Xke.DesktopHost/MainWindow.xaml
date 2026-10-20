@@ -70,6 +70,7 @@
             </Border>
 
             <Button x:Name="FallbackExitButton"
+                    Visibility="Collapsed"
                     Margin="12"
                     Padding="12,6"
                     HorizontalAlignment="Right"

@@ -83,14 +83,7 @@ public partial class App : System.Windows.Application
 
         window = new MainWindow(_webHostService, _dataRoot);
         MainWindow = window;
-        if (shouldStartHidden)
-        {
-            window.ShowActivated = false;
-            window.ShowInTaskbar = false;
-            window.WindowState = System.Windows.WindowState.Minimized;
-        }
-
-        window.Show();
+        window.PrepareStartupPresentation(showWhenReady: !shouldStartHidden);
         await window.InitializeAsync(loadWebView: !shouldStartHidden).ConfigureAwait(true);
         if (shouldStartHidden)
         {

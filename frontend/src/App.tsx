@@ -10,7 +10,7 @@ import { WindowControls } from './components/WindowControls'
 /** Product v1 uses the accepted 合成 v7 edition and selected API composition. */
 export default function App() {
   const { phase, notify } = useStore()
-  const { bridge, maximized } = useDesktopBridge()
+  const { bridge, maximized } = useDesktopBridge(phase !== 'loading')
   return <>
     {bridge && <WindowControls bridge={bridge} maximized={maximized} onError={notify} />}
     {phase === 'ready' && <><OneLayout desktop={!!bridge} /><Sheet /><CoursePop /><NetworkConfigPop /></>}

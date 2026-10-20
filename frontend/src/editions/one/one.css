@@ -1000,9 +1000,10 @@ html[data-edition='one'] .one-pop-sync button:hover:not(:disabled) { background:
 html[data-edition='one'] .one-pop-sync button:disabled { opacity: 0.3; }
 html[data-edition='one'] .one-pop-sync kbd { font-family: var(--lat); font-size: 11px; font-weight: 600; opacity: 0.55; }
 
-/* 刷新中：尺子从上往下逐行闪过，像在重新量一遍 */
-html[data-edition='one'] .one-ticks.is-syncing .one-tick i { animation: one-scan 1.1s cubic-bezier(0.22, 1, 0.36, 1) infinite; animation-delay: calc(var(--i, 0) * 45ms); }
-@keyframes one-scan { 0%, 100% { opacity: 0.18; } 30% { opacity: 1; background: var(--red); } }
+/* 完整刷新扫描；收尾后不重播刻度入场。 */
+html[data-edition='one'] .one-ticks.has-refreshed:not(.is-syncing) .one-tick i { animation: none; }
+html[data-edition='one'] .one-ticks.is-syncing .one-tick i { animation: one-scan 1.1s cubic-bezier(0.22, 1, 0.36, 1) infinite both; animation-delay: calc(var(--i, 0) * 45ms); }
+@keyframes one-scan { 0%, 100% { opacity: 1; } 12% { opacity: 0.18; } 30% { opacity: 1; background: var(--red); } }
 
 /* toast：动作按钮 */
 html[data-edition='one'] .toast { display: flex; align-items: center; gap: 12px; padding-right: 6px; }

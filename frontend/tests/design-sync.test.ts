@@ -8,6 +8,11 @@ describe('v22 stylesheet coverage', () => {
     'toast-act', 'one-pop-c', 'one-nr', 'one-id', 'one-sf', 'nc-save', 'nc-undo'])('contains active styling for %s', (name) => {
     expect(css).toMatch(new RegExp(`\\.${name}[ .:{]`))
   })
+  it('retains completed scan effects for rapid refresh continuation without replaying tick entrances', () => {
+    expect(css).toMatch(/\.one-ticks\.is-syncing \.one-tick i\s*\{[^}]*animation: one-scan[^;]*infinite both;/s)
+    expect(css).toMatch(/\.one-ticks\.has-refreshed:not\(\.is-syncing\) \.one-tick i\s*\{[^}]*animation: none;/s)
+    expect(css).toMatch(/@keyframes one-scan\s*\{\s*0%, 100%\s*\{ opacity: 1;/s)
+  })
   it('positions the semester menu independently of the ruler and removes browser numbering', () => {
     expect(css).toMatch(/\.one-pop\s*\{[^}]*position: absolute/s)
     expect(css).toMatch(/\.one-pop-terms\s*\{[^}]*list-style: none/s)

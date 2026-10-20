@@ -8,6 +8,7 @@ import { Ticker } from './parts'
 import { DETENT, kindClass } from './presentation'
 import { semesterRuler, personalTerms, termLabel, weekTimeRange } from '../../lib/schedule-view'
 import { courseBlocks, nextCourseBlock } from '../../lib/course-blocks'
+import { ScheduleRuler } from './ScheduleRuler'
 
 const d = (i: number) => ({ '--i': i }) as CSSProperties
 
@@ -76,7 +77,7 @@ export function SwissWeek({ toolbarSlot: slot = null }: { toolbarSlot?: HTMLElem
           <TermCap />
           <div className="one-term-rule">
             <button className="one-term-ar" onClick={() => go(w - 1)} disabled={w <= 1} aria-label="上一周"><svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="square" aria-hidden="true" focusable="false"><path d="M10 16V4M5 9l5-5 5 5" /></svg></button>
-            <div className={`one-ticks${refreshing ? ' is-syncing' : ''}`} style={{ '--n': total } as CSSProperties}>
+            <ScheduleRuler refreshing={refreshing} reducedMotion={!!reduce} weeks={total}>
               {load.map((n, i) => {
                 const k = i + 1
                 return (
@@ -112,7 +113,7 @@ export function SwissWeek({ toolbarSlot: slot = null }: { toolbarSlot?: HTMLElem
                 animate={{ top: `calc(${(w - 1) / total} * 100%)` }}
                 transition={reduce ? { duration: 0 } : DETENT}
               />
-            </div>
+            </ScheduleRuler>
             <button className="one-term-ar" onClick={() => go(w + 1)} disabled={w >= total} aria-label="下一周"><svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="square" aria-hidden="true" focusable="false"><path d="M10 4v12M5 11l5 5 5-5" /></svg></button>
           </div>
         </div>,
