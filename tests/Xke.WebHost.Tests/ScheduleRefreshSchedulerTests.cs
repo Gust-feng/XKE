@@ -42,6 +42,19 @@ public sealed class ScheduleRefreshSchedulerTests
         Assert.Equal(1, refresh.Calls);
     }
 
+    [Fact]
+    public async Task ManualRecoveryClearsStaleLoginFeedbackWithoutDuplicateRefresh()
+    {
+        var clock = new TestClock(); var refresh = new RefreshClient { Expired = true }; var connected = false;
+        var scheduler = new ScheduleRefreshScheduler(refresh, clock, _ => connected);
+        var settings = new ScheduleSettingsDocument { AutoRefreshEnabled = true, AutoRefreshMode = "interval", AutoRefreshIntervalHours = 1 };
+        await scheduler.RunDueAsync("session", settings, default); clock.Advance(TimeSpan.FromHours(1));
+        await scheduler.RunDueAsync("session", settings, default); Assert.True(scheduler.State.RequiresLogin);
+        connected = true;
+        await scheduler.RunDueAsync("session", settings, default);
+        Assert.False(scheduler.State.RequiresLogin); Assert.Empty(scheduler.State.LastError); Assert.Equal(1, refresh.Calls);
+    }
+
     private sealed class TestClock : TimeProvider
     {
         private DateTimeOffset _now = new(2026, 10, 7, 0, 0, 0, TimeSpan.Zero);

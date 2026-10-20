@@ -219,6 +219,17 @@ try {
             Assert-Rejected { Assert-VelopackRelease $r 1.0.0 win $false } 'Unexpected|Unsafe'
         }
     }
+    Test-Case 'OCR resource whitelist is exact' {
+        if (-not (Test-DesktopPayloadPath 'ocr/common_old.onnx' $false) -or -not (Test-DesktopPayloadPath 'ocr/charset.json' $false)) { throw 'Pinned OCR resources rejected.' }
+        foreach ($bad in @('ocr/cookies.json', 'ocr/debug.png', 'ocr/common.onnx', 'ocr/.env', 'ocr/source.py')) {
+            if (Test-DesktopPayloadPath $bad $false) { throw "Unexpected OCR asset admitted: $bad" }
+        }
+    }
+    Test-Case 'compiled OCR engine cannot ship without its verified assets' {
+        $f = New-PublishFixture
+        'synthetic' | Set-Content -LiteralPath (Join-Path $f 'Microsoft.ML.OnnxRuntime.dll')
+        Assert-Rejected { Assert-DesktopPublish $f win-x64 8.0.32 $false } 'OCR asset'
+    }
     foreach ($scenario in @('complete', 'complete-campus', 'private-publish-file', 'output-race')) {
         Test-Case "synthetic complete script flow: $scenario" {
             $frontend = New-FrontendFixture
@@ -249,6 +260,8 @@ try {
                         New-Item -ItemType Directory -Path $final | Out-Null
                         'preserve-me' | Set-Content (Join-Path $final 'concurrent.synthetic')
                     }
+                } elseif ($arguments[0] -eq 'msbuild') {
+                    # Download preparation is outside this synthetic transport fixture.
                 } elseif ($arguments[0] -ne 'tool' -or $arguments[1] -ne 'restore') { throw 'Unexpected mocked command.' }
             }
             try {

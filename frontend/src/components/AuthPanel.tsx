@@ -70,7 +70,7 @@ function AuthForm({ initial }: { initial: boolean }) {
         <div className="runtime-actions auth-actions">
           <button type="submit" className="sw-btn" disabled={authBusy || !!captcha && (!code.trim() || seconds === 0)}>{authBusy ? '处理中…' : captcha ? '确认' : initial ? '认证' : '连接'}</button>
           {(!initial || captcha || authBusy) && <button type="button" className="sw-btn" onClick={cancel}>{captcha && seconds === 0 ? '重试' : '取消'}</button>}
-          {authError && <span className="auth-feedback" role="alert">{authError}</span>}
+          {(authError || captcha?.message) && <span className="auth-feedback" role="alert">{authError || captcha?.message}</span>}
         </div>
       </form>
     </div>

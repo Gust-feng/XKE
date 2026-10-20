@@ -105,6 +105,7 @@ export interface Settings {
   silentStartup?: boolean
   closeToTray?: boolean
   inactiveCourseMode?: 'dim' | 'hide'
+  autoCaptchaEnabled?: boolean
   autoRefresh?: boolean
   refreshMode?: 'daily' | 'interval'
   refreshTime?: string
@@ -146,6 +147,7 @@ export interface Api {
   updateNickname(nickname: string): Promise<import('./dto').StudentDto>
   getNetworkConfig(): Promise<import('./dto').NetworkConfigDto>
   saveNetworkConfig(patch: Record<string, string | number | boolean | string[]>): Promise<import('./dto').NetworkConfigDto>
+  getCaptchaRecognition(signal?: AbortSignal): Promise<import('./dto').CaptchaRecognitionDto>
   getJobs(signal?: AbortSignal): Promise<{ network: import('./dto').JobStateDto; schedule: import('./dto').JobStateDto }>
 }
 
@@ -157,6 +159,7 @@ export interface Workspace {
 }
 export interface Captcha {
   kind: 'captcha'
+  message?: string
   purpose: 'login' | 'connect' | 'schedule'
   id: string; image: string; expiresAt: number
 }

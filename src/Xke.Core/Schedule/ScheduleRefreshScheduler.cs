@@ -8,13 +8,15 @@ public sealed class ScheduleRefreshScheduler
 {
     private readonly IScheduleRefresh _refresh;
     private readonly TimeProvider _clock;
+    private readonly Func<string, bool>? _hasLiveSession;
     private string? _configuration;
     private ScheduleRefreshState _state = new(false, null, null, false, string.Empty);
 
-    public ScheduleRefreshScheduler(IScheduleRefresh refresh, TimeProvider clock)
+    public ScheduleRefreshScheduler(IScheduleRefresh refresh, TimeProvider clock, Func<string, bool>? hasLiveSession = null)
     {
         _refresh = refresh;
         _clock = clock;
+        _hasLiveSession = hasLiveSession;
     }
 
     public ScheduleRefreshState State => Volatile.Read(ref _state);
@@ -34,6 +36,10 @@ public sealed class ScheduleRefreshScheduler
             _configuration = key;
             Volatile.Write(ref _state, new(true, NextRun(settings), null, false, string.Empty));
         }
+        // A successful manual challenge has already refreshed the timetable.
+        // Clear stale login-required feedback without duplicating that school GET.
+        if (State.RequiresLogin && _hasLiveSession?.Invoke(sessionId) == true)
+            Volatile.Write(ref _state, State with { RequiresLogin = false, LastError = string.Empty });
         if (State.NextRunAt > now) return;
 
         var error = string.Empty;

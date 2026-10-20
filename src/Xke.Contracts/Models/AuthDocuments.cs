@@ -92,6 +92,9 @@ public sealed class IgnoredWeekendBlocksDocument
 
 public sealed class AuthSettingsDocument
 {
+    [JsonPropertyName("auto_captcha_enabled")]
+    public bool AutoCaptchaEnabled { get; init; } = true;
+
     [JsonPropertyName("prelogin_mode")]
     public string PreloginMode { get; init; } = AppOptions.DefaultPreloginMode;
 }

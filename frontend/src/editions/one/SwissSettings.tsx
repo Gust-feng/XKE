@@ -7,6 +7,7 @@ import { SemesterField } from './SemesterField'
 import { ProfileName } from './ProfileName'
 import { AppUpdatePanel } from './AppUpdatePanel'
 import { useAppUpdates } from '../../lib/use-app-updates'
+import { useCaptchaRecognition } from '../../lib/use-captcha-recognition'
 import { reminderMinutes, reminderOptions, validRefreshInput } from '../../lib/settings-options'
 
 const d = (i: number) => ({ '--i': i }) as CSSProperties
@@ -29,8 +30,13 @@ function Row({ label, children, i, onClick, networkPopup = false }: { label: str
 
 /** 设置保持为低频操作：账号、课表显示、校园网入口和系统启动。 */
 export function SwissSettings() {
-  const { settings, schedule, user, updateSettings, openSheet, openAuth, preview } = useStore()
+  const { settings, schedule, user, updateSettings, openSheet, openAuth, preview, authBusy, syncing } = useStore()
   const updates = useAppUpdates()
+  const recognition = useCaptchaRecognition(user?.student.student_id, settings?.autoCaptchaEnabled !== false, authBusy || syncing)
+  const recognitionState = settings?.autoCaptchaEnabled === false ? 'disabled' : recognition?.state || 'idle'
+  const recognitionLabel = recognitionState === 'disabled' ? '已关闭' : recognitionState === 'recognizing'
+    ? `识别中 ${recognition?.attempt || 1}/3` : recognitionState === 'manual_required' ? '需手动'
+      : recognitionState === 'unavailable' ? '不可用' : '已开启'
   if (!settings) return <div className="st sw-grid"><section className="st-col"><h2 className="st-h sw-in" style={d(0)}>课表</h2><button className="st-btn" onClick={openAuth}>连接教务</button></section></div>
 
   const reminder = reminderMinutes(settings.remindBefore)
@@ -43,6 +49,10 @@ export function SwissSettings() {
       {/* 教务登录：换学号、密码改了之后重新认证，都走这一个入口 */}
       <Row i={2} label="教务登录" onClick={openAuth}>
         <svg className="one-network-open" viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="square" aria-hidden="true"><path d="M4 10h12M11 5l5 5-5 5" /></svg>
+      </Row>
+      <Row i={2.5} label="验证码自动识别">
+        <span className="st-captcha-state" data-state={recognitionState} title={recognition?.message || undefined} role="status" aria-live="polite"><i aria-hidden="true" />{recognitionState === 'recognizing' ? <><span className="sr-only">识别中 </span>{recognition?.attempt || 1}/3</> : recognitionLabel}</span>
+        <SwToggle label="验证码自动识别" on={settings.autoCaptchaEnabled !== false} onChange={(value) => { void updateSettings({ autoCaptchaEnabled: value }) }} />
       </Row>
       <Row i={3} label="显示周末">
         <SwToggle label="显示周末" on={settings.showWeekend} onChange={(value) => updateSettings({ showWeekend: value })} />

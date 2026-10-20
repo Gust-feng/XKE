@@ -18,7 +18,8 @@ export class HttpClient {
   constructor(base: string, transport: typeof fetch = globalThis.fetch.bind(globalThis)) { this.base = base; this.transport = transport }
   setSession(session: string) { this.session = session; this.generation++ }
   clearSession() { this.setSession('') }
-  async request<T>(path: string, body?: unknown, raw = false, anonymous = false): Promise<T> {
+  async request<T>(path: string, body?: unknown, raw = false, anonymous = false, signal?: AbortSignal): Promise<T> {
+    signal?.throwIfAborted()
     const session = anonymous ? '' : this.session
     const generation = this.generation
     const headers: Record<string, string> = { Accept: 'application/json' }
@@ -29,18 +30,21 @@ export class HttpClient {
       response = await this.transport(`${this.base.replace(/\/$/, '')}${path}`, {
         method: body === undefined ? 'GET' : 'POST', headers,
         body: body === undefined ? undefined : JSON.stringify(body),
-        signal: AbortSignal.timeout(90_000),
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(90_000)]) : AbortSignal.timeout(90_000),
       })
     } catch (error) {
+      if (signal?.aborted) throw signal.reason
       throw new ApiError(0, error instanceof DOMException && error.name === 'TimeoutError'
         ? '连接超时' : '暂时无法连接', !!session)
     }
     if (generation !== this.generation) throw new ApiError(409, '会话已切换，已忽略旧请求')
+    signal?.throwIfAborted()
     let payload: unknown
     try { payload = await response.json() } catch {
       throw new ApiError(response.status, '响应异常', !!session)
     }
     if (generation !== this.generation) throw new ApiError(409, '会话已切换，已忽略旧请求')
+    signal?.throwIfAborted()
     const envelope = payload as { ok?: boolean; msg?: string; data?: T }
     if (!response.ok || (!raw && envelope.ok !== true)) {
       throw new ApiError(response.status, envelope.msg || '操作未完成', !!session)

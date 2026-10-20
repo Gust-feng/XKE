@@ -14,7 +14,7 @@ const client = vi.hoisted(() => ({
   getLocalSemester: vi.fn(), getSemester: vi.fn(), getSchedule: vi.fn(), syncSchedule: vi.fn(),
   getJobs: vi.fn(), getSettings: vi.fn(), updateSettings: vi.fn(), updateNickname: vi.fn(),
   getAppUpdate: vi.fn(), checkAppUpdate: vi.fn(), connect: vi.fn(),
-  getNetworkSummary: vi.fn(), getNetStatus: vi.fn(),
+  getNetworkSummary: vi.fn(), getNetStatus: vi.fn(), getCaptchaRecognition: vi.fn(),
 }))
 const motion = vi.hoisted(() => ({ create: vi.fn() }))
 vi.mock('../src/api', () => ({ api: client }))
@@ -59,6 +59,7 @@ beforeEach(() => {
     settings: { ...adaptSettings(auth().settings, auth().student.student_id), desktopSupported: true }, schedule: adaptWeek(week()) }
   client.bootstrap.mockImplementation(async () => workspace)
   client.logout.mockResolvedValue(undefined)
+  client.getCaptchaRecognition.mockResolvedValue({ supported: true, trusted: true, enabled: true, state: 'idle', attempt: 0, message: '' })
   client.getNetworkSummary.mockResolvedValue({ configured: true, available: true, message: '', updated_at: null })
   client.getNetStatus.mockResolvedValue({ online: false, error: '', message: '未连接' })
   client.checkAppUpdate.mockResolvedValue({ current_version: '1.0.0', repository_url: 'https://github.com/Gust-feng/XKE', release_url: '', latest_version: null, status: 'up_to_date', progress: 0, error: '', checked_at: null })
@@ -268,5 +269,22 @@ describe('event-owned view and update feedback', () => {
     await act(async () => store.setView('week'))
     expect(container.querySelector('#one-slot .one-term')).not.toBeNull()
     expect(store.selectedWeek).toBe(2)
+  })
+})
+
+
+describe('CAPTCHA recognition setting', () => {
+  it('shows real attempt state and persists explicit off without starting school work', async () => {
+    client.getCaptchaRecognition.mockResolvedValue({ supported: true, trusted: true, enabled: true, state: 'recognizing', attempt: 2, message: '' })
+    client.updateSettings.mockImplementation(async (patch) => { workspace.settings = { ...workspace.settings, ...patch }; return workspace.settings })
+    await mount(() => createElement(SwissSettings))
+    expect(container.querySelector('.st-captcha-state')?.textContent).toBe('识别中 2/3')
+    const toggle = container.querySelector('[role="switch"][aria-label="验证码自动识别"]') as HTMLButtonElement
+    expect(toggle.getAttribute('aria-checked')).toBe('true')
+    await act(async () => toggle.click())
+    expect(client.updateSettings).toHaveBeenCalledWith({ autoCaptchaEnabled: false })
+    expect(toggle.getAttribute('aria-checked')).toBe('false')
+    expect(container.querySelector('.st-captcha-state')?.textContent).toBe('已关闭')
+    expect(client.syncSchedule).not.toHaveBeenCalled()
   })
 })

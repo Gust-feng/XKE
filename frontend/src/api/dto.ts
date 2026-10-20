@@ -5,6 +5,7 @@ export interface StudentDto {
   campus_name: string; program_duration_years: number | null; enrollment_date: string
 }
 export interface AccountSettingsDto {
+  auth?: { prelogin_mode: string; auto_captcha_enabled: boolean }
   appearance: { theme: string }
   ui: { show_weekend: boolean; inactive_course_mode: 'dim' | 'hide' }
   schedule: {
@@ -28,7 +29,7 @@ export interface AuthDto {
   connected: boolean; cached_schedule: WeekDto | null
 }
 export interface CaptchaDto {
-  status: 'captcha_required'; challenge_id: string; captcha_image: string; expires_in_seconds: number
+  message?: string; status: 'captcha_required'; challenge_id: string; captcha_image: string; expires_in_seconds: number
 }
 export interface RowDto {
   weekday: string; course_name: string; teacher: string; room: string; section: string
@@ -77,4 +78,10 @@ export interface AppUpdateDto {
   current_version: string; repository_url: string; release_url: string; latest_version: string | null
   status: 'unsupported' | 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'installing' | 'up_to_date' | 'error'
   progress: number; error: string; checked_at: string | null
+}
+
+export interface CaptchaRecognitionDto {
+  supported: boolean; trusted: boolean; enabled: boolean
+  state: 'idle' | 'disabled' | 'unavailable' | 'recognizing' | 'manual_required'
+  attempt: number; message: string
 }

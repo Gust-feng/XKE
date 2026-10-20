@@ -7,6 +7,8 @@ using Xke.Core.Schedule;
 
 public sealed class XkeWebHostOptions
 {
+    public ICaptchaRecognizer? CaptchaRecognizer { get; init; }
+
     public Xke.Core.Releases.AppUpdateService? AppUpdates { get; init; }
 
     public IReadOnlyList<string> Urls { get; init; } = Array.Empty<string>();

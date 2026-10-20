@@ -7,6 +7,7 @@ namespace Xke.Storage;
 
 public sealed class XkeCredentialStore
 {
+    private static readonly object[] FileGates = Enumerable.Range(0, 32).Select(_ => new object()).ToArray();
     private readonly XkeDataRoot _root;
     private readonly ProtectedJsonFileStore _protectedJson = new();
 
@@ -17,13 +18,13 @@ public sealed class XkeCredentialStore
 
     public StoredCredentialDocument? Load(string user)
     {
-        return _protectedJson.Read<StoredCredentialDocument>(GetPath(user));
+        return ReadPath(GetPath(user));
     }
 
     public string Save(StoredCredentialDocument document)
     {
         var path = GetPath(document.User);
-        _protectedJson.Write(path, document);
+        lock (GetFileGate(path)) AtomicFile.Write(path, temporary => _protectedJson.Write(temporary, document));
         return _root.RelativePath(path);
     }
 
@@ -44,7 +45,7 @@ public sealed class XkeCredentialStore
         {
             try
             {
-                var document = _protectedJson.Read<StoredCredentialDocument>(path);
+                var document = ReadPath(path);
                 if (document is not null && !string.IsNullOrWhiteSpace(document.User))
                 {
                     documents.Add(document);
@@ -73,11 +74,21 @@ public sealed class XkeCredentialStore
     public void Remove(string user)
     {
         var path = GetPath(user);
-        if (File.Exists(path))
+        lock (GetFileGate(path))
         {
-            File.Delete(path);
+            if (File.Exists(path)) File.Delete(path);
         }
     }
+
+    private StoredCredentialDocument? ReadPath(string path)
+    {
+        lock (GetFileGate(path)) return _protectedJson.Read<StoredCredentialDocument>(path);
+    }
+
+    // Status reads and authentication commits create separate store instances.
+    // Use the existing fixed-stripe pattern rather than per-instance locks.
+    private static object GetFileGate(string path)
+        => FileGates[(int)((uint)StringComparer.OrdinalIgnoreCase.GetHashCode(path) % (uint)FileGates.Length)];
 
     public string GetPath(string user)
     {

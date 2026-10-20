@@ -1,0 +1,24 @@
+{
+  "model": {
+    "url": "https://raw.githubusercontent.com/sml2h3/ddddocr/f0ee6b122e9f6b4ccc0cd96032f93cd43721543f/ddddocr/common_old.onnx",
+    "sha256": "b8f2ad9cbc1f2e3922a6cb9459e30824e7e2467f3fb4fd61420640e34ea0bf68"
+  },
+  "charsetSha256": "342d871c34fd467420cd39b58a4624b505da53114e77a69b43b48b8a3ee1b24d",
+  "crt": {
+    "url": "https://download.visualstudio.microsoft.com/download/pr/45d3b8dd-bced-4b37-9974-142f748d710c/4aaf54db0bfc9435f7c3660e1a00237a4b556042bfeea64bde44c2e0194e6ee5/Microsoft.VC.14.44.17.14.CRT.Redist.X64.base.vsix",
+    "sha256": "4aaf54db0bfc9435f7c3660e1a00237a4b556042bfeea64bde44c2e0194e6ee5",
+    "entryPrefix": "Contents/VC/Redist/MSVC/14.44.35112/x64/Microsoft.VC143.CRT/",
+    "files": {
+      "msvcp140.dll": "0f885b509a685d2bbfa652fed26b5fb31d88fbdab0a978c641d1c7b8aa460aa9",
+      "msvcp140_1.dll": "bfad5aef4c63a669e3c140655cdfdf395b6c979b400a447bd5dcb65ed8826c3d",
+      "vcruntime140.dll": "d5e4d9a3e835fa679450145d6a7d94e36573a509317111904d9b3712c30d9066",
+      "vcruntime140_1.dll": "1f2d41c4aa5db0bc33ebf7b66d72943a817d7ce6cbe880502a9403823633093f"
+    }
+  },
+  "engineFiles": {
+    "Microsoft.ML.OnnxRuntime.dll": "c4ef1cfdb4c9e594f04d4b0ad37c74374cc0020e012ebfc383271ec864a1b020",
+    "onnxruntime.dll": "0c42dc4e278f0968fdf9ebf1b1e54a74c657a9942e70803e453c91993451cf4c",
+    "onnxruntime_providers_shared.dll": "e45d471ea2a842b268c51291b96d53568b0dae10807f43d1fb7dc0eb84e83723",
+    "System.Numerics.Tensors.dll": "0e59eb423d5a7d82998a0537653565d05033b07c606d59ed0756c2ff028343da"
+  }
+}

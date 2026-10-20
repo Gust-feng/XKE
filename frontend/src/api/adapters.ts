@@ -94,6 +94,7 @@ export function adaptSettings(account: AccountSettingsDto, id: string, desktop?:
     theme: ['night', 'paper', 'mono', 'dusk'].includes(theme) ? theme as Settings['theme'] : 'night', themeValue: theme,
     showWeekend: account.ui.show_weekend, inactiveCourseMode: account.ui.inactive_course_mode,
     remindBefore: account.schedule.lesson_reminder_enabled ? reminderMinutes(account.schedule.lesson_reminder_minutes) : 0,
+    autoCaptchaEnabled: account.auth?.auto_captcha_enabled ?? true,
     autoRefresh: account.schedule.auto_refresh_enabled, refreshMode: account.schedule.auto_refresh_mode,
     refreshTime: account.schedule.auto_refresh_daily_time, refreshHours: account.schedule.auto_refresh_interval_hours,
     netAutoLogin: account.network.heartbeat_enabled, heartbeatMinutes: account.network.heartbeat_interval_minutes,
@@ -106,6 +107,7 @@ export function adaptSettings(account: AccountSettingsDto, id: string, desktop?:
 export function settingsPatches(patch: Partial<Settings>) {
   const account: Record<string, unknown> = {}
   const desktop: Record<string, boolean> = {}
+  if (patch.autoCaptchaEnabled !== undefined) account.auth = { auto_captcha_enabled: patch.autoCaptchaEnabled }
   if (patch.theme !== undefined) account.appearance = { theme: patch.theme }
   const ui: Record<string, unknown> = {}
   if (patch.showWeekend !== undefined) ui.show_weekend = patch.showWeekend

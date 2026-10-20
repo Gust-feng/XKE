@@ -1303,3 +1303,12 @@ html[data-edition='one'] .one-sf.is-egg-in .one-sf-d[data-s='future'] { backgrou
 @media (max-height: 640px) { html[data-edition='one'] .one-sf { display: none; } }
 
 @media (prefers-reduced-motion: reduce) { html[data-edition='one'] .one-sf-d { animation: none; transition: none; } }
+
+/* One account preference; motion indicates actual recognition, never installation. */
+html[data-edition='one'] .st-captcha-state{display:inline-flex;align-items:center;gap:4px;font-size:var(--t5);color:var(--fg-2);white-space:nowrap}
+html[data-edition='one'] .st-captcha-state i{width:4px;height:4px;border-radius:50%;background:var(--ink)}
+html[data-edition='one'] .st-captcha-state[data-state="disabled"] i,html[data-edition='one'] .st-captcha-state[data-state="unavailable"] i{background:var(--mute)}
+html[data-edition='one'] .st-captcha-state[data-state="manual_required"] i{background:var(--red)}
+html[data-edition='one'] .st-captcha-state[data-state="recognizing"] i{animation:captcha-breathe 1s ease-in-out infinite}
+@keyframes captcha-breathe{50%{opacity:.3;transform:scale(.8)}}
+@media(prefers-reduced-motion:reduce){html[data-edition='one'] .st-captcha-state[data-state="recognizing"] i{animation:none}}

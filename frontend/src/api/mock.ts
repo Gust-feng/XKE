@@ -57,6 +57,7 @@ export const mockApi: Api = {
     await this.updateSettings({ netAutoLogin: networkConfig.settings.heartbeat_enabled, heartbeatMinutes: networkConfig.settings.heartbeat_interval_minutes })
     return structuredClone(networkConfig)
   },
+  async getCaptchaRecognition() { return { supported: true, trusted: true, enabled: loadSettings().autoCaptchaEnabled !== false, state: 'idle', attempt: 0, message: '' } },
   async getJobs() { throw new Error('预览没有后台任务') },
   async getSchedule() { await wait(120); return schedule },
   async syncSchedule() {

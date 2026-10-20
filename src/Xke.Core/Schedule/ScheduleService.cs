@@ -253,6 +253,12 @@ public sealed class ScheduleService : IScheduleRefresh, IDisposable
                     var payload = SaveLivePayload(context, result, challenge.Request, fallbackReason: string.Empty);
                     return ("Cookie 课表获取成功", payload);
                 }
+                catch (JwLoginException ex) when (ex.Kind == JwLoginFailureKind.CaptchaRejected)
+                {
+                    // The old native context has been consumed. Return a fresh
+                    // manual challenge instead of retaining a disposed callback.
+                    return await FetchCookieCoreAsync(sessionId, challenge.Request, token).ConfigureAwait(false);
+                }
                 catch (JwScheduleException ex)
                 {
                     throw new ScheduleException(ex.StatusCode, ex.Message);
@@ -274,6 +280,7 @@ public sealed class ScheduleService : IScheduleRefresh, IDisposable
             ["challenge_id"] = challengePayload.ChallengeId,
             ["captcha_image"] = challengePayload.CaptchaImage,
             ["expires_in_seconds"] = challengePayload.ExpiresInSeconds,
+            ["message"] = challenge.Message,
         };
     }
 

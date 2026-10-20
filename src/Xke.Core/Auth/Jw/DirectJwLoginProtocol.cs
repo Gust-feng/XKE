@@ -100,7 +100,8 @@ public sealed class DirectJwLoginProtocol : IDisposable
                                || (redirectedUri?.AbsolutePath ?? string.Empty).StartsWith("/jsxsd/", StringComparison.OrdinalIgnoreCase);
         if (!enteredWorkspace)
         {
-            throw new JwScheduleException("教务登录未进入 JW 工作区，请检查账号密码或验证码。阶段=jw_login_submit", 401);
+            var html = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            throw JwLoginException.FromResponse(html);
         }
     }
 

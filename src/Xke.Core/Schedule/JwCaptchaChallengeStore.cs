@@ -22,7 +22,8 @@ public sealed class JwCaptchaChallengeStore
             Request: CloneRequest(request),
             CaptchaImage: exception.CaptchaImage,
             ExpiresAt: current.AddSeconds(expiresInSeconds),
-            ContinueAsync: exception.ContinueAsync);
+            ContinueAsync: exception.ContinueAsync,
+            Message: exception.Message == "需要输入教务系统验证码" ? string.Empty : exception.Message);
 
         _challenges[challenge.ChallengeId] = new StoredJwCaptchaChallenge(challenge);
         return challenge;
@@ -125,7 +126,7 @@ public sealed record JwCaptchaChallenge(
     ScheduleRequest Request,
     string CaptchaImage,
     DateTimeOffset ExpiresAt,
-    Func<string, CancellationToken, Task<JwScheduleFetchResult>>? ContinueAsync)
+    Func<string, CancellationToken, Task<JwScheduleFetchResult>>? ContinueAsync, string Message = "")
 {
     public int RemainingSeconds(DateTimeOffset now)
     {

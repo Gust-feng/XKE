@@ -41,6 +41,9 @@ public static partial class XkeWebHostApplication
             return Ok(result.Message, result.Payload);
         });
 
+        auth.MapGet("/captcha-recognition", (AuthService authService, HttpContext context) =>
+            Ok("验证码识别状态", authService.GetCaptchaRecognitionStatus(ResolveSessionId(context))));
+
         auth.MapGet("/session", (AuthService authService, HttpContext context) =>
         {
             var sessionId = ResolveSessionId(context);

@@ -72,13 +72,15 @@ try {
     $publishRoot = Join-Path $stageRoot 'publish'
     $releaseRoot = Join-Path $stageRoot 'releases'
     $project = Join-Path $repoRoot 'src/Xke.DesktopHost/Xke.DesktopHost.csproj'
+    & dotnet msbuild $project -t:PrepareCaptchaAssets -nologo
+    if ($LASTEXITCODE -ne 0) { throw 'Could not prepare verified app-local OCR assets.' }
     & dotnet publish $project -c $Configuration -r $RuntimeIdentifier --self-contained true `
         --artifacts-path (Join-Path $stageRoot 'build') -o $publishRoot `
         "-p:Version=$Version" "-p:RuntimeFrameworkVersion=$runtimeVersion" -p:TargetLatestRuntimePatch=true `
         -p:PublishSingleFile=false -p:PublishTrimmed=false -p:DebugSymbols=false -p:DebugType=None
     if ($LASTEXITCODE -ne 0) { throw 'dotnet publish failed; no release output was installed.' }
     # Referenced WebHost is hosted in-process; do not ship a second launchable server or runtime diagnostics.
-    foreach ($name in @('createdump.exe', 'Xke.WebHost.exe', 'Xke.WebHost.deps.json', 'Xke.WebHost.runtimeconfig.json')) {
+    foreach ($name in @('createdump.exe', 'Xke.WebHost.exe', 'Xke.WebHost.deps.json', 'Xke.WebHost.runtimeconfig.json', 'onnxruntime.lib', 'onnxruntime_providers_shared.lib')) {
         $path = Join-Path $publishRoot $name
         if (Test-Path -LiteralPath $path -PathType Leaf) { Remove-Item -LiteralPath $path }
     }

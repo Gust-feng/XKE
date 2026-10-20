@@ -5,7 +5,7 @@ import type { Api, AuthResult, Captcha, Schedule, Settings, Workspace } from './
 
 export function challenge(dto: CaptchaDto, purpose: Captcha['purpose']): Captcha {
   return { kind: 'captcha', purpose, id: dto.challenge_id, image: dto.captcha_image,
-    expiresAt: Date.now() + dto.expires_in_seconds * 1000 }
+    expiresAt: Date.now() + dto.expires_in_seconds * 1000, message: dto.message }
 }
 export const isCaptchaDto = (dto: AuthDto | CaptchaDto | WeekDto): dto is CaptchaDto => 'status' in dto && dto.status === 'captcha_required'
 
@@ -17,10 +17,17 @@ export class RuntimeApi implements Api {
   private desktopMode = false
   private retryConfig = false
   private authAttempt = 0
+  private schoolRequests = new Set<AbortController>()
+  private async school<T>(path: string, body: unknown, anonymous = false) {
+    const controller = new AbortController()
+    this.schoolRequests.add(controller)
+    try { return await this.http.request<T>(path, body, false, anonymous, controller.signal) }
+    finally { this.schoolRequests.delete(controller) }
+  }
   private readonly http: HttpClient
   constructor(http: HttpClient) { this.http = http }
 
-  cancelAuth() { this.authAttempt++ }
+  cancelAuth() { this.authAttempt++; for (const request of this.schoolRequests) request.abort(new ApiError(409, '登录已取消')); this.schoolRequests.clear() }
   clearSession() { this.cancelAuth(); this.auth = null; this.http.clearSession() }
   private async authenticate(dto: AuthDto | CaptchaDto, purpose: 'login' | 'connect', attempt: number): Promise<AuthResult> {
     if (attempt !== this.authAttempt) throw new ApiError(409, '登录已取消')
@@ -73,13 +80,13 @@ export class RuntimeApi implements Api {
       this.desktopMode = config.development.host_mode === 'desktop-webview'
       this.retryConfig = false
     }
-    const dto = await this.http.request<AuthDto | CaptchaDto>('/api/auth/login', { user, password }, false, true)
+    const dto = await this.school<AuthDto | CaptchaDto>(this.auth ? '/api/auth/reinitialize' : '/api/auth/login', { user, password }, true)
     return this.authenticate(dto, 'login', attempt)
   }
   async connect() {
     if (!this.auth) throw new ApiError(401, '请先设置教务账号')
     const attempt = ++this.authAttempt
-    const dto = await this.http.request<AuthDto | CaptchaDto>('/api/auth/connect', {})
+    const dto = await this.school<AuthDto | CaptchaDto>('/api/auth/connect', {})
     return this.authenticate(dto, 'connect', attempt)
   }
   async session() {
@@ -101,16 +108,17 @@ export class RuntimeApi implements Api {
   async submitCaptcha(c: Captcha, code: string): Promise<AuthResult | Schedule> {
     const body = { challenge_id: c.id, captcha_code: code }
     if (c.purpose === 'schedule') {
-      return adaptWeek(await this.http.request<WeekDto>('/api/auth/jw-captcha/submit', body))
+      const dto = await this.school<WeekDto | CaptchaDto>('/api/auth/jw-captcha/submit', body)
+      return isCaptchaDto(dto) ? challenge(dto, 'schedule') : adaptWeek(dto)
     }
     const attempt = this.authAttempt
-    const dto = await this.http.request<AuthDto>('/api/auth/captcha', body, false, true)
+    const dto = await this.school<AuthDto>('/api/auth/captcha', body, true)
     return this.authenticate(dto, c.purpose, attempt)
   }
-  /** Logical cancellation only: the shared HttpClient retains ownership of in-flight transport/timeouts. */
+  /** Abortable reads keep the timeout and session boundary in the shared HttpClient. */
   private async read<T>(path: string, signal?: AbortSignal): Promise<T> {
     signal?.throwIfAborted()
-    const result = await this.http.request<T>(path)
+    const result = await this.http.request<T>(path, undefined, false, false, signal)
     signal?.throwIfAborted()
     return result
   }
@@ -126,7 +134,7 @@ export class RuntimeApi implements Api {
     const historical = !!term && this.auth?.cached_schedule?.term.academic_term !== term
     const body = { mode: week === undefined ? 'current' : 'manual',
       ...(week !== undefined ? { manual_week: String(week) } : {}), ...(historical ? { academic_term: term } : {}) }
-    const dto = await this.http.request<WeekDto | CaptchaDto>('/api/schedule/preferred', body)
+    const dto = await this.school<WeekDto | CaptchaDto>('/api/schedule/preferred', body)
     if (isCaptchaDto(dto)) return challenge(dto, 'schedule')
     const result = adaptWeek(dto)
     if (historical) result.currentWeek = null
@@ -142,8 +150,11 @@ export class RuntimeApi implements Api {
   getLocalSemester(term?: string, context?: Schedule | null, signal?: AbortSignal) {
     return this.readSemester('/api/schedule/semester/local', term, context, signal)
   }
-  getSemester(term?: string, context?: Schedule | null) {
-    return this.readSemester('/api/schedule/semester', term, context)
+  async getSemester(term?: string, context?: Schedule | null) {
+    const controller = new AbortController()
+    this.schoolRequests.add(controller)
+    try { return await this.readSemester('/api/schedule/semester', term, context, controller.signal) }
+    finally { this.schoolRequests.delete(controller) }
   }
   getAppUpdate(signal?: AbortSignal) {
     return this.read<import('./dto').AppUpdateDto>('/api/app/updates', signal)
@@ -207,6 +218,7 @@ export class RuntimeApi implements Api {
   saveNetworkConfig(patch: Record<string, string | number | boolean | string[]>) {
     return this.http.request<NetworkConfigDto>('/api/network/config', patch)
   }
+  getCaptchaRecognition(signal?: AbortSignal) { return this.read<import('./dto').CaptchaRecognitionDto>('/api/auth/captcha-recognition', signal) }
   async getJobs(signal?: AbortSignal) {
     const [network, schedule] = await Promise.allSettled([
       this.read<JobStateDto>('/api/network/maintenance', signal), this.read<JobStateDto>('/api/schedule/refresh-status', signal),

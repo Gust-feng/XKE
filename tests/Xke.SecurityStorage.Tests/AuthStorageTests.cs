@@ -548,6 +548,21 @@ public sealed class AuthStorageTests
         Assert.False(Directory.Exists(store.SchedulesDirectory));
     }
 
+    [Fact]
+    public void LoginCredentialsRemainReadableDuringConcurrentAuthenticationAndStatusReads()
+    {
+        using var workspace = new TemporaryDirectory();
+        var root = CreateTemporaryDataRoot(workspace);
+        Parallel.For(0, 80, index => {
+            new XkeCredentialStore(root).Save(new StoredCredentialDocument { User = "synthetic", StudentId = "SYNTHETIC", Password = $"synthetic-password-{index}", TrustedLoginToken = $"synthetic-token-{index}" });
+            var read = new XkeCredentialStore(root).Load("synthetic");
+            Assert.NotNull(read); Assert.StartsWith("synthetic-password-", read.Password);
+            Assert.Single(new XkeCredentialStore(root).LoadAll());
+        });
+        Assert.Empty(Directory.EnumerateFiles(root.CredentialsDirectory, "*.tmp"));
+        Assert.DoesNotContain("synthetic-password-", File.ReadAllText(root.Credentials().GetPath("synthetic")));
+    }
+
     private static XkeDataRoot CreateTemporaryDataRoot(TemporaryDirectory workspace)
     {
         return XkeDataRootFactory.CreateDefault(
@@ -577,7 +592,11 @@ public sealed class AuthStorageTests
         {
             if (Directory.Exists(RootPath))
             {
-                Directory.Delete(RootPath, recursive: true);
+                var resolved = Path.GetFullPath(RootPath);
+                if (Path.GetDirectoryName(resolved) != Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar)
+                    || !Path.GetFileName(resolved).StartsWith("xke-auth-store-", StringComparison.Ordinal))
+                    throw new InvalidOperationException("Unsafe synthetic cleanup path");
+                Directory.Delete(resolved, recursive: true);
             }
         }
     }

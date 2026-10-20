@@ -146,6 +146,7 @@ function Assert-ReleaseRuntimeAvailable {
 
 function Test-DesktopPayloadPath {
     param([string]$RelativePath, [bool]$IncludeCampusConfig)
+    if ($RelativePath -cin @('ocr/common_old.onnx', 'ocr/charset.json', 'ocr/DDDDOCR-LICENSE.txt', 'ocr/PILLOW-LICENSE.txt', 'ocr/VC-RUNTIME-NOTICE.txt', 'ocr/ONNXRUNTIME-LICENSE.txt', 'ocr/ONNXRUNTIME-NOTICES.txt', 'ocr/TENSORS-LICENSE.txt', 'ocr/TENSORS-NOTICES.txt')) { return $true }
     if ($RelativePath.StartsWith('web/', [StringComparison]::Ordinal)) { return Test-FrontendReleasePath $RelativePath.Substring(4) }
     if ($RelativePath -cin @('Xke.DesktopHost.exe', 'Xke.DesktopHost.deps.json', 'Xke.DesktopHost.runtimeconfig.json', 'THIRD-PARTY-NOTICES.txt')) { return $true }
     if ($IncludeCampusConfig -and $RelativePath -ceq 'xke.campus-self-service.json') { return $true }
@@ -162,6 +163,7 @@ function Assert-DesktopPublish {
     }
     if (-not (Test-Path -LiteralPath (Join-Path $PublishRoot 'Xke.DesktopHost.exe') -PathType Leaf)) { throw 'Published desktop entry executable is missing.' }
     if (-not (Test-Path -LiteralPath (Join-Path $PublishRoot 'THIRD-PARTY-NOTICES.txt') -PathType Leaf)) { throw 'Third-party notices are missing.' }
+    if (Test-Path -LiteralPath (Join-Path $PublishRoot 'Microsoft.ML.OnnxRuntime.dll')) { Assert-CaptchaPayload $PublishRoot }
     $deps = Read-ReleaseJsonObject (Join-Path $PublishRoot 'Xke.DesktopHost.deps.json')
     foreach ($package in Get-RequiredRuntimePacks $RuntimeIdentifier) {
         $key = "runtimepack.$package/$RuntimeVersion"
@@ -214,6 +216,17 @@ function Assert-VelopackArchive {
         foreach ($required in @("${prefix}Xke.DesktopHost.exe", "${prefix}Xke.DesktopHost.dll", "${prefix}Velopack.dll", "${prefix}Xke.DesktopHost.deps.json", "${prefix}Xke.DesktopHost.runtimeconfig.json", "${prefix}sq.version", "${prefix}web/index.html", "${prefix}web/frontend-build.json", "${prefix}THIRD-PARTY-NOTICES.txt")) {
             if (-not $seen.Contains($required)) { throw "Archive is missing $required." }
         }
+        if ($seen.Contains("${prefix}Microsoft.ML.OnnxRuntime.dll")) {
+            $hashes = Get-CaptchaReleaseHashes
+            foreach ($pair in $hashes.GetEnumerator()) {
+                $entry = $zip.GetEntry($prefix + $pair.Key)
+                if ($null -eq $entry) { throw "OCR package asset missing: $($pair.Key)" }
+                $stream = $entry.Open()
+                try { $actual = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($stream)) } finally { $stream.Dispose() }
+                if ($actual -ine $pair.Value) { throw "OCR package asset hash mismatch: $($pair.Key)" }
+            }
+            foreach ($name in Get-CaptchaNoticePaths) { if (-not $seen.Contains($prefix + $name)) { throw "OCR notice missing: $name" } }
+        }
         if ($Kind -eq 'Portable') {
             foreach ($required in @('Update.exe', 'XKE.exe', '.portable')) {
                 if (-not $seen.Contains($required)) { throw "Portable archive is missing $required." }
@@ -257,4 +270,28 @@ function Assert-VelopackRelease {
             if ($null -eq $node -or $node.InnerText -cne $pair[1]) { throw "Unexpected Velopack package metadata: $($pair[0])" }
         }
     } finally { $zip.Dispose() }
+}
+
+
+function Get-CaptchaNoticePaths {
+    return @('ocr/DDDDOCR-LICENSE.txt', 'ocr/PILLOW-LICENSE.txt', 'ocr/VC-RUNTIME-NOTICE.txt', 'ocr/ONNXRUNTIME-LICENSE.txt', 'ocr/ONNXRUNTIME-NOTICES.txt', 'ocr/TENSORS-LICENSE.txt', 'ocr/TENSORS-NOTICES.txt')
+}
+function Get-CaptchaReleaseHashes {
+    $lock = Read-ReleaseJsonObject (Join-Path $PSScriptRoot 'captcha-assets.lock.json')
+    $hashes = @{ 'ocr/common_old.onnx' = $lock.model.sha256; 'ocr/charset.json' = $lock.charsetSha256 }
+    foreach ($file in $lock.crt.files.PSObject.Properties) { $hashes[$file.Name] = $file.Value }
+    foreach ($file in $lock.engineFiles.PSObject.Properties) { $hashes[$file.Name] = $file.Value }
+    return $hashes
+}
+function Assert-CaptchaPayload {
+    param([string]$PublishRoot)
+    foreach ($pair in (Get-CaptchaReleaseHashes).GetEnumerator()) {
+        $path = Join-Path $PublishRoot $pair.Key
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "OCR asset missing: $($pair.Key)" }
+        if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ine $pair.Value) { throw "OCR asset hash mismatch: $($pair.Key)" }
+    }
+    foreach ($name in Get-CaptchaNoticePaths) {
+        $path = Join-Path $PublishRoot $name
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf) -or (Get-Item -LiteralPath $path).Length -eq 0) { throw "OCR notice missing: $name" }
+    }
 }

@@ -42,10 +42,11 @@ public static partial class XkeWebHostApplication
             workspaceRoot: dotNetRoot,
             explicitDataRoot: hostOptions.AuthDataRootPath));
         builder.Services.AddSingleton<TraditionalJwSessionRuntimeStore>();
+        builder.Services.AddSingleton(services => new AutomaticCaptchaLogin(services.GetRequiredService<XkeDataRoot>(), hostOptions.CaptchaRecognizer));
         builder.Services.AddSingleton<IJwScheduleClient>(_ =>
             hostOptions.JwScheduleClient ?? new NativeJwScheduleClient(
                 _.GetRequiredService<TraditionalJwSessionRuntimeStore>(),
-                _.GetRequiredService<XkeDataRoot>()));
+                _.GetRequiredService<XkeDataRoot>(), _.GetRequiredService<AutomaticCaptchaLogin>(), hostOptions.JwLoginProtocolFactory));
         var scheduleApiOptions = hostOptions.ScheduleApiOptions ?? ScheduleApiOptions.Load(dotNetRoot);
         builder.Services.AddSingleton(scheduleApiOptions);
         var snapshotClient = scheduleApiOptions.Provider == "protocol"
@@ -72,7 +73,7 @@ public static partial class XkeWebHostApplication
             services.GetRequiredService<XkeDataRoot>(),
             services.GetRequiredService<ScheduleService>(),
             services.GetRequiredService<TraditionalJwSessionRuntimeStore>(),
-            hostOptions.JwLoginProtocolFactory));
+            hostOptions.JwLoginProtocolFactory, services.GetRequiredService<AutomaticCaptchaLogin>()));
         builder.Services.AddSingleton<JwCaptchaChallengeStore>();
         builder.Services.AddSingleton<IJwCaptchaSolver, ManualCaptchaSolver>();
         builder.Services.AddSingleton(_ => new ScheduleService(
@@ -83,7 +84,9 @@ public static partial class XkeWebHostApplication
             _.GetRequiredService<IScheduleSnapshotSource>(),
             () => _.GetRequiredService<AuthService>().ActiveSessionId));
         builder.Services.AddSingleton<IScheduleRefresh>(services => services.GetRequiredService<ScheduleService>());
-        builder.Services.AddSingleton<ScheduleRefreshScheduler>();
+        builder.Services.AddSingleton(services => new ScheduleRefreshScheduler(
+            services.GetRequiredService<IScheduleRefresh>(), services.GetRequiredService<TimeProvider>(),
+            session => services.GetRequiredService<TraditionalJwSessionRuntimeStore>().TryGet(session, out _)));
         builder.Services.AddSingleton(services => new LessonReminderScheduler(
             services.GetRequiredService<XkeDataRoot>(), services.GetRequiredService<TimeProvider>(),
             services.GetRequiredService<IDesktopNotifier>(), () => services.GetRequiredService<AuthService>().ActiveSessionId));

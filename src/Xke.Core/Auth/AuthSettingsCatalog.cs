@@ -90,6 +90,7 @@ public static class AuthSettingsCatalog
             Auth = new AuthSettingsDocument
             {
                 PreloginMode = NormalizePreloginMode(raw.Auth?.PreloginMode),
+                AutoCaptchaEnabled = raw.Auth?.AutoCaptchaEnabled ?? defaults.Auth.AutoCaptchaEnabled,
             },
             Network = new NetworkSettingsDocument
             {
@@ -162,7 +163,8 @@ public static class AuthSettingsCatalog
         {
             auth = new AuthSettingsDocument
             {
-                PreloginMode = NormalizePreloginMode(request.Auth.PreloginMode),
+                PreloginMode = string.IsNullOrWhiteSpace(request.Auth.PreloginMode) ? auth.PreloginMode : NormalizePreloginMode(request.Auth.PreloginMode),
+                AutoCaptchaEnabled = request.Auth.AutoCaptchaEnabled ?? auth.AutoCaptchaEnabled,
             };
         }
 
@@ -220,6 +222,7 @@ public static class AuthSettingsCatalog
             Auth = new AuthSettingsDocument
             {
                 PreloginMode = NormalizePreloginMode(preloginMode),
+                AutoCaptchaEnabled = normalized.Auth.AutoCaptchaEnabled,
             },
         };
     }

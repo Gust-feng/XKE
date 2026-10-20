@@ -72,6 +72,7 @@ public partial class App : System.Windows.Application
         _webHostService = new XkeWebHostService(new XkeWebHostOptions
         {
             HostMode = "desktop-webview",
+            CaptchaRecognizer = new Xke.DesktopHost.Captcha.DesktopCaptchaRecognizer(),
             AppUpdates = _appUpdates,
             RuntimeChannel = "dotnet8-desktop",
             DesktopWindowController = new DeferredDesktopWindowController(() => window),

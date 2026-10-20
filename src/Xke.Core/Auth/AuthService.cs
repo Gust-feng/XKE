@@ -12,6 +12,8 @@ namespace Xke.Core.Auth;
 public sealed class AuthService : IDisposable
 {
     private readonly Func<string, string, DirectJwLoginProtocol> _protocolFactory;
+    private readonly AutomaticCaptchaLogin? _automatic;
+    private long _loginGeneration;
     private string? _activeSessionId;
     public string? ActiveSessionId => Volatile.Read(ref _activeSessionId);
 
@@ -20,9 +22,10 @@ public sealed class AuthService : IDisposable
     private readonly TraditionalJwSessionRuntimeStore _traditionalJwSessions;
     private readonly ConcurrentDictionary<string, PendingProtocolLogin> _protocolLogins = new(StringComparer.Ordinal);
 
-    public AuthService(XkeDataRoot dataRoot, ScheduleService scheduleService, TraditionalJwSessionRuntimeStore traditionalJwSessions, Func<string, string, DirectJwLoginProtocol>? protocolFactory = null)
+    public AuthService(XkeDataRoot dataRoot, ScheduleService scheduleService, TraditionalJwSessionRuntimeStore traditionalJwSessions, Func<string, string, DirectJwLoginProtocol>? protocolFactory = null, AutomaticCaptchaLogin? automatic = null)
     {
         _dataRoot = dataRoot;
+        _automatic = automatic;
         _scheduleService = scheduleService;
         _traditionalJwSessions = traditionalJwSessions;
         _protocolFactory = protocolFactory ?? ((user, password) => new DirectJwLoginProtocol(user, password));
@@ -30,6 +33,7 @@ public sealed class AuthService : IDisposable
 
     public async Task<(string Message, object Payload)> BeginProtocolLoginAsync(LoginRequest request, bool forceRemote = false, CancellationToken cancellationToken = default)
     {
+        var generation = Interlocked.Increment(ref _loginGeneration);
         CleanupExpiredProtocolLogins();
         var user = NormalizeRequired(request.User, "账号不能为空");
         var password = NormalizeRequired(request.Password, "密码不能为空");
@@ -57,8 +61,25 @@ public sealed class AuthService : IDisposable
         try
         {
             var image = await protocol.BeginAsync(cancellationToken).ConfigureAwait(false);
+            void ValidateLogin()
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (generation != Volatile.Read(ref _loginGeneration)) throw new AuthException(409, "登录操作已取消");
+            }
+            var authenticated = false;
+            if (_automatic?.CanUse(user, password) == true)
+            {
+                authenticated = await _automatic.TryLoginAsync(user, password, protocol, image, cancellationToken, ValidateLogin).ConfigureAwait(false);
+                if (!authenticated) image = await protocol.BeginAsync(cancellationToken).ConfigureAwait(false);
+            }
+            ValidateLogin();
             var challengeId = Guid.NewGuid().ToString("N");
-            _protocolLogins[challengeId] = new PendingProtocolLogin(user, password, NormalizePreloginMode(request.PreloginMode), existing, protocol, DateTimeOffset.Now.AddMinutes(2));
+            _protocolLogins[challengeId] = new PendingProtocolLogin(user, password, NormalizePreloginMode(request.PreloginMode), existing, protocol, DateTimeOffset.Now.AddMinutes(2), generation, authenticated);
+            if (authenticated)
+            {
+                var completed = await SubmitProtocolCaptchaAsync(new JwCaptchaSubmitRequest { ChallengeId = challengeId, CaptchaCode = string.Empty }, cancellationToken).ConfigureAwait(false);
+                return (completed.Message, completed.Payload);
+            }
             return ("需要输入教务系统验证码", new Dictionary<string, object?>
             {
                 ["status"] = "captcha_required",
@@ -66,12 +87,13 @@ public sealed class AuthService : IDisposable
                 ["captcha_image"] = image,
                 ["expires_in_seconds"] = 120,
                 ["protocol"] = "jw_form",
+                ["message"] = _automatic?.GetStatus(user).Message ?? string.Empty,
             });
         }
         catch (JwScheduleException ex)
         {
             protocol.Dispose();
-            throw new AuthException(502, ex.Message);
+            throw new AuthException(ex.StatusCode is 400 or 401 ? ex.StatusCode : 502, ex.Message);
         }
         catch
         {
@@ -87,7 +109,7 @@ public sealed class AuthService : IDisposable
             throw new AuthException(410, "登录验证码已过期，请重新登录");
         }
 
-        if (pending.ExpiresAt <= DateTimeOffset.Now)
+        if (pending.ExpiresAt <= DateTimeOffset.Now || pending.Generation != Volatile.Read(ref _loginGeneration))
         {
             pending.Protocol.Dispose();
             throw new AuthException(410, "登录验证码已过期，请重新登录");
@@ -97,7 +119,7 @@ public sealed class AuthService : IDisposable
         {
             try
             {
-                await pending.Protocol.CompleteAsync(request.CaptchaCode, cancellationToken).ConfigureAwait(false);
+                if (!pending.Authenticated) await pending.Protocol.CompleteAsync(request.CaptchaCode, cancellationToken).ConfigureAwait(false);
             }
             catch (JwScheduleException ex)
             {
@@ -115,6 +137,8 @@ public sealed class AuthService : IDisposable
                 throw;
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
+            if (pending.Generation != Volatile.Read(ref _loginGeneration)) { jwSession.Dispose(); throw new AuthException(409, "登录操作已取消"); }
             var previousJwSession = _dataRoot.JwSessions().Load(pending.User);
             var store = _dataRoot.ForStudent(profile.StudentId);
             var displayPreference = store.LoadProfile();
@@ -141,9 +165,14 @@ public sealed class AuthService : IDisposable
                 _traditionalJwSessions.Store(sessionId, jwSession);
                 _dataRoot.JwSessions().Save(jwSession.ExportStoredSession());
                 var schedule = await _scheduleService.FetchCookieAsync(sessionId, new ScheduleRequest { Mode = "current" }, cancellationToken).ConfigureAwait(false);
+                if (schedule.Payload.GetValueOrDefault("status")?.ToString() == "captcha_required")
+                    throw new AuthException(409, "初始化期间教务会话已失效，请重新验证");
                 // A successfully parsed empty week is a valid initial schedule.
                 _dataRoot.JwSessions().Save(jwSession.ExportStoredSession());
-                return ("首次登录成功，已使用教务系统协议完成本地初始化", BuildPayload(sessionId, profile, store, settings, credentials.TrustedLoginToken, schedule.Payload, connected: true));
+                cancellationToken.ThrowIfCancellationRequested();
+                if (pending.Generation != Volatile.Read(ref _loginGeneration)) throw new AuthException(409, "登录操作已取消");
+                _automatic?.Reset(pending.User);
+                return ("登录成功", BuildPayload(sessionId, profile, store, settings, credentials.TrustedLoginToken, schedule.Payload, connected: true));
             }
             catch
             {
@@ -255,6 +284,11 @@ public sealed class AuthService : IDisposable
         var updatedSettings = AuthSettingsCatalog.Apply(context.Settings, request);
         updatedSettings = AuthSettingsCatalog.WithPreloginMode(updatedSettings, updatedSettings.Auth.PreloginMode);
         context.StudentStore.SavePreferences(updatedSettings);
+        if (context.Settings.Auth.AutoCaptchaEnabled != updatedSettings.Auth.AutoCaptchaEnabled)
+        {
+            if (updatedSettings.Auth.AutoCaptchaEnabled) _automatic?.Reset(context.Session.User);
+            else _automatic?.Cancel(context.Session.User);
+        }
 
         var nextSession = new StoredSessionDocument
         {
@@ -336,11 +370,19 @@ public sealed class AuthService : IDisposable
     public string Logout(string sessionId)
     {
         var session = EnsureSessionExists(sessionId);
+        Interlocked.Increment(ref _loginGeneration);
+        _automatic?.Cancel(session.User);
         Interlocked.CompareExchange(ref _activeSessionId, null, sessionId);
         _dataRoot.Sessions().Remove(sessionId);
         _traditionalJwSessions.Remove(sessionId);
         _dataRoot.JwSessions().Remove(session.User);
         return "已注销";
+    }
+
+    public CaptchaRecognitionStatus GetCaptchaRecognitionStatus(string sessionId)
+    {
+        var context = LoadContext(sessionId);
+        return _automatic?.GetStatus(context.Session.User) ?? new(false, !string.IsNullOrWhiteSpace(context.Credentials.TrustedLoginToken), context.Settings.Auth.AutoCaptchaEnabled, "unavailable", 0, "");
     }
 
     public string ResolveSessionStudentId(string sessionId)
@@ -714,5 +756,5 @@ public sealed class AuthService : IDisposable
         }
     }
 
-    private sealed record PendingProtocolLogin(string User, string Password, string PreloginMode, StoredCredentialDocument? PreviousCredentials, DirectJwLoginProtocol Protocol, DateTimeOffset ExpiresAt);
+    private sealed record PendingProtocolLogin(string User, string Password, string PreloginMode, StoredCredentialDocument? PreviousCredentials, DirectJwLoginProtocol Protocol, DateTimeOffset ExpiresAt, long Generation, bool Authenticated);
 }

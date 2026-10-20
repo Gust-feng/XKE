@@ -4,6 +4,7 @@
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
+    <CaptchaAssetsRoot>$(MSBuildThisFileDirectory)..\..\artifacts\captcha-assets</CaptchaAssetsRoot>
     <RootNamespace>Xke.DesktopHost</RootNamespace>
     <AssemblyName>Xke.DesktopHost</AssemblyName>
     <AssemblyTitle>XKE</AssemblyTitle>
@@ -20,6 +21,8 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Xke.DesktopHost.Tests" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.31.0" GeneratePathProperty="true" />
+    <PackageReference Include="System.Numerics.Tensors" Version="9.0.0" GeneratePathProperty="true" />
     <PackageReference Include="Velopack" Version="1.2.161" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2592.51" />
     <ProjectReference Include="..\Xke.Contracts\Xke.Contracts.csproj" />
@@ -27,4 +30,19 @@
     <ProjectReference Include="..\Xke.Storage\Xke.Storage.csproj" />
     <ProjectReference Include="..\Xke.WebHost\Xke.WebHost.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <None Update="Captcha/charset.json" Link="ocr/charset.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Update="Captcha/DDDDOCR-LICENSE.txt" Link="ocr/DDDDOCR-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Update="Captcha/PILLOW-LICENSE.txt" Link="ocr/PILLOW-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(CaptchaAssetsRoot)/ocr/common_old.onnx" Link="ocr/common_old.onnx" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('$(CaptchaAssetsRoot)/ocr/common_old.onnx')" />
+    <Content Include="$(CaptchaAssetsRoot)/ocr/VC-RUNTIME-NOTICE.txt" Link="ocr/VC-RUNTIME-NOTICE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('$(CaptchaAssetsRoot)/ocr/VC-RUNTIME-NOTICE.txt')" />
+    <Content Include="$(CaptchaAssetsRoot)/msvcp140.dll;$(CaptchaAssetsRoot)/msvcp140_1.dll;$(CaptchaAssetsRoot)/vcruntime140.dll;$(CaptchaAssetsRoot)/vcruntime140_1.dll" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('$(CaptchaAssetsRoot)/msvcp140.dll')" />
+    <None Include="$(PkgMicrosoft_ML_OnnxRuntime)/LICENSE" Link="ocr/ONNXRUNTIME-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="$(PkgMicrosoft_ML_OnnxRuntime)/ThirdPartyNotices.txt" Link="ocr/ONNXRUNTIME-NOTICES.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="$(PkgSystem_Numerics_Tensors)/LICENSE.TXT" Link="ocr/TENSORS-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="$(PkgSystem_Numerics_Tensors)/THIRD-PARTY-NOTICES.TXT" Link="ocr/TENSORS-NOTICES.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="PrepareCaptchaAssets">
+    <Exec Command="pwsh -NoProfile -File &quot;$(MSBuildThisFileDirectory)..\..\tools\prepare-captcha-assets.ps1&quot;" />
+  </Target>
 </Project>

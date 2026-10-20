@@ -361,7 +361,7 @@ public sealed class TraditionalJwClientTests
         Assert.DoesNotContain(exported.Cookies, item => item.Name == "third-party");
     }
 
-    private sealed class TraditionalJwFakeHandler : HttpMessageHandler
+    internal sealed class TraditionalJwFakeHandler : HttpMessageHandler
     {
         private static readonly byte[] CaptchaImage = Encoding.UTF8.GetBytes("<svg xmlns=\"http://www.w3.org/2000/svg\"><text>2468</text></svg>");
 
@@ -373,6 +373,8 @@ public sealed class TraditionalJwClientTests
         public int CaptchaRequests { get; private set; }
         public int LoginPosts { get; private set; }
         public int DirectLoginPosts { get; private set; }
+        public int DirectFailuresBeforeSuccess { get; init; }
+        public string DirectFailureMessage { get; init; } = "验证码错误!!";
         public int ScheduleLoadRequests { get; private set; }
         public int CourseRoundRequests { get; private set; }
         public int PreviewEntryRequests { get; private set; }
@@ -410,6 +412,8 @@ public sealed class TraditionalJwClientTests
             if (uri.Host == "222.243.161.213" && uri.AbsolutePath == "/Logon.do")
             {
                 DirectLoginPosts++;
+                if (DirectLoginPosts <= DirectFailuresBeforeSuccess)
+                    return Text(HttpStatusCode.OK, $"<font id='showMsg'>{DirectFailureMessage}</font>");
                 var response = Text(HttpStatusCode.OK, "ok");
                 response.Headers.Location = new Uri("http://jw.hnsoftedu.com/jsxsd/framework/xsMainV.jsp");
                 return response;
@@ -647,7 +651,7 @@ public sealed class TraditionalJwClientTests
         }
     }
 
-    private sealed record CapturedRequest(
+    internal sealed record CapturedRequest(
         HttpMethod Method,
         Uri Uri,
         string Body,

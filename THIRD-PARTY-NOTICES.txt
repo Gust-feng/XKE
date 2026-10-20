@@ -1,4 +1,4 @@
-Third-party notices for XKE 1.0.1
+Third-party notices for XKE
 
 This file preserves notices for bundled components. It does not select a license for XKE source code.
 
@@ -2940,3 +2940,14 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+
+========================================================================
+Local CAPTCHA recognition components
+========================================================================
+ddddocr 1.6.1 default ONNX model / MIT license
+Pillow 12.0.0-compatible image sampling / Pillow license
+Microsoft.ML.OnnxRuntime 1.31.0 / MIT license and third-party notices
+System.Numerics.Tensors 9.0.0 / MIT license and third-party notices
+Microsoft Visual C++ 2022 x64 app-local redistributable files 14.44.35211
+Full notices and redistribution references are included in the ocr/ directory.

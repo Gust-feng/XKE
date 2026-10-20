@@ -29,6 +29,7 @@ public sealed class XkeWebHostService : IAsyncDisposable
         var launchOptions = new XkeWebHostOptions
         {
             HostMode = _options.HostMode,
+            CaptchaRecognizer = _options.CaptchaRecognizer,
             AppUpdates = _options.AppUpdates,
             AllowedFrontendOrigins = _options.AllowedFrontendOrigins,
             DesktopRequestToken = _options.DesktopRequestToken,

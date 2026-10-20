@@ -243,7 +243,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       if (!epoch.current.matches(ticket)) return
       setAuthError(message(error))
-      if (captcha.purpose !== 'schedule' || error instanceof ApiError && error.status === 410) setCaptcha(null)
+      if (captcha.purpose !== 'schedule' || !(error instanceof ApiError) || error.status !== 400) setCaptcha(null)
       await handleError(error, 'inline')
     } finally { if (epoch.current.matches(ticket)) setAuthBusy(false) }
   }, [captcha, authBusy, acceptWorkspace, handleError, notify])
