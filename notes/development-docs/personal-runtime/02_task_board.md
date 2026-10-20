@@ -1,5 +1,46 @@
 # 当前任务板：第一版对接与云协议版（2026-10-10）
 
+## 2026-10-20 V1.0.2发布授权与本地门禁
+
+用户已明确要求发布V1.0.2。必要源码/测试/依赖与许可证/构建发布流程/当前说明按范围提交；技能、冻结审查/敏感索引、辅助研究工具、缓存、个人数据和构建产物不提交。版本统一1.0.2，新增版本对应更新说明，既有Actions仍先验证、草稿上传及下载回验后公开。当前本地前端388通过/1项默认跳过，类型与严格lint通过、npm audit零项；定向后端48、Desktop19、Storage29和合成包门禁82通过。完整.NET与HTTP集成由干净Actions再次验证，发布完成只能以远端标签、流程和资产结果为准；不改写历史，不执行电源操作。
+
+## 2026-10-20 桌面首窗口就绪边界调整
+
+正常启动不再先显示原生空壳及“退出”按钮。App先创建不占任务栏的最小化窗口供WebView2初始化；MainWindow等待当前文档前端完成本地恢复或认证页提交的content_ready确认后才呈现。导航完成不再单独作为业务界面就绪信号；无新启动画面或固定展示时长。原生错误/重试/静默自启/托盘唤起保留，初始化超时15秒会显露故障页与退出，不无限隐藏。
+
+已通过Desktop19项、前端146项定向、源码/测试类型检查和严格lint；真实WebView隔离合成的正常确认、未确认超时均通过。最新候选artifacts/candidates/1.0.2-startup-ready，runtime构建2581d58a0e1b4feb。OCR、Auth/Schedule业务策略和个人数据根不改；不执行Git或电源操作。
+
+## 2026-10-20 本地验证码闭环完成，V1.0.2候选待用户验收
+
+- 首次账号密码认证仍须人工验证码；成功初始化后复用既有DPAPI可信token、按账号默认开启自动识别。显式关闭跨恢复/重认证保留，改变密码回到人工验证；不使用普通偏好值代替首次认证。
+- Auth、周/学期和后台续期共享策略：包括首次最多三轮，仅学校明确验证码错误换图重试；凭据、未知、网络或组件错误停止。失败保留可继续的人工验证码，取消/注销不接受迟到提交；三轮失败后本进程暂停自动尝试，人工成功或显式关开再恢复。
+- Windows生产OCR与探测工具共用实现。模型、字符表、CPU引擎和四个官方Microsoft签名CRT固定摘要随包，组件异常回退人工，不需要Python或额外安装OCR运行库。设置仅一个开关及真实动态状态；未增加组件下载页。
+- 已有授权账号在隔离私有数据根完成实际HTTP自动初始化和会话失效后后台认证/取课，各一轮成功；原保存凭据未变。真实首次新账号人工流程尚未重新实测，准入门槛由合成回归覆盖。真实图片/响应/账号资料仍只在ignored开发数据，不放公开源码或产物。
+- 已通过定向WebHost/Core112、Storage29、Desktop16、ProtocolHost5；前端375通过/1项默认跳过，显式合成HTTP集成1通过；最后UI子集81通过。TypeScript与严格lint通过；发布合成门禁82通过。生产识别与Python的125份合成样本预测/张量/像素一致（其中79份命中标签，不能当作学校准确率）；五个原生模块均确认app-local加载。
+- 最新六资产位于ignored `artifacts/candidates/1.0.2-captcha-ready/`，Setup109437844字节，候选版本1.0.2；Portable/full均核对runtime构建`bc7d14ed40053fd9`、10个固定摘要文件及许可，未发现个人数据/缓存路径。候选未签名，不等于新Windows虚拟机安装验收。
+- 已退出旧安装目录进程，仅启动此候选Portable的current程序，沿用原默认数据根。实际PID66320，文件/health版本1.0.2，窗口有句柄且响应，health=ok，web路径指向本次包、前端标记一致。没有运行Setup、替换安装目录或修改快捷方式，不代表用户已安装候选。
+- 最终日志、SHA256及完成回执留在ignored `artifacts/captcha-probe-20261019/`。本轮未stage/commit/push/tag/Release，未休眠/关机，也未清理真实账号或缓存；下一步仅为用户验收。
+
+## 2026-10-19 学校两类错误实测与分类（自动接入前置）
+
+用户已选app-local方案一，并授权使用保存账号探测；首次登录保留人工验证码，完成后才按账号默认开启自动识别，用户可关闭。自动验证码后续最多三次总轮次，密码错误和未知错误不重试。此授权不包括本轮自动commit/push/Release。
+
+共四次受控登录提交：正确保存凭据+故意错误验证码→HTTP200/#showMsg“验证码错误!!”；第一次密码探测的OCR图片被识别错→仍为验证码错误，不当作密码错误证据；人工核对新验证码+仅内存修改的密码→HTTP200/#showMsg“该帐号不存在或密码错误,请联系管理员!”；原保存凭据+C#本地模型→进入学校工作区。最后成功回执只记录workspace_entered，HTTP状态/路径未采集（测试handler在重定向后判断原请求导致），不据此编造200/地址，也不为补齐日志重复登录。四张80x40真实JPEG离线C#/Python预测一致；其中确有一次模型识别错误，不能由少量样本宣称准确率。
+
+私有探测使用新CookieContainer，不读旧学校Cookie，不调用AuthService恢复/写入、不改凭据或课表；每次以加密凭据文件摘要确认未变。所有图片/最小错误节点/私有探测程序均在ignored开发数据/OCR验证/20261019，不记录或输出账号密码、请求encoded、Cookie或完整工作区HTML。公开测试只使用两条脱敏的#showMsg最小片段。学校未返回锁定/限流提示；停止继续探测。
+
+已修改DirectJwLoginProtocol并新增JwLoginException，将观察到的两个错误映射为CaptchaRejected/CredentialsRejected，其余Unknown；保留StatusCode=401、禁止整页关键词推测，避免脚本里验证码提示引起误判。WebHost42项定向回归通过（含新分类、原协议、AuthProtocol与后台取消），ProtocolHost登录/OCR定向5项通过；合计47项，不做全量测试/浏览器验收。证据：artifacts/captcha-probe-20261019/login-failure-tests.log、protocol-login-tests.log；真实探测不迁入artifacts或公开notes。首次信任/自动识别开关/动态状态/三次重试/VC++ app-local正式包仍未接入，不将本阶段当成完整交付，未重启或发布。
+
+## 2026-10-19 本地OCR验证（未接入生产）
+
+新增tools/Xke.CaptchaProbe与合成准备/包体测量工具。复用ICaptchaRecognizer，CPU Microsoft.ML.OnnxRuntime1.31.0、默认ddddocr1.6.1 common_old.onnx（13,606,051字节），固定模型与字符表SHA256。Python仅开发对照，模型、图片、依赖下载、测量包均在ignored artifacts，不提交二进制或个人资料。
+
+首轮Windows缩放导致14/100结果不同，已改为模型专用Pillow兼容Lanczos/灰度顺序（保留Pillow许可），没有引入第二套原生图像库。125张合成样例：预处理逐像素一致125/125、相同张量推理一致125/125、完整图像识别与Python一致125/125；其中纯数字60/60正确。整体合成正确79/125，与Python相同，含字母/异常尺寸的其余组仅作迁移对照，不能据此宣称真实学校准确率。9项错误输入/取消/CTC重复和blank/输出结构/并发检查通过，透明图明确拒绝，未伪造结果或强截四位。构建0警告/0错误；独立自包含发布并在移除Python/dotnet PATH后执行验证，仍非干净机验收。
+
+同一基线及Velopack1.2.161配对测量：依赖/模型载荷Setup 95,809,361→109,388,032字节，增加13,578,671字节（12.950MiB）；解压载荷增加32,059,605字节。测量包使用独立XKE.CaptchaSizeProbe标识，不是接入成品/正式发布，不分发。原生库导入MSVCP140/MSVCP140_1/VCRUNTIME140/VCRUNTIME140_1，因此该增量不含新机VC++运行库供给；正式接入前必须处理该前置条件并复测最终包体，不直接复制本机System32文件。
+
+证据：artifacts/captcha-probe-20261019/report-v2.json、report-standalone.json、package-comparison-final/size-report.json、native-imports.json。尚未请求真实学校验证码/提交登录、未读取凭据或Cookie、未改Auth/Schedule调度/界面/正式包门禁，未commit/push/tag/Release或重启应用。下一步需用户提供新鲜学校验证码小样本（仅图片，不含账号资料），然后统一接入认证续期、有限重试/人工回退、模型资源发布门禁及Windows原生依赖；不把工具项目直接变成生产依赖。
+
 ## 2026-10-18 V1.0.1凭据变更修复
 
 PR首次通过后，main/tag重复验证发现NetworkMaintenanceReliabilityTests的credentials分支失败，已阻断公开Release。根因是凭据修订只看修改时间；新增等长/等时间戳负例在旧代码必现，修为加密内容摘要和网络凭据原子写/共享文件锁，补不解密及并发读取回归。
@@ -11,6 +52,78 @@ PR首次通过后，main/tag重复验证发现NetworkMaintenanceReliabilityTests
 本轮完成旧移动路径退役、账号昵称/会话隔离、历史学期补齐与设置/动效细节收口。正式Actions已接入PR/main/版本标签验证，发布前草稿资产下载回验，具体运行结果以对应GitHub Actions和Release为准。
 
 本地后端502项通过，固定端口用例因真实桌面运行留给干净CI执行；前端369项通过，另用显式合成宿主完成1项真实HTTP集成。类型检查/零警告lint/依赖审计通过，80项发布内容门禁通过，正式runtime候选六资产校验通过。集成宿主补齐合成原生证明，同时验证无证明的桌面写入仍403，不放宽生产策略。没有真实账号/缓存/私有配置随源码或安装包发布；窗口/真实学校和跨版本升级仍保留原验收边界。
+
+## 2026-10-18 前端工具链和警告收敛
+
+前端已移除旧单文件预览打包链，保留显式合成预览但改为HTTP静态目录。组件/Hook/工具边界和3处effect触发方式收敛，不重做视觉；账号/API/存储契约不变。详见frontend-rebuild任务板同日条目。
+
+源码和测试类型检查通过；9份定向237/237通过，含4项新增DOM回归（更新反馈关闭重开、摘要进入/在线变化/同值去重、初始网络页认证及注销迟到、周次portal离开重入）。事件测试关闭测试环境原生动效，不宣称真实WebView像素/帧率验收。严格lint为0错误/0警告；npm audit为0项，旧3项high依赖链已移除。runtime与preview构建通过，发布内容门禁接受runtime、明确拒绝preview。未访问真实学校、不改个人数据、不处理本地安装/快捷方式、不打包安装/重启、未stage/commit/push。
+
+## 2026-10-18 五项前端边界收口
+
+DETAIL-01～05已在前端修复：会话响应解析与API状态提交隔离、账号级学期补齐不受视图切换取消、课时控制器语义生命周期、昵称失败焦点、更新设置inline错误和保存队列恢复。未更改后端契约/存储模型/安装与快捷方式；具体实现见frontend-rebuild任务板同日条目。
+
+前端8份定向231/231通过（包括新增12项回归：4项响应解析/内存提交隔离，8项DOM交互及Store生命周期）；最后测试探针改用layout effect避免新增lint警告，runtime+交互两份复跑48/48通过。源码与测试TypeScript检查通过，runtime构建通过，frontend_build=bd360e53a3fde6fe；lint无错误，仍为原有10条警告。没有真实学校请求/账号数据操作，也未运行浏览器或后端全量测试。按用户要求不处理本地安装/快捷方式，本轮未打包安装或重启、未stage/commit/push。
+
+## 2026-10-18 用户启动后仍为旧资源（待解决）
+
+用户手动启动安装目录主程序后复查：PID9916、窗口XKE响应，health/frontend_build仍为115309c01efa9fd6；HTTP首页引用旧index-DRwqMmJC.js，新index-DW2V0c2y.js返回404。与此同时本地文件读取frontend-build.json为aee67a5b7b172919，首页也引用新资源，health文件哈希与本地读取哈希不一致。
+
+因此此前候选内容/安装磁盘哈希通过不能作为原生运行新版已验收；目前确认运行端仍旧，具体资源视图为何不一致尚未确认，不能归咎浏览器缓存。自动启动此前被策略拒绝，未换工具绕过；建议用户从托盘完全退出后手动运行本轮候选Setup再确认。没有清理账号、课表或WebView数据，没有修改业务源码或commit。只读诊断证据：artifacts/profile-and-semester-motion-20261018/runtime-mismatch.json。
+
+## 2026-10-18 昵称与课时彩蛋安装候选
+
+个人信息卡移除姓名下学号；姓名本身支持无额外引导的原位昵称编辑，清空恢复学校姓名。复用既有auth/profile，仅更新本地昵称偏好；协议重认证和持久会话恢复刷新学校资料时保留该偏好，注销/切账号迟到响应不得回填。
+
+另一agent实现并经主agent复核的课时彩蛋：主运动段不打断，连点只合并一个待切换目标，全部点完成本段至少88%才衔接；持久弹簧保留速度，避免中途高频折返。到达后自动返回计时，Escape/resize/unmount清理保持。旧debounce/即时反向记录是历史方案。
+
+合并验证：前端六份定向171/171、类型/runtime构建通过；lint无错误、10条既有警告。后端认证定向19/19通过。昵称与动效已做隔离合成预览，不替代真实WebView2体感验收。
+
+候选artifacts/candidates/1.0.0-profile-semester-motion-20261018通过发布内容校验，V1.0.0、channel win，校园网仅注入地址/超时白名单，无凭据/缓存。Setup静默安装完成；安装目录DLL、前端JS/CSS/构建标记及最小校园网配置哈希与候选便携包一致，frontend_build=aee67a5b7b172919。沿用原LOCALAPPDATA/.XKE/data，学生目录/凭据文件数量未变，不读取正文、不清数据。
+
+旧安装版已停止，但最终自动启动被执行策略拒绝，未绕过重试；本轮没有新PID、窗口就绪或health/HTTP运行验收，需用户手动启动桌面XKE确认。证据位于ignored artifacts/profile-and-semester-motion-20261018。未stage/commit/push。
+
+## 2026-10-17 历史课表显示与入场连续性
+
+本轮仅修前端显示：换教室标识新增同名/同教师/同类别连续课程约束，不再把不同课程的相邻换楼视为续课换教室；时间相邻、同日、无插课/重叠及已知不同教室条件保持。显示课块身份与来源行ID/索引解耦，整学期→更新单周的缓存回填保留同课块React实例；导航容器用学期+周key，真实换周仍有一次动效。不改后端数据或丢弃周缓存刷新，左栏/详情使用同一显示模型，原parts/source保留。
+
+五项负例先复现旧行为，修复后5份定向153/153及类型/runtime构建通过；无需重复全量后端或浏览器检查。新候选artifacts/candidates/1.0.0-timetable-continuity-20261017通过发布内容校验，继续显式白名单注入自助后台地址/超时，不含个人数据。安装版重新安装并重启一次，PID43132、窗口XKE就绪/响应，health app_version1.0.0/update_supported=true/frontend_build115309c01efa9fd6，web_root为LOCALAPPDATA/XKE/current/web，主JS/CSS HTTP200。DLL/前端/最小校园网配置与候选便携包一致。
+
+通过旧WebView2专属profile确认并沿用原数据根，账号/学生目录数量未减少；未读取真实资料、密码或缓存正文，不重新登录学校、不清数据。代码/文档修改未stage/commit/push；回归及安装证据在ignored artifacts/timetable-continuity-20261017。实际大一/大二换周表现由用户继续测试。
+
+## 2026-10-17 自助后台配置、设置动效与历史学期修复
+
+用户指出新安装版缺自助后台信息。已确认此前包未传CampusSelfServiceConfigPath，仓库外安装不能读取开发配置；本轮显式按白名单注入endpoint/timeout_seconds，仅这两个非凭据字段，未带账号、密码、token或任何用户缓存。打包脚本未传配置时明确告警，并增加带配置的完整合成打包流程；最终同卷移动用Move-Item，保持空输出/并发目标拒绝检查，不再触发本机Directory.Move拒绝。
+
+同轮实现用户的设置辅助小字移除、课时正常错峰/密集点击尾部缓冲和历史学期整学期补齐。历史误报来自前端connected=false阻断缺缓存的远端获取；显式选学期不再阻断，完整缓存复用；联网登录/手动同步后按入学日期与教务目录串行补缺，不逐周抓取，不更改当前浏览学期。后台历史补齐不锁住当前课表；401提示连接，账号变化停止后续请求/忽略迟到响应。详见frontend任务板；真实大一历史数据仍由用户测试，不把合成覆盖当真实学校验收。
+
+验证：前端7份定向202/202、类型检查/runtime构建通过；lint无错误但仍有既有警告。80项合成发布门禁通过；必要的合成预览验证设置em为0、连续10次50ms输入期间不反复折返，停手后按最终意图还原，返程可重新汇聚。没有使用真实账号浏览器自动化或代填密码。
+
+新候选六资产在artifacts/candidates/1.0.0-campus-history-motion-20261017，旧候选保留；Setup静默重新安装本机LOCALAPPDATA/XKE，验证安装DLL/前端/校园网配置与候选便携包一致，更新包也含相同最小配置。桌面重启一次，PID34204/窗口XKE就绪响应，health app_version1.0.0/update_supported=true/frontend_build439edd28b5b1d24d，web_root为安装目录current/web，主JS/CSS HTTP200。
+
+本轮开始时通过当前WebView2进程的专属profile路径确认实际使用默认LOCALAPPDATA/.XKE/data（用户已重新打开普通安装版）；重启沿用此根，账号文件/学生目录数量未减少，不删除或迁移任何测试/旧个人数据。未对前次删除拦截采取其他方式绕过。没有stage/commit/push/tag/Release；配置字段/包哈希/界面测试/运行验证记录在ignored artifacts/self-service-and-motion-20261017，真实地址不写进公开文档。
+
+## 2026-10-17 新安装包与首次使用测试
+
+用户要求用当前工作区构建全新安装包并清空个人数据/缓存。已生成并严格校验artifacts/candidates/1.0.0-clean-install-20261017的六资产，包含本轮尚未提交的移动退役收尾；runtime前端标记08afb9ccd6994761。打包末尾Directory.Move再次遇到目录访问拒绝；门禁已通过的staging通过精确路径Move-Item移入新目录，再次校验通过，不覆盖旧产物。
+
+默认LOCALAPPDATA/.XKE、早期APPDATA/XKE及.runtime/data的删除被自动审批阻止，两次均未执行；不得记录为已清除，也不通过其他API绕过。未读取个人文件内容、未备份/移动旧数据，源码和开发资料保留。改用独立且启动前为空的LOCALAPPDATA/.XKE-first-run-20261017/data测试，临时环境只传给本轮安装/启动，不修改用户/机器永久环境。当前机器无旧安装版，Setup --silent成功安装到LOCALAPPDATA/XKE，再通过其根XKE.exe启动；不是解压便携包冒充安装。
+
+安装版PID8068、窗口XKE就绪/响应；health app_version1.0.0/update_supported=true/sessions0、web_root为安装目录current/web，主JS/CSS HTTP200。新数据根凭据文件0、学生目录0，WebView2使用新生成缓存。安装DLL/前端与候选包逐文件SHA256一致，Core不含本轮已退役类/孤儿方法。未自动填写账号或调用学校认证，首次登录流程等待用户实际测试；这是本机新安装+空数据根，不是缺WebView2的新系统验收。旧个人数据仍未删除，通常桌面快捷方式不带此测试环境；再次测试使用本地审计目录里的XKE-first-run.cmd，不能误称旧数据已消失。
+
+清理限制、安装验证、包哈希和首次使用启动入口在ignored artifacts/clean-install-validation-20261017。此轮未stage/commit/push/tag/Release，旧发布包不作为本轮测试包。
+
+## 2026-10-17 移动教务退役收尾与回归覆盖
+
+接续另一聊天未提交的移动实现/测试seam/fixtures退役，不覆盖或重做其修改。本轮补齐两种完整工作区回滚场景：通过现用表单协议认证并建立完整账号后，以新密码重新初始化，分别模拟学校取课失败和意外存储异常；断言原密码/可信令牌/JW会话、个人文件/设置/课表逐字节恢复、已有会话数量与活动会话不变，随后bootstrap、session和trusted-login可离线使用。两项在收敛代码前已通过，属于补覆盖，不宣称发现新的回滚逻辑缺陷。
+
+先以五项负例测试复现旧移动缓存被默认读入及任意来源仍可写入，再将XkeScheduleStore来源限定为jw_schedule；保留空/preferred/cookie/jw/jw_schedule及大小写/空白规范化。默认读取只枚举JW文件，旧mobile/encrypted/未知来源的新写入被拒绝，GET /api/schedule/local非法source通过ScheduleException返回400。真实隔离HTTP已验证错误envelope，账号会话仍可用。旧缓存文件不迁移、不删除；仅有移动缓存的旧工作区会要求现用学校认证，符合开发期无兼容约定。retrieval_channel区分直接JW/快照来源的既有语义和protocol消费者保持。
+
+删除216行无调用StudentProfileNormalizer与AuthService.TryLoadCachedSchedule，移除mapper的移动默认兜底，契约/存储/Fake样本改为当前JW；移动名字仅在拒绝/隔离负例中保留。旧mobile-real-smoke两份工具已无活动调用且依赖退役协议，一并退出；长期移动资料只加退役标记不删除正文。验证码上下文缺续跑时不再建议使用已删除的HTML fixture，返回重新刷新的现用错误提示。校园网mobile运营商不受影响；TraditionalJwClient和NativeJwScheduleClient不改名。
+
+本轮定向验证：SecurityStorage25/25、Contracts11/11、WebHost认证/缓存/提醒/后台刷新等82/82、ProtocolHost26/26，共144项通过；新增非法来源HTTP四例在实现后单独复核通过。解决方案构建0警告/0错误；审计脚本语法/当前前后端扫描、diff空白、活动文档链接检查通过。最初负例五项按预期失败，收敛后通过；契约测试样本改为jw时遗留一条mobile断言，已同步后11/11通过，不作为产品故障。未运行全量483项、真实学校/浏览器/安装或线上更新验收，不重复打包/重启桌面。
+
+冻结的六份技能/审查/敏感索引文件哈希与接手前一致；当前文档在README、API/技术手册、模块地图和既有焦点/步骤/导航原地同步。不stage/commit/push，HEAD及索引保持原样；本轮补丁与验证摘要仅在ignored artifacts/legacy-retirement-followup-20261017。上方当前说明覆盖历史保留移动seam的旧记录。
 
 ## 2026-10-17 产品名称统一
 

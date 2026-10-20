@@ -1,5 +1,11 @@
 # 发布与自动更新（2026-10-17起）
 
+## 2026-10-20 V1.0.2正式发布
+
+用户已授权本轮必要源码提交、同步main、v1.0.2标签与GitHub Actions发布。本次内容为可信账号本地验证码自动识别、完整刷新扫描与原生窗口内容就绪；首次人工门槛、手动回退、原数据根保留。先跑CI验证，再构建草稿并下载回验七个资产，完成后公开；本地候选不直接替代Actions产物。
+
+产品版本统一Directory.Build.props与前端锁文件1.0.2；本次可维护的用户更新说明在.github/release-notes/1.0.2.md，工作流要求版本对应说明存在并追加统一安装/环境/校验信息。模型和四个官方CRT由锁定来源及SHA256构建准备，源码不提交二进制模型或个人研究数据。此前“候选不提交/发布”是验收阶段限制，已由本次明确授权覆盖；无关冻结改动仍不提交。最终结果以GitHub Releases和对应Actions为准，不预先宣称发布成功。
+
 ## 2026-10-18 V1.0.1修复版
 
 v1.0.0已合入main但标签验证失败，尚无公开Release，原标签保留以追溯。CI复现网络凭据仅以文件时间戳识别变更的缺口：快速替换可保持时间戳，维护错误地沿用本次流程。已用等长/等时间戳负例稳定复现并修复为加密文件SHA256摘要，网络凭据读取/摘要/原子保存共享有限锁条带，不解密轮询、不改存储格式。版本递增1.0.1，不覆盖失败标签；后续以v1.0.1触发同一Actions流程。当前无Authenticode签名，不宣称已做真实学校或新机器验收。
@@ -24,7 +30,7 @@ Actions需要仓库secret XKE_CAMPUS_SELF_SERVICE_CONFIG，只允许endpoint和t
 
 ## 当前边界
 
-用户最新要求：版本定为 **1.0.0**，支持检查、自动下载与安装；个人本地软件不另建更新服务器。公开仓库已核对为 https://github.com/Gust-feng/XKE ，核对时没有Release。当前公开main仍是旧源码，工作区大量变更尚未提交；本轮没有stage/commit/push、打tag或公开Release，不能把旧main当本次版本源码。
+用户最新要求：版本定为 **1.0.2**，支持检查、自动下载与安装；个人本地软件不另建更新服务器。公开仓库已核对为 https://github.com/Gust-feng/XKE ，此前已公开V1.0.1；本轮V1.0.2按上述用户授权执行。任何已公开版本均须对应正确源码标签与Actions校验结果。
 
 本轮新增的是GitHub Releases + Velopack **1.2.161**，不是恢复已退役的云控制/遥测/旧Updater。用户账号、密码、Cookie、课表与校园网缓存都不发给GitHub，也不打包。只读取公开Release元数据与更新资产；SDK GitBase/GithubSource不向GitHub传本地staging ID。无需GitHub登录或PAT。
 
@@ -45,7 +51,7 @@ Actions需要仓库secret XKE_CAMPUS_SELF_SERVICE_CONFIG，只允许endpoint和t
 - POST `/api/app/updates/check`、`/download`、`/apply`：同一状态模型。download只排队启动，HTTP不等待整个大包；apply排队安全退出，不在API线程直接杀进程。
 - 桌面模式所有上述入口要求原生X-XKE-Desktop证明，不依赖学校session。自动更新开关为机器设置`auto_update_enabled`，DPAPI本地保存；默认启用，用户可关闭。
 - Core/Releases只编排状态/节流/取消；DesktopHost/Updates接Velopack，WebHost只提供受控入口及独立worker；不引入新的更新服务器或通用远程执行入口。
-- 主产品版本唯一来源Directory.Build.props Version=1.0.1。前端版本读API，不拿npm版本猜最新版本。health新增app_version/update_supported，方便验证实际运行包。
+- 主产品版本唯一来源Directory.Build.props Version=1.0.2。前端版本读API，不拿npm版本猜最新版本。health新增app_version/update_supported，方便验证实际运行包。
 
 ## 构建候选包
 
@@ -54,7 +60,7 @@ npm --prefix frontend run build
 pwsh -NoProfile -File tools/package-desktop.ps1
 ```
 
-默认输出`artifacts/releases/1.0.1`，必须不存在或为空。固定三套.NET runtime pack **8.0.32** 自包含，local vpk与SDK固定1.2.161；WebView2由官方`--framework webview2` bootstrap处理，便携版仍需要可用的WebView2 Runtime。必要校园网自助地址可通过CampusSelfServiceConfigPath显式最小字段生成，但不是连接校园网的前提；默认不注入私有课表服务或DPAPI文件。
+默认输出`artifacts/releases/1.0.2`，必须不存在或为空。固定三套.NET runtime pack **8.0.32** 自包含，local vpk与SDK固定1.2.161；WebView2由官方`--framework webview2` bootstrap处理，便携版仍需要可用的WebView2 Runtime。必要校园网自助地址可通过CampusSelfServiceConfigPath显式最小字段生成，但不是连接校园网的前提；默认不注入私有课表服务或DPAPI文件。
 
 公开发布前须维护THIRD-PARTY-NOTICES.txt，依赖版本升级时更新其中许可/通知。此文件不替项目自身选择开源许可证，打包预检与归档检查要求其存在。
 
@@ -64,16 +70,16 @@ pwsh -NoProfile -File tools/package-desktop.ps1
 
 - `XKE-win-Setup.exe`：安装版。
 - `XKE-win-Portable.zip`：便携版，解压后运行根目录XKE.exe，不单拷贝current里的exe。
-- `XKE-1.0.1-full.nupkg`：自动更新完整包。
+- `XKE-1.0.2-full.nupkg`：自动更新完整包。
 - `releases.win.json`：更新feed，不能遗漏。
 - `assets.win.json`、`RELEASES`：官方打包元数据。
 
-## 发布到GitHub（尚未执行）
+## 发布到GitHub
 
 1. 先获得当前改动提交/推送的明确授权；按文件审查敏感边界，不全仓库盲目暂存，不把旧main标成新版本。
-2. 让Directory.Build.props的版本对应正确源码commit，创建一致的正式tag（当前`v1.0.1`），标题`V1.0.1`，不标prerelease。
+2. 让Directory.Build.props的版本对应正确源码commit，创建一致的正式tag（当前`v1.0.2`），标题`V1.0.2`，不标prerelease。
 3. 上传上述全部6个资产；只上传ZIP/Setup而漏掉full.nupkg和releases.win.json，客户端不能自动更新。
-4. 后续同一PackageId/channel以递增版本发布，比如1.0.1；不覆盖已有同版本资产。无需另搭更新接口。
+4. 后续同一PackageId/channel以递增版本发布，比如1.0.3；不覆盖已有同版本资产。无需另搭更新接口。
 5. 本地已验证的候选包不是已经公开的GitHub Release。源码许可证由用户确定，不擅自替项目选择。
 
 ## 验证边界

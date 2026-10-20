@@ -1,5 +1,19 @@
 > 2026-10-10：现第七版合成已锚定产品第一版，用户授权React runtime对接。当前接手先读 [后端技术手册](05_backend_technical_manual.md)；独立云协议API见 [06](06_protocol_host.md)。本文件以下API字段仍须按当前代码使用；旧Vue验收/纯mock状态只代表当时记录，不作为本轮证据。
 
+## 当前契约：桌面自动验证码
+
+- 账号偏好auth.auto_captcha_enabled为boolean，默认true；只有已有DPAPI可信token且提交密码与保存密码一致的本机账号可自动认证，偏好不能授予首次登录权限。用户关闭后，普通设置patch/恢复/重认证保留false。
+- GET /api/auth/captcha-recognition（既有session鉴权）：{supported,trusted,enabled,state,attempt,message}。state为idle/recognizing/manual_required/disabled/unavailable；只读本机状态，不触发学校请求；不返回账号密码或trusted token。
+- 现有captcha_required载荷新增可选message，表达三次识别失败/组件失败后的必要提示；手动验证码入口保留。课表人工验证码被学校拒绝时返回新的captcha_required及新challenge_id，而不是继续复用已释放上下文。
+- /api/auth/login未验证账号继续人工；/connect、/reinitialize及周/学期/后台刷新对可信且开启的账号自动续期。自动请求取消可由HTTP中止传播；用户切账号/退出后禁止迟到初始化提交。
+- 最多三次总轮次（包含第一次），只对已实测的验证码错误进行服务器重试；密码、未知、限流/网络、原生组件异常不猜测。失败保留本地资料/课表。独立ProtocolHost继续其原有策略，不被桌面功能静默改写。
+
+## 2026-10-19 登录错误区分与自动OCR边界
+
+已实现Core层JwLoginException.Kind：CaptchaRejected、CredentialsRejected、Unknown；目前Auth/Schedule仍按既有400/401映射返回错误，未新增HTTP字段或改变首次captcha_required流程。错误分类以学校响应#showMsg的两条已验证消息为依据，不按HTTP200或历史凭据正确率猜测；原始响应不返回前端。
+
+待实现而非当前接口：首次人工验证成功后按本机账号默认开启自动识别、用户可关闭、设置动态状态、后续最多三次验证码识别/提交轮次与明确凭据错误立即停止。未知错误保留人工处理，不以自动化替代首次人工准入；字段在实际接入时统一更新，不提前宣称已冻结或已支持。
+
 ## 2026-10-17 显示昵称消费
 
 POST /api/auth/profile沿用既有{nickname,use_nickname}与{student}响应。前端清空昵称时发空字符串和false，默认学校姓名不被写改；原位编辑只消费昵称与显示偏好。重新认证或持久化JW会话恢复刷新学校资料时保留相同学生本地nickname/use_nickname；未知新学生不跨账号继承。

@@ -1,5 +1,9 @@
 # notes 优化记录
 
+## 本轮可信账号OCR文档同步
+
+只更新既有README/焦点/步骤/API/技术手册/任务板和导航，记录本地OCR、首次人工门槛、三次策略、app-local模型/CRT及验收候选；未新增notes目录或复制真实材料。原冻结技能、review-issues与sensitive-index六份改动保持原样。真实探测仅在ignored开发数据，公开记录只含脱敏错误片段和汇总；生产资源与辅助验证工具边界明确，初期payload-only第二套打包脚本已退役。
+
 ## 2026-10-17 移动路径退役文档同步
 
 只原地更新当前README、模块地图、personal-runtime焦点/步骤/API/技术手册/任务板和导航，记录旧移动与fixtures退役。历史正文不删改；移动资料两份索引只加顶部退役标记，防止再运行已移除的mobile-real-smoke工具。原冻结技能及review-issues/sensitive-index六份文件不触碰，没有新增notes文件。

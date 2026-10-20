@@ -83,6 +83,7 @@ jobs:
           [xml]$props = Get-Content Directory.Build.props -Raw
           $version = [string]$props.Project.PropertyGroup.Version
           if ($env:RELEASE_TAG -cne "v$version") { throw 'Tag and product version differ.' }
+          if (-not (Test-Path -LiteralPath ".github/release-notes/$version.md" -PathType Leaf)) { throw 'Version-specific release notes are required.' }
           git merge-base --is-ancestor HEAD origin/main
           if ($LASTEXITCODE -ne 0) { throw 'Release source must be merged into main.' }
           $releases = gh release list --limit 100 --json tagName,isDraft,isPrerelease | ConvertFrom-Json
@@ -130,11 +131,10 @@ jobs:
           $lines = $files | ForEach-Object { '{0}  {1}' -f (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), $_.Name }
           [IO.File]::WriteAllLines($checksums, [string[]]$lines)
           $notes = Join-Path $env:RUNNER_TEMP 'xke-release-notes.md'
+          $changes = Get-Content -LiteralPath ".github/release-notes/$version.md" -Raw
+          if ([string]::IsNullOrWhiteSpace($changes)) { throw 'Release notes cannot be empty.' }
           $body = @"
-          ## XKE $version
-          - Windows x64 个人课表与校园网工具，包含账号恢复、历史学期课表、课前提醒与托盘常驻。
-          - 支持 GitHub Releases 检查更新、自动下载及退出/重启安装。
-          - 个人账号、密码、Cookie、课表和校园网缓存不随安装包发布或更新覆盖。
+          $changes
 
           **下载**：首次安装使用 XKE-win-Setup.exe；免安装使用 XKE-win-Portable.zip，完整解压后运行根目录 XKE.exe。
           **环境**：内置 .NET 8 运行时，界面依赖 WebView2；安装程序可检查/安装 WebView2，便携版需自行具备该运行时。

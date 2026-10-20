@@ -1,5 +1,31 @@
 # 后端技术手册与 Agent 接手入口
 
+## 2026-10-20 桌面首窗口内容就绪
+
+App通过PrepareStartupPresentation创建最小化且不占任务栏的窗口，以满足WebView2初始化；不在这一阶段展示原生“退出”或独立启动画面。前端useDesktopBridge在phase离开loading、实际DOM提交后一次性调用可选content_ready；MainWindow仅接受当前带构建/启动参数的文档确认，完成后呈现WebView与正常窗口。NavigationCompleted仅处理导航错误，不再提前显露尚未恢复的页面。
+
+普通浏览器仍使用既有恢复状态，无原生等待。原生15秒watchdog/文档等待只作为故障上限，正常路径没有固定延迟；错误面板保留退出与重试，重试不回退为全空白。静默自启不提前加载WebView，首次激活会先创建可初始化的最小化宿主，再按同一内容就绪边界显示。OnClosed停止watchdog并取消尚未完成的确认。
+
+## 当前实现：桌面本地OCR闭环
+
+Core/Auth/Jw/AutomaticCaptchaLogin统一可信门槛、并发串行、三次上限、暂停状态与取消；可信依据复用现有DPAPI登录token和保存密码，不将普通偏好当授权。它是本机软件的首次人工准入策略，不是对恶意自定义客户端的人类身份认证。AuthService初始化只有实际课表成功后才提交，二次challenge不能被当成空课表；失败回滚保留。
+
+NativeJwScheduleClient在有效内存/持久Cookie优先之后才调用该策略，周/学期共享认证续期，后台不生成无人可输入的人工challenge。自动失败转前台人工时重新取图，此GET不是第四次自动登录；手动图错误后返回新challenge，成功解除自动暂停。Scheduler在人工成功后清理旧requires_login提示，不重复取课。用户名密码错误或未知响应不自动重试。
+
+DesktopHost/Captcha为Windows-only基础设施，ICaptchaRecognizer仍在Core；WebHost通过hostOptions注入，普通HTTP宿主没有组件时保持人工，ProtocolHost保留原外部ddddocr。模型只在需要时加载并在识别后释放。固定预处理与源ddddocr对齐，四个CRT为微软官方VSIX的非debug可再分发项；来源、模型/字符表/引擎/CRT摘要在tools/captcha-assets.lock.json。正式打包唯一入口会准备并校验这些资源，包内含各许可证，无Python或运行时下载逻辑。
+
+设置状态GET只读；前端可见时观察，本地切账号丢弃旧响应，取消不仅忽略结果还中止请求。账号凭据因并发状态读取改为复用AtomicFile加密临时替换与跨实例固定条带锁，格式/DPAPI边界不变；不改通用ProtectedJsonFileStore，不引入旧格式兼容。
+
+## 2026-10-19 学校登录错误分类（已实现）
+
+真实受控探测确认POST /Logon.do?method=logon的验证码失败、账号密码失败都返回HTTP200，错误位于#showMsg：`验证码错误!!`与`该帐号不存在或密码错误,请联系管理员!`。DirectJwLoginProtocol未进入工作区时读取该字段，由JwLoginException分为CaptchaRejected/CredentialsRejected/Unknown；仍继承JwScheduleException且StatusCode=401，当前HTTP契约不变。只匹配已观察的独立字段，规范空白/末尾感叹号/全角逗号；不在整页脚本中搜索关键词，也不把账户锁定或混合错误推断为验证码失败。异常不回传原始HTML/任意服务器文字。实际探测原文/验证码和私有程序只在ignored开发数据/OCR验证/20261019，不复制到公开源码。
+
+该分类是后续自动重试的基础，不是完整自动OCR认证已完成。最新用户授权要求首次人工认证后才为该本机账号默认开启自动识别，保留手动及用户关闭；后续最多三次总轮次，仅明确验证码失败重试。可信门槛、偏好、动态标识、共享自动续期及app-local打包仍待按实施步骤接入。独立ProtocolHost的既有行为不因桌面授权被静默改写。
+
+## 2026-10-19 本地OCR验证边界
+
+tools/Xke.CaptchaProbe为独立net8.0-windows验证工具，实现现有ICaptchaRecognizer但未进入WebHost/DesktopHost默认装配。默认模型固定为ddddocr1.6.1的common_old.onnx（SHA256 b8f2ad9cbc1f2e3922a6cb9459e30824e7e2467f3fb4fd61420640e34ea0bf68）；Python仅生成合成对照，不是发布依赖。首轮Windows自带缩放有14/100识别结果偏差，现仅用Windows解码，模型专用Lanczos-3/灰度转换对齐Pillow12.0.0；125张合成样例预处理逐像素、识别结果全部对齐，仍须同时报告完整图像路径和相同张量对照结果，不能声称真实学校准确率或已实现后台自动认证。当前后台allowCaptcha=false、人工回退和现行正式包门禁保持不变。生产接入需要将适配器归入桌面基础设施、模型/字符表校验及资源白名单纳入正式构建，并共同调整登录/课表续期，不直接依赖工具项目。
+
 ## 2026-10-18 网络凭据修订标记
 
 XkeNetworkCredentialStore.GetRevision改为加密文件SHA256，不再使用LastWriteTimeUtc，避免快速写入或文件系统时间粒度使变更漏检。NetworkMaintenanceScheduler与PersonalRuntimeWorker使用同一不透明字符串标记。网络凭据保存先写DPAPI临时文件再原子替换，读取/摘要/保存/删除共享固定32条带的进程内文件锁；短生命周期store实例不能绕开同路径同步，不为轮询解密凭据。普通业务/凭据格式不变，不新增迁移。
