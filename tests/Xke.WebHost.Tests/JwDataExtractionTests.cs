@@ -120,6 +120,32 @@ public sealed class JwDataExtractionTests
         Assert.Contains("xnxq01id=2025-2026-2", requests[1].RequestUri!.Query); Assert.Contains("zc=", requests[1].RequestUri!.Query);
     }
 
+    [Theory]
+    [InlineData("current", "", 1)]
+    [InlineData("manual", "2", 2)]
+    public async Task Client_ExplicitCurrentSemesterRetainsCalendarAndWeekDirectory(string mode, string manualWeek, int viewedWeek)
+    {
+        var requests = new List<HttpRequestMessage>();
+        using var http = new HttpClient(new Handler(r =>
+        {
+            requests.Add(r);
+            return r.RequestUri!.AbsolutePath.EndsWith("xsMainV_new.jsp", StringComparison.Ordinal) ? Home : Semester();
+        }));
+        using var client = new TraditionalJwClient("TEST001", "", "auto", httpClient: http, assumeJwSession: true);
+        var result = await client.FetchScheduleAsync(new ScheduleRequest
+        {
+            Mode = mode, ManualWeek = manualWeek, AcademicTerm = "2026-2027-1",
+        }, new());
+
+        Assert.Equal(viewedWeek, result.ViewedWeekNumber);
+        Assert.Equal(1, result.CurrentWeekNumber);
+        Assert.Equal(2, result.AvailableWeeks.Count);
+        Assert.Equal("2026-2027-1", Assert.IsType<Dictionary<string, object?>>(result.RawPayload["term"])["academic_term"]);
+        Assert.Single(requests, r => r.RequestUri!.AbsolutePath.EndsWith("xsMainV_new.jsp", StringComparison.Ordinal));
+        Assert.Contains(requests, r => r.RequestUri!.Query.Contains(viewedWeek == 1 ? "rq=2026-09-07" : "rq=2026-09-14", StringComparison.Ordinal));
+        Assert.DoesNotContain(requests, r => r.RequestUri!.AbsolutePath.EndsWith("xskb_list.do", StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task Client_UsesSelectedHomepageTermInsteadOfFirstHistoricalOption()
     {

@@ -347,12 +347,13 @@ public sealed class AuthStorageTests
         var savedFiles = scheduleStore.SaveSourceSchedule(payload, raw, "jw_schedule", "第7周");
         var restoredByWeek = scheduleStore.LoadScheduleForWeek("7", ["jw"]);
         var restoredLatest = scheduleStore.LoadLatestSourceSchedule(["jw"]);
-        var inferredWeek = scheduleStore.FindScheduleWeekLabelForDate(new DateOnly(2026, 4, 22), ["jw"]);
+        var datedSchedule = scheduleStore.LoadScheduleForDate(new DateOnly(2026, 4, 22), ["jw"]);
 
         Assert.Equal("2026_0001", studentStore.StudentId);
         Assert.Equal("第7周", restoredByWeek!.GetValueOrDefault("week_label"));
         Assert.Equal("第7周", restoredLatest!.GetValueOrDefault("week_label"));
-        Assert.Equal("第7周", inferredWeek);
+        Assert.Equal("第7周", datedSchedule!["week_label"]);
+        Assert.Equal("2025-2026-2", Assert.IsType<Dictionary<string, object?>>(datedSchedule["term"])["academic_term"]);
         Assert.Contains(savedFiles, path => path.EndsWith("jw_schedule.json", StringComparison.Ordinal));
         Assert.Contains(savedFiles, path => path.EndsWith("jw_schedule_raw.json", StringComparison.Ordinal));
         var csvRelativePath = Assert.Single(savedFiles, path => path.EndsWith("jw_schedule.csv", StringComparison.Ordinal));
@@ -454,7 +455,7 @@ public sealed class AuthStorageTests
 
         scheduleStore.SaveSourceSchedule(payload, [], "jw_schedule", "第8周");
 
-        Assert.Equal("第8周", scheduleStore.FindScheduleWeekLabelForDate(null, ["jw"]));
+        Assert.Equal("第8周", scheduleStore.LoadScheduleForDate(null, ["jw"])!["week_label"]);
     }
 
     [Fact]
@@ -508,7 +509,7 @@ public sealed class AuthStorageTests
         Assert.Null(store.LoadScheduleForWeek("第7周", defaults));
         Assert.Null(store.LoadLatestTermSourceSchedule(defaults));
         Assert.Null(store.FindSemesterStartDate("2025-2026-2", defaults));
-        Assert.Equal(string.Empty, store.FindScheduleWeekLabelForDate(null, defaults));
+        Assert.Null(store.LoadScheduleForDate(null, defaults));
         Assert.Null(store.LoadLatestSourceSchedule([]));
 
         store.SaveSourceSchedule(new Dictionary<string, object?>

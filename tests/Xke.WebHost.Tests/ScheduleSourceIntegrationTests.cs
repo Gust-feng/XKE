@@ -65,7 +65,11 @@ public sealed class ScheduleSourceIntegrationTests
         Assert.Equal("20260001", student["student_id"]);
         Assert.Equal("测试同学", student["name"]);
         Assert.Equal("personal_api", result.Payload["retrieval_channel"]);
-        Assert.Equal("personal_api", service.LoadLocal(sessionId, "第8周", "preferred").Payload["retrieval_channel"]);
+        // An unidentified snapshot is retained, but cannot replace an identified semester's default baseline.
+        Assert.Equal("direct_jw", service.LoadLocal(sessionId, "第8周", "preferred").Payload["retrieval_channel"]);
+        var latestCapture = new XkeDataRoot(data.RootPath).ForStudent("20260001").Schedules().LoadLatestSourceSchedule(["jw_schedule"]);
+        Assert.Equal("personal_api", latestCapture!["retrieval_channel"]);
+        Assert.Equal("", Assert.IsType<Dictionary<string, object?>>(latestCapture["term"])["academic_term"]);
         Assert.Equal(0, fake.CookieCalls);
     }
 

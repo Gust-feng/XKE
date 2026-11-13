@@ -127,18 +127,19 @@ public sealed class ScheduleService : IScheduleRefresh, IDisposable
         IReadOnlyList<string> sourceKeys;
         try { sourceKeys = XkeScheduleStore.ResolveSourceKeys(source); }
         catch (ArgumentException) { throw new ScheduleException(400, "不支持的课表来源"); }
-        Dictionary<string, object?>? cached;
+        var cached = context.ScheduleStore.LoadScheduleForDate(null, sourceKeys, academicTerm)
+            ?? (string.IsNullOrWhiteSpace(academicTerm)
+                ? context.ScheduleStore.LoadLatestTermSourceSchedule(sourceKeys)
+                : context.ScheduleStore.LoadLatestSourceSchedule(sourceKeys, academicTerm));
+        // An unidentified semester is still readable when no identified semester exists.
+        if (cached is null && string.IsNullOrWhiteSpace(academicTerm))
+            cached = context.ScheduleStore.LoadLatestSourceSchedule(sourceKeys);
         if (!string.IsNullOrWhiteSpace(weekLabel))
         {
-            cached = context.ScheduleStore.LoadScheduleForWeek(weekLabel, sourceKeys, academicTerm);
-        }
-        else
-        {
-            var inferredCurrentWeek = context.ScheduleStore.FindScheduleWeekLabelForDate(null, sourceKeys, academicTerm);
-            cached = !string.IsNullOrWhiteSpace(inferredCurrentWeek)
-                ? context.ScheduleStore.LoadScheduleForWeek(inferredCurrentWeek, sourceKeys, academicTerm)
-                : null;
-            cached ??= context.ScheduleStore.LoadLatestSourceSchedule(sourceKeys, academicTerm);
+            var term = string.IsNullOrWhiteSpace(academicTerm)
+                ? (cached?.GetValueOrDefault("term") as Dictionary<string, object?>)?.GetValueOrDefault("academic_term")?.ToString() ?? ""
+                : academicTerm;
+            cached = context.ScheduleStore.LoadScheduleForWeek(weekLabel, sourceKeys, term);
         }
 
         if (cached is null)

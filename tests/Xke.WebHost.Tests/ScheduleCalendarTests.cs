@@ -14,6 +14,42 @@ public sealed class ScheduleCalendarTests
 {
     private const string Term = "2026-2027-1";
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StartupAndUnscopedWeekReads_KeepSemesterIdentityAfterHistoricalRefresh(bool currentWeekCached)
+    {
+        using var data = new TemporaryDirectory();
+        using var web = new TemporaryWebRoot();
+        var root = Seed(data.RootPath);
+        var store = root.ForStudent("CAL001").Schedules();
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var monday = today.AddDays(-(((int)today.DayOfWeek + 6) % 7));
+        var currentWeek = currentWeekCached ? 10 : 9;
+        SaveWeek(store, Term, currentWeek, monday.AddDays(currentWeekCached ? 0 : -7).ToString("yyyy-MM-dd"), "current course", "2026-10-01T00:00:00Z");
+        SaveWeek(store, "2024-2025-1", currentWeek, null, "history course", "2026-11-01T00:00:00Z");
+        SaveWeek(store, "2024-2025-1", 11, null, "history only", "2026-11-02T00:00:00Z");
+        await using var app = XkeWebHostApplication.Create(options: new XkeWebHostOptions
+        {
+            AuthDataRootPath = data.RootPath, WebRootPath = web.RootPath,
+            EnableBackgroundTasks = false, ScheduleApiOptions = new ScheduleApiOptions(),
+        });
+        var auth = app.Services.GetRequiredService<AuthService>();
+        var login = auth.DesktopBootstrap();
+        var restored = Assert.IsType<Dictionary<string, object?>>(login.Payload.CachedSchedule);
+        Assert.Equal(Term, Assert.IsType<Dictionary<string, object?>>(restored["term"])["academic_term"]);
+        Assert.Equal($"第{currentWeek}周", restored["week_label"]);
+        Assert.Equal("current course", Assert.Single(Assert.IsType<List<object?>>(restored["rows"]).Cast<Dictionary<string, object?>>())["course_name"]);
+
+        var service = app.Services.GetRequiredService<ScheduleService>();
+        var selected = service.LoadLocal(login.Payload.SessionId, $"第{currentWeek}周", "preferred").Payload;
+        Assert.Equal(Term, Assert.IsType<Dictionary<string, object?>>(selected["term"])["academic_term"]);
+        var missing = Assert.Throws<ScheduleException>(() => service.LoadLocal(login.Payload.SessionId, "第11周", "preferred"));
+        Assert.Equal(404, missing.StatusCode);
+        var historical = service.LoadLocal(login.Payload.SessionId, "第11周", "preferred", "2024-2025-1").Payload;
+        Assert.Equal("2024-2025-1", Assert.IsType<Dictionary<string, object?>>(historical["term"])["academic_term"]);
+    }
+
     [Fact]
     public async Task LogoutAndLogin_RestoresCalendarWithoutRestoringOldCourses()
     {
@@ -97,7 +133,10 @@ public sealed class ScheduleCalendarTests
         {
             ["term"] = new Dictionary<string, object?> { ["academic_term"] = term, ["label"] = term },
             ["week_label"] = $"第{week}周", ["viewed_week_number"] = week, ["updated_at"] = updated,
-            ["week_dates"] = monday is null ? new Dictionary<string, object?>() : new Dictionary<string, object?> { ["星期一"] = monday },
+            ["week_dates"] = monday is null ? new Dictionary<string, object?>() : new Dictionary<string, object?>
+            {
+                ["星期一"] = monday, ["星期日"] = DateOnly.Parse(monday).AddDays(6).ToString("yyyy-MM-dd"),
+            },
             ["available_weeks"] = new List<object?> { new Dictionary<string, object?> { ["value"] = week.ToString(), ["label"] = $"第{week}周" } },
             ["rows"] = new List<object?> { new Dictionary<string, object?> { ["course_name"] = course, ["weekday"] = "星期一", ["section"] = "第1-2节", ["section_numbers"] = new[] { 1, 2 }, ["week_numbers"] = new[] { week } } },
         };

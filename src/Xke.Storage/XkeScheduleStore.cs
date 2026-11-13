@@ -196,17 +196,18 @@ public sealed class XkeScheduleStore
         return null;
     }
 
-    public string FindScheduleWeekLabelForDate(DateOnly? targetDate, IReadOnlyList<string> sourceKeys, string academicTerm = "")
+    /// <summary>Return the dated snapshot itself so its semester identity cannot be lost in a second week lookup.</summary>
+    public Dictionary<string, object?>? LoadScheduleForDate(DateOnly? targetDate, IReadOnlyList<string> sourceKeys, string academicTerm = "")
     {
         var searchRoot = string.IsNullOrWhiteSpace(academicTerm) ? SchedulesDirectory : Path.Combine(SchedulesDirectory, XkeDataRoot.SanitizePathSegment(academicTerm));
         if (!Directory.Exists(searchRoot))
         {
-            return string.Empty;
+            return null;
         }
 
         var resolvedDate = targetDate ?? _todayProvider();
         var normalizedKeys = NormalizeSourceKeys(sourceKeys);
-        string matchedWeekLabel = string.Empty;
+        var matchedPaths = new List<string>();
         DateOnly? matchedStart = null;
 
         foreach (var sourceKey in normalizedKeys)
@@ -235,13 +236,14 @@ public sealed class XkeScheduleStore
                     if (matchedStart is null || dates[0] > matchedStart.Value)
                     {
                         matchedStart = dates[0];
-                        matchedWeekLabel = payload.GetValueOrDefault("week_label")?.ToString() ?? string.Empty;
+                        matchedPaths.Clear();
                     }
+                    if (dates[0] == matchedStart) matchedPaths.Add(path);
                 }
             }
         }
 
-        return matchedWeekLabel;
+        return LoadLatestPayload(matchedPaths);
     }
 
     private static Dictionary<string, object?>? LoadLatestPayload(IEnumerable<string> candidates, Func<Dictionary<string, object?>, bool>? include = null)

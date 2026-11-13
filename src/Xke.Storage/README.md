@@ -1,5 +1,9 @@
 # Xke.Storage
 
+## 2026-11-10 课表学期身份修复
+
+课表身份为学期与周次的组合，semester是整学期安排，weeks是同学期单周物化快照。LoadScheduleForDate返回带学期、日期及文件来源的完整记录，替代仅返回周号的FindScheduleWeekLabelForDate，禁止将日期命中的周号跨学期重选。无本周缓存时按最新已识别学期回退；无学期结果仍可存档，但不抢占已识别学期的默认恢复基线。不迁移或删除原数据。
+
 ## 2026-10-16 提醒去重回执
 
 XkeLessonReminderStore写students/<student_id>/info/lesson_reminders.json：仅日期与提醒指纹的普通业务JSON，原子写入、裁剪旧日期，防进程重启重复通知；不含课程正文、账号密码、Cookie或session。XkeScheduleStore.LoadLatestTermSourceSchedule按最新学期而非最近浏览时间选择提醒基线。

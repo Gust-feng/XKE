@@ -114,23 +114,17 @@ public sealed class TraditionalJwClient : IDisposable
             throw new TraditionalJwSessionExpiredException("传统教务会话未完成 JW bootstrap，请重新输入验证码");
         }
 
-        if (!string.IsNullOrWhiteSpace(request.AcademicTerm))
+        var parameters = await GetScheduleParamsAsync(request, cancellationToken).ConfigureAwait(false);
+        if (!string.IsNullOrWhiteSpace(request.AcademicTerm) && request.AcademicTerm != parameters.TermLabel)
         {
             var week = ScheduleService.ParseWeekNumber(request.ManualWeek);
-            TraditionalJwScheduleParams? currentContext = null;
             if (week is null)
-            {
-                currentContext = await GetScheduleParamsAsync(new ScheduleRequest(), cancellationToken).ConfigureAwait(false);
-                if (request.AcademicTerm != currentContext.TermLabel)
-                    throw new JwScheduleException("历史学期的单周查询需要 manual_week，请指定周次或使用学期接口", 400);
-                week = ScheduleService.ParseWeekNumber(currentContext.CurrentWeekLabel);
-            }
-            if (week is null) throw new JwScheduleException("教务没有提供当前周次", 400);
+                throw new JwScheduleException("历史学期的单周查询需要 manual_week，请指定周次或使用学期接口", 400);
             var page = await FetchSemesterPageAsync(request.AcademicTerm, week.Value.ToString(), cancellationToken).ConfigureAwait(false);
             return parser.Parse(page.Html, new ScheduleRequest { Mode = "manual", ManualWeek = week.Value.ToString(), AcademicTerm = page.Term, TermLabel = page.Term })
-                with { TermLabel = page.Term, CurrentWeekNumber = currentContext is null ? null : week, AvailableWeeks = currentContext?.AvailableWeeks ?? [], WeekDates = new Dictionary<string, string>() };
+                with { TermLabel = page.Term, CurrentWeekNumber = null, WeekDates = new Dictionary<string, string>() };
         }
-        var fetched = await FetchScheduleHtmlAsync(request, cancellationToken).ConfigureAwait(false);
+        var fetched = await FetchScheduleHtmlAsync(parameters, cancellationToken).ConfigureAwait(false);
         var parseRequest = new ScheduleRequest
         {
             Mode = request.Mode,
@@ -525,9 +519,8 @@ public sealed class TraditionalJwClient : IDisposable
         }
     }
 
-    private async Task<TraditionalJwFetchedSchedule> FetchScheduleHtmlAsync(ScheduleRequest request, CancellationToken cancellationToken)
+    private async Task<TraditionalJwFetchedSchedule> FetchScheduleHtmlAsync(TraditionalJwScheduleParams parameters, CancellationToken cancellationToken)
     {
-        var parameters = await GetScheduleParamsAsync(request, cancellationToken).ConfigureAwait(false);
         var requestUri = AddQuery(JwScheduleLoadUri, new Dictionary<string, string>
         {
             ["rq"] = parameters.Rq,
@@ -592,6 +585,11 @@ public sealed class TraditionalJwClient : IDisposable
             throw new TraditionalJwSessionExpiredException("首页课表页返回登录页，当前 JW 会话已失效");
         }
 
+        if (!string.IsNullOrWhiteSpace(request.AcademicTerm))
+        {
+            var current = ExtractScheduleParams(html, new ScheduleRequest());
+            if (current.TermLabel != request.AcademicTerm) return current;
+        }
         return ExtractScheduleParams(html, request);
     }
 
