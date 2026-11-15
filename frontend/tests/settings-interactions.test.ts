@@ -101,6 +101,7 @@ describe('settings save feedback and queue', () => {
   it('shows auto-update save errors inside the open update panel and supports retry', async () => {
     await mount(() => createElement(SwissSettings))
     await act(async () => (container.querySelector('.st-version') as HTMLButtonElement).click())
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 450)) })
     client.updateSettings.mockRejectedValueOnce(new ApiError(500, '自动更新设置保存失败'))
     await act(async () => (document.querySelector('input[aria-label="自动更新应用"]') as HTMLInputElement).click())
     expect(document.querySelector('.one-update-notice')?.textContent).toBe('自动更新设置保存失败')
@@ -226,11 +227,14 @@ describe('event-owned view and update feedback', () => {
   it('clears the no-update result when closing and immediately reopening the panel', async () => {
     await mount(() => createElement(SwissSettings))
     await act(async () => (container.querySelector('.st-version') as HTMLButtonElement).click())
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 450)) })
     await act(async () => (document.querySelector('.one-update-primary') as HTMLButtonElement).click())
     expect(document.querySelector('.one-update-primary')?.textContent).toBe('暂无更新')
     await act(async () => (document.querySelector('[aria-label="关闭应用更新"]') as HTMLButtonElement).click())
     expect(document.querySelector('.one-update-dialog')).toBeNull()
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 750)) })
     await act(async () => (container.querySelector('.st-version') as HTMLButtonElement).click())
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 450)) })
     expect(document.querySelector('.one-update-primary')?.textContent).toBe('检查更新')
   })
   it('loads summaries on network entry and connectivity changes, not equivalent status refreshes', async () => {
