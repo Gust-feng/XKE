@@ -83,6 +83,8 @@ public sealed class PersonalRuntimeWorkerTests
         public TaskCompletionSource Delivered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public Task<bool> ShowAsync(string title, string message, Func<bool> canDeliver, CancellationToken cancellationToken)
         { if (!canDeliver()) return Task.FromResult(false); Delivered.TrySetResult(); return Task.FromResult(true); }
+        public Task<bool> ShowLessonReminderAsync(DesktopLessonReminder reminder, Func<bool> canDeliver, CancellationToken cancellationToken)
+        { if (!canDeliver()) return Task.FromResult(false); Delivered.TrySetResult(); return Task.FromResult(true); }
     }
 
     private sealed class Maintenance : INetworkMaintenance

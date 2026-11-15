@@ -29,12 +29,16 @@ public sealed class LessonReminderTests
     {
         using var f = new Fixture();
         await f.Run();
-        Assert.Empty(f.Notifier.Messages);
+        Assert.Empty(f.Notifier.Reminders);
         f.Clock.Local = new(2026, 10, 16, 7, 30, 0);
         await f.Run(); await f.Run();
         await f.NewScheduler().RunDueAsync(f.Session, default);
-        var message = Assert.Single(f.Notifier.Messages);
-        Assert.Contains("30 分钟", message); Assert.Contains("08:00", message); Assert.Contains("测试教室", message);
+        var reminder = Assert.Single(f.Notifier.Reminders);
+        Assert.Equal("合成课程", reminder.Course);
+        Assert.Equal("测试教室", reminder.Room);
+        Assert.Equal(new DateOnly(2026, 10, 16), reminder.Date);
+        Assert.Equal(new TimeOnly(8, 0), reminder.Start);
+        Assert.Equal(30, reminder.MinutesUntilStart);
         var receipt = File.ReadAllText(Path.Combine(f.Student.InfoDirectory, "lesson_reminders.json"));
         Assert.DoesNotContain("合成课程", receipt); Assert.DoesNotContain("测试教室", receipt);
     }
@@ -45,7 +49,7 @@ public sealed class LessonReminderTests
         using var f = new Fixture();
         f.Clock.Local = new(2026, 10, 16, 7, 35, 0); await f.Run();
         f.Clock.Local = new(2026, 10, 16, 8, 0, 0); await f.Run();
-        Assert.Empty(f.Notifier.Messages);
+        Assert.Empty(f.Notifier.Reminders);
     }
 
     [Theory]
@@ -62,7 +66,7 @@ public sealed class LessonReminderTests
         if (change == "switched") f.Active = "other-session";
         if (change == "unsupported") f.Notifier.Supported = false;
         if (change == "no-calendar") f.SaveWeek([Row()], "2026-10-16T00:00:00Z", dates: false);
-        await f.Run(); Assert.Empty(f.Notifier.Messages);
+        await f.Run(); Assert.Empty(f.Notifier.Reminders);
     }
 
     [Fact]
@@ -71,10 +75,10 @@ public sealed class LessonReminderTests
         using var f = new Fixture(); f.Clock.Local = new(2026, 10, 16, 7, 30, 0);
         f.Student.Schedules().SaveSemesterSchedule(Semester([Row()], "2026-10-14T00:00:00Z"));
         f.SaveWeek([], "2026-10-16T00:00:00Z");
-        await f.Run(); Assert.Empty(f.Notifier.Messages);
+        await f.Run(); Assert.Empty(f.Notifier.Reminders);
         f.SaveWeek([Row()], "2026-10-17T00:00:00Z");
         f.SaveWeek([], "2026-10-18T00:00:00Z", term: "2025-2026-2");
-        await f.Run(); Assert.Single(f.Notifier.Messages);
+        await f.Run(); Assert.Single(f.Notifier.Reminders);
     }
 
     [Fact]
@@ -82,7 +86,7 @@ public sealed class LessonReminderTests
     {
         using var f = new Fixture(); f.Clock.Local = new(2026, 10, 16, 7, 30, 0);
         f.Student.Schedules().SaveSemesterSchedule(Semester([Row(2)], "2026-10-17T00:00:00Z"));
-        await f.Run(); Assert.Empty(f.Notifier.Messages);
+        await f.Run(); Assert.Empty(f.Notifier.Reminders);
     }
 
     [Fact]
@@ -91,7 +95,7 @@ public sealed class LessonReminderTests
         using var f = new Fixture();
         f.SaveWeek([new ScheduleRow { CourseName = "午夜合成课", Weekday = "星期六", Room = "测试教室", TimeSegments = ["00:10-00:50"], WeekNumbers = [1] }], "2026-10-16T00:00:00Z");
         f.Clock.Local = new(2026, 10, 16, 23, 40, 0);
-        await f.Run(); Assert.Single(f.Notifier.Messages);
+        await f.Run(); Assert.Single(f.Notifier.Reminders);
     }
 
     [Fact]
@@ -103,7 +107,7 @@ public sealed class LessonReminderTests
         using var cancel = new CancellationTokenSource(); cancel.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => f.Scheduler.RunDueAsync(f.Session, cancel.Token));
         f.Notifier.Accept = true; await f.Run();
-        Assert.Single(f.Notifier.Messages);
+        Assert.Single(f.Notifier.Reminders);
     }
 
     [Theory]
@@ -119,7 +123,7 @@ public sealed class LessonReminderTests
             if (change == "disable") f.Configure(false);
             if (change == "late") f.Clock.Local = new(2026, 10, 16, 7, 40, 0);
         };
-        await f.Run(); Assert.Empty(f.Notifier.Messages);
+        await f.Run(); Assert.Empty(f.Notifier.Reminders);
         Assert.False(File.Exists(Path.Combine(f.Student.InfoDirectory, "lesson_reminders.json")));
     }
 
@@ -175,8 +179,10 @@ public sealed class LessonReminderTests
     {
         public bool Supported = true; public bool Accept = true; public Action? BeforeDeliver;
         public bool IsSupported => Supported;
-        public List<string> Messages { get; } = [];
+        public List<DesktopLessonReminder> Reminders { get; } = [];
         public Task<bool> ShowAsync(string title, string message, Func<bool> canDeliver, CancellationToken cancellationToken)
-        { cancellationToken.ThrowIfCancellationRequested(); BeforeDeliver?.Invoke(); var accepted = Accept && canDeliver(); if (accepted) Messages.Add(message); return Task.FromResult(accepted); }
+        { cancellationToken.ThrowIfCancellationRequested(); BeforeDeliver?.Invoke(); var accepted = Accept && canDeliver(); return Task.FromResult(accepted); }
+        public Task<bool> ShowLessonReminderAsync(DesktopLessonReminder reminder, Func<bool> canDeliver, CancellationToken cancellationToken)
+        { cancellationToken.ThrowIfCancellationRequested(); BeforeDeliver?.Invoke(); var accepted = Accept && canDeliver(); if (accepted) Reminders.Add(reminder); return Task.FromResult(accepted); }
     }
 }

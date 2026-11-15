@@ -21,6 +21,7 @@ public partial class MainWindow : Window, IDesktopWindowController
     private const string AppDisplayName = "XKE";
     private readonly XkeWebHostService _webHostService;
     private readonly XkeDataRoot _dataRoot;
+    private readonly DesktopNotificationPresenter _notifications;
     private XkeWebHostLaunchResult? _launchResult;
     private Forms.NotifyIcon? _trayIcon;
     private Drawing.Icon? _trayIconImage;
@@ -38,6 +39,7 @@ public partial class MainWindow : Window, IDesktopWindowController
     {
         _webHostService = webHostService;
         _dataRoot = dataRoot;
+        _notifications = new DesktopNotificationPresenter(dataRoot, () => ActivateDesktopWindow());
         InitializeComponent();
         // Match the product canvas while WebView2 creates its first document.
         Browser.DefaultBackgroundColor = Drawing.Color.FromArgb(0xF2, 0xF1, 0xEC);
@@ -358,6 +360,9 @@ public partial class MainWindow : Window, IDesktopWindowController
               window.pywebview.platform = 'edgechromium';
               window.pywebview.api = {
                 notify: (title, message) => invoke('notify', [title, message]),
+                get_notification_settings: () => invoke('get_notification_settings', []),
+                set_notification_settings: (dnd) => invoke('set_notification_settings', [String(dnd)]),
+                preview_notification: () => invoke('preview_notification', []),
                 show_window: () => invoke('show_window', []),
                 minimize_window: () => invoke('minimize_window', []),
                 toggle_maximize_window: () => invoke('toggle_maximize_window', []),
@@ -391,7 +396,22 @@ public partial class MainWindow : Window, IDesktopWindowController
                 : Array.Empty<string>();
             // Only the current document may release startup; a previous reload can finish late.
             if (method == "content_ready" && !string.Equals(e.Source, Browser.Source?.AbsoluteUri, StringComparison.Ordinal)) return;
-            var result = HandleBridgeCall(method, args);
+            object? result;
+            if (method == "notify")
+            {
+                var ok = await ShowNotificationAsync(args.ElementAtOrDefault(0) ?? AppDisplayName, args.ElementAtOrDefault(1) ?? string.Empty,
+                    () => true, CancellationToken.None).ConfigureAwait(true);
+                result = new { ok, reason = _notifications.LastFailure };
+            }
+            else if (method == "preview_notification")
+            {
+                var ok = await ShowLessonReminderAsync(PreviewReminderSample(), () => true, CancellationToken.None, preview: true).ConfigureAwait(true);
+                result = new { ok, reason = _notifications.LastFailure };
+            }
+            else
+            {
+                result = HandleBridgeCall(method, args);
+            }
             await PostBridgeResultAsync(id, ok: true, result, string.Empty).ConfigureAwait(true);
         }
         catch (Exception ex)
@@ -405,6 +425,9 @@ public partial class MainWindow : Window, IDesktopWindowController
         return method switch
         {
             "notify" => Notify(args.ElementAtOrDefault(0), args.ElementAtOrDefault(1)),
+            "get_notification_settings" => new { dnd = _notifications.DoNotDisturb, supported = true },
+            "set_notification_settings" => SetNotificationSettings(args.ElementAtOrDefault(0)),
+            "preview_notification" => PreviewReminder(),
             "show_window" => ActivateDesktopWindow(),
             "minimize_window" => MinimizeWindow(),
             "toggle_maximize_window" => ToggleMaximizeWindow(),
@@ -437,20 +460,37 @@ public partial class MainWindow : Window, IDesktopWindowController
 
     private Dictionary<string, object?> Notify(string? title, string? message)
     {
-        EnsureTrayIcon();
-        _trayIcon?.ShowBalloonTip(
-            4000,
-            string.IsNullOrWhiteSpace(title) ? AppDisplayName : title,
-            message ?? string.Empty,
-            Forms.ToolTipIcon.Info);
-        return new Dictionary<string, object?> { ["ok"] = true };
+        var result = ShowNotificationAsync(string.IsNullOrWhiteSpace(title) ? AppDisplayName : title,
+            message ?? string.Empty, () => true, CancellationToken.None);
+        return new Dictionary<string, object?> { ["ok"] = result.IsCompletedSuccessfully && result.Result };
     }
 
-    internal bool ShowLessonReminder(string title, string message)
+    private static DesktopLessonReminder PreviewReminderSample()
+        => new("数据结构", "S2-207(新)", DateOnly.FromDateTime(DateTime.Today), new TimeOnly(8, 0), 15);
+
+    private object PreviewReminder()
     {
-        if (_stopping || _allowClose || Dispatcher.HasShutdownStarted) return false;
-        Notify(title, message);
-        return true;
+        var result = ShowLessonReminderAsync(PreviewReminderSample(), () => true, CancellationToken.None, preview: true);
+        return new Dictionary<string, object?> { ["ok"] = result.IsCompletedSuccessfully && result.Result, ["reason"] = _notifications.LastFailure };
+    }
+
+    private object SetNotificationSettings(string? value)
+    {
+        if (!bool.TryParse(value, out var dnd)) throw new InvalidOperationException("免打扰设置无效");
+        _notifications.SetDoNotDisturb(dnd);
+        return new { dnd, supported = true };
+    }
+
+    internal Task<bool> ShowNotificationAsync(string title, string message, Func<bool> canDeliver, CancellationToken token)
+    {
+        if (_stopping || _allowClose || Dispatcher.HasShutdownStarted) return Task.FromResult(false);
+        return _notifications.ShowAsync(title, message, () => !_stopping && !_allowClose && canDeliver(), token);
+    }
+
+    internal Task<bool> ShowLessonReminderAsync(DesktopLessonReminder reminder, Func<bool> canDeliver, CancellationToken token, bool preview = false)
+    {
+        if (_stopping || _allowClose || Dispatcher.HasShutdownStarted) return Task.FromResult(false);
+        return _notifications.ShowReminderAsync(reminder, () => !_stopping && !_allowClose && canDeliver(), token, preview);
     }
 
     private Dictionary<string, object?> MinimizeWindow()
@@ -609,6 +649,8 @@ public partial class MainWindow : Window, IDesktopWindowController
                 ShowErrorState("退出失败", ex.Message, allowBrowserActions: false);
                 return;
             }
+            // 停止成功才释放提醒 presenter；失败时应用继续运行，提醒必须仍然可用。
+            _notifications.Dispose();
             _hostStopped = true;
             _dataRoot.DesktopRuntime().Clear(Environment.ProcessId);
             // StopAsync may complete synchronously. Never reenter Close inside Closing.
@@ -671,6 +713,7 @@ public partial class MainWindow : Window, IDesktopWindowController
     protected override void OnClosed(EventArgs e)
     {
         _startupWatchdog.Stop();
+        _notifications.Dispose();
         _frontendReady?.TrySetCanceled();
         DisposeTrayIcon();
         Browser.Dispose();

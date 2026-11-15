@@ -73,9 +73,8 @@ public sealed class LessonReminderScheduler
                 }
                 if (!CanDeliver()) return;
                 var minutes = (int)Math.Ceiling((startsAt - localNow).TotalMinutes);
-                var message = $"{lesson.Name} · {lesson.Start:HH:mm} 开始（约 {minutes} 分钟后）";
-                if (!string.IsNullOrWhiteSpace(lesson.Room)) message += $"\n教室：{lesson.Room}";
-                if (!await _notifier.ShowAsync("课前提醒", message, CanDeliver, cancellationToken).ConfigureAwait(false)) continue;
+                var reminder = new DesktopLessonReminder(lesson.Name, lesson.Room ?? string.Empty, date, lesson.Start, minutes);
+                if (!await _notifier.ShowLessonReminderAsync(reminder, CanDeliver, cancellationToken).ConfigureAwait(false)) continue;
                 _delivered.Add(key);
                 receipts.Record(date, fingerprint, today);
             }
