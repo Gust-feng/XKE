@@ -662,7 +662,6 @@ public partial class MainWindow : Window, IDesktopWindowController
         EnsureTrayIcon();
         ShowInTaskbar = false;
         Hide();
-        Notify(AppDisplayName, "软件仍在运行，可从托盘重新打开。");
         PublishWindowState();
     }
 
