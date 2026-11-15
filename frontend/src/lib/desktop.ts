@@ -5,6 +5,9 @@ export interface DesktopBridge {
   toggle_maximize_window(): Promise<unknown>; close_window(): Promise<unknown>
   get_window_state(): Promise<{ maximized?: boolean }>
   content_ready?(): Promise<unknown>
+  get_notification_settings?(): Promise<{ dnd: boolean; supported: boolean }>
+  set_notification_settings?(dnd: string): Promise<{ dnd: boolean; supported: boolean }>
+  preview_notification?(): Promise<{ ok: boolean; reason?: string }>
 }
 declare global { interface Window { pywebview?: { api?: DesktopBridge } } }
 

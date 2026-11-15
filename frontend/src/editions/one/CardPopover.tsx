@@ -1,4 +1,5 @@
 import { animate, useReducedMotion } from 'motion/react'
+import { useOverlay } from '../../lib/use-overlay'
 import { createPortal } from 'react-dom'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type KeyboardEvent as ReactKeyEvent } from 'react'
 import { cardBounds, popupBounds, popupWidth, POP_MARGIN, POP_WIDTH } from './course-pop-layout'
@@ -48,7 +49,8 @@ function readOrigin(element: HTMLElement | null): Origin | null {
 
 /** One reversible source-card transition for course details and editable network settings. */
 export function CardPopover({ open, identity, label, source, onClose, children, preferredWidth = POP_WIDTH,
-  dynamic = false, detailsSelector = '[data-pop-detail], .one-pop-c-x', className = '', popupId, manageFocus = false }: CardPopoverProps) {
+  dynamic = false, detailsSelector = '[data-pop-detail], .one-pop-c-x', className = '', popupId, manageFocus = true }: CardPopoverProps) {
+  useOverlay(open, () => document.querySelector<HTMLElement>(popupId ? `[id="${popupId}"]` : '.one-pop-c:not(.is-closing), .one-pop-c-static'), onClose)
   const reduce = !!useReducedMotion()
   const nextOrigin = useRef<Origin | null>(null)
   const [items, setItems] = useState<Item[]>([])
@@ -75,18 +77,18 @@ export function CardPopover({ open, identity, label, source, onClose, children, 
     if (!open) return
     const closeOnBlank = (event: PointerEvent) => {
       const target = event.target as HTMLElement
+      if (document.querySelector('dialog[open]')) return
       if (target.closest('.one-pop-c, .one-pop-c-static') || target.closest(source)) return
       onClose()
     }
-    const key = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
-    addEventListener('pointerdown', closeOnBlank); addEventListener('keydown', key)
+    addEventListener('pointerdown', closeOnBlank)
     if (!dynamic) addEventListener('resize', onClose)
-    return () => { removeEventListener('pointerdown', closeOnBlank); removeEventListener('keydown', key); removeEventListener('resize', onClose) }
+    return () => { removeEventListener('pointerdown', closeOnBlank); removeEventListener('resize', onClose) }
   }, [open, source, onClose, dynamic])
   const drop = useCallback((key: number) => setItems((old) => old.filter((item) => item.key !== key)), [])
   const server = typeof document === 'undefined' || !document.body
   const layers = <>
-    {open && (bare || server) && <div id={popupId} className={['one-pop-c-static', className].filter(Boolean).join(' ')} role="dialog" aria-label={label} tabIndex={manageFocus ? -1 : undefined} onKeyDown={manageFocus ? containFormFocus : undefined}>
+    {open && (bare || server) && <div id={popupId} className={['one-pop-c-static', className].filter(Boolean).join(' ')} role="dialog" aria-modal="true" aria-label={label} tabIndex={manageFocus ? -1 : undefined} onKeyDown={manageFocus ? containFormFocus : undefined}>
       <div className="one-pop-in">{children}</div>
     </div>}
     {items.map((item) => <MorphCard key={item.key} item={item} reduce={reduce} onGone={drop}
@@ -224,7 +226,7 @@ function MorphCard({ item, reduce, onGone, preferredWidth, dynamic, detailsSelec
 
   return (
     <div ref={box} className={['one-pop-c', className, origin.dark ? 'is-dark' : 'is-light', closing ? 'is-closing' : ''].filter(Boolean).join(' ')} style={{ left: 0, top: 0, width: POP_WIDTH, background: origin.background }}
-      id={closing ? undefined : popupId} role="dialog" aria-label={item.label} tabIndex={manageFocus ? -1 : undefined} onKeyDown={manageFocus ? containFormFocus : undefined} inert={closing}>
+      id={closing ? undefined : popupId} role="dialog" aria-modal="true" aria-label={item.label} tabIndex={manageFocus ? -1 : undefined} onKeyDown={manageFocus ? containFormFocus : undefined} inert={closing}>
       <div ref={inner} className="one-pop-in">{item.content}</div>
     </div>
   )

@@ -626,7 +626,7 @@ describe('quiet network information hierarchy', () => {
     state.current.networkConfig = { settings: account().network, campus_account: 'SYNTHETIC', credentials: {} }
     const html = render()
     expect(html).toContain('aria-expanded="true"')
-    expect(html).toContain('id="network-config-panel" class="one-pop-c-static one-network-pop" role="dialog" aria-label="连接设置"')
+    expect(html).toContain('id="network-config-panel" class="one-pop-c-static one-network-pop" role="dialog" aria-modal="true" aria-label="连接设置"')
     expect(html).toContain('aria-haspopup="dialog"')
     expect(html).toContain('class="one-network-body"')
     expect(html.indexOf('id="network-config-panel"')).toBeGreaterThan(html.indexOf('</main>'))

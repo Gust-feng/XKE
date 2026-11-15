@@ -4,6 +4,7 @@ import type { AppUpdateDto } from '../../api/dto'
 import type { UpdateAction, UpdateObservation } from '../../lib/app-updates'
 import { projectLink, updateActionForStatus, updateInProgress, updateProgress } from '../../lib/app-updates'
 import './app-updates.css'
+import { useOverlay } from '../../lib/use-overlay'
 
 const titles: Record<AppUpdateDto['status'], string> = {
   unsupported: '应用更新', idle: '应用更新', checking: '应用更新', available: '发现新版本',
@@ -26,6 +27,7 @@ export interface AppUpdatePanelProps {
 /** Native modal supplies focus containment, Escape dismissal and focus restoration without another overlay framework. */
 export function AppUpdatePanel(props: AppUpdatePanelProps) {
   const dialog = useRef<HTMLDialogElement>(null)
+  useOverlay(true, () => dialog.current, props.onClose)
   const returnFocus = useRef<HTMLElement | null>(null)
   useEffect(() => {
     const node = dialog.current

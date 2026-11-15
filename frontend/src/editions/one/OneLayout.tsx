@@ -12,6 +12,7 @@ import './one.css'
 import { nextCourseBlock } from '../../lib/course-blocks'
 import { NetworkRail } from './NetworkRail'
 import { IdCard } from './SwissSettings'
+import { hasOverlay } from '../../lib/use-overlay'
 
 /**
  * 合成 —— 瑞士骨架。只有课表一页：左栏 = 大日期 + 此刻/下一节小卡 + 周次；
@@ -37,7 +38,7 @@ export function OneLayout({ desktop = false }: { desktop?: boolean }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey || sheet || captcha || authOpen || (e.target as HTMLElement).closest('input, select, textarea, dialog[open]')) return
+      if (hasOverlay() || e.metaKey || e.ctrlKey || e.altKey || sheet || captcha || authOpen || (e.target as HTMLElement).closest('input, select, textarea, dialog[open]')) return
       const i = Number(e.key) - 1
       if (i >= 0 && i <= 3) {
         e.stopImmediatePropagation()

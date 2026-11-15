@@ -1,0 +1,36 @@
+/* 桌面提醒设置弹窗与共享 Modal 的样式；天气样式在 weather.css（天气分支）。 */
+
+.xke-modal {
+  inset: 0; margin: auto; padding: 0;
+  width: min(490px, calc(100vw - 48px)); max-height: calc(100dvh - 48px);
+  border: 1px solid #c7c7bc; border-radius: 8px;
+  background: var(--paper, #f2f1ec); color: var(--ink, #24271f);
+  box-shadow: 0 20px 80px #20251f24; overflow: auto; overscroll-behavior: contain;
+}
+.xke-modal::backdrop { background: #24251f24; backdrop-filter: blur(2px); }
+.xke-modal-body { padding: 22px 26px 18px; }
+.xke-modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.xke-modal-head h2 { margin: 0; font-size: 17px; font-weight: 600; }
+.xke-close { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; font-size: 26px; }
+.xke-close:hover { background: #2529230b; }
+.xke-modal button:focus-visible, .xke-modal input:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.xke-modal button:disabled { opacity: .4; cursor: default; }
+.notification-preview { padding: 8px 0; font-size: 12px; font-weight: 600; color: var(--ink); }
+.notification-feedback { margin: 16px 0 0; font-size: 12px; line-height: 1.7; color: #b64d3b; }
+.notification-modal { width: min(430px, calc(100vw - 48px)); }
+/* 示意卡 1:1 镜像真实 WPF 提醒卡：纸面 + 墨边 + 红方块小标 + 红色大数字 + 课程行 */
+.notification-sample { display: flex; flex-direction: column; gap: 8px; padding: 16px 18px 18px; background: var(--paper); border: 1px solid var(--ink); border-radius: 12px; }
+.notification-sample-k { display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 700; color: var(--mute); }
+.notification-sample-k i { width: 8px; height: 8px; background: var(--red); }
+.notification-sample > b { font-size: 44px; font-weight: 700; letter-spacing: -.02em; line-height: 1; color: var(--red); }
+.notification-sample > b i { font-style: normal; font-size: 20px; margin-left: 6px; }
+.notification-sample-course { font-size: 17px; font-weight: 700; color: var(--ink); }
+.notification-sample-meta { display: flex; align-items: baseline; justify-content: space-between; font-size: 12px; font-weight: 600; color: var(--mute); }
+.notification-sample-meta b { color: var(--red); font-weight: 700; }
+.notification-options { display: flex; align-items: center; justify-content: space-between; margin-top: 18px; font-size: 14px; font-weight: 600; }
+.notification-actions { display: flex; justify-content: flex-end; margin-top: 4px; }
+.notification-preview:hover { color: var(--accent); }
+@media (prefers-reduced-motion: no-preference) {
+  .xke-modal { animation: xke-modal-in .18s ease-out; }
+  @keyframes xke-modal-in { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: translateY(0); } }
+}

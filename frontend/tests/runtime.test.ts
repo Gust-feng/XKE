@@ -156,14 +156,24 @@ describe('HTTP runtime', () => {
     const api = new RuntimeApi(new HttpClient('', fetcher))
     await expect(api.login('20260001', 'wrong')).rejects.toMatchObject({ status: 401, authenticated: false })
   })
-  it('current week refresh preserves normal directory acquisition; historical requests require explicit week/term', async () => {
+  it('refresh always sends the selected semester, including the semester restored at login', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(response(auth())).mockImplementation(async () => response(week()))
     const api = new RuntimeApi(new HttpClient('', fetcher))
     await api.login('20260001', 'test-password')
     await api.syncSchedule(3, '2026-2027-1')
     await api.syncSchedule(7, '2025-2026-2')
-    expect(JSON.parse(String(fetcher.mock.calls[1][1]?.body))).toEqual({ mode: 'manual', manual_week: '3' })
+    expect(JSON.parse(String(fetcher.mock.calls[1][1]?.body))).toEqual({ mode: 'manual', manual_week: '3', academic_term: '2026-2027-1' })
     expect(JSON.parse(String(fetcher.mock.calls[2][1]?.body))).toEqual({ mode: 'manual', manual_week: '7', academic_term: '2025-2026-2' })
+  })
+  it('a historical startup cache cannot make refresh omit its semester', async () => {
+    const term = '2024-2025-1'
+    const cached = week(10, { term: { academic_term: term, label: term } })
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(response({ ...auth(), cached_schedule: cached }))
+      .mockResolvedValueOnce(response(cached))
+    const api = new RuntimeApi(new HttpClient('', fetcher))
+    await api.login('20260001', 'test-password')
+    await api.syncSchedule(10, term)
+    expect(JSON.parse(String(fetcher.mock.calls[1][1]?.body))).toEqual({ mode: 'manual', manual_week: '10', academic_term: term })
   })
   it('plain HTTP hosts do not use desktop bootstrap or assume machine capabilities', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(new Response(JSON.stringify({ prelogin_mode: '', development: { host_mode: 'web' } })))

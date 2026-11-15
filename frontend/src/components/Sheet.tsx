@@ -1,5 +1,6 @@
-import { AnimatePresence, motion } from 'motion/react'
-import { useEffect } from 'react'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
+import { useRef } from 'react'
+import { useOverlay } from '../lib/use-overlay'
 import { useStore } from '../lib/store-context'
 import { sinceLabel, useNow } from '../lib/time'
 
@@ -35,11 +36,9 @@ function DevicesBody() {
 
 export function Sheet() {
   const { sheet, openSheet } = useStore()
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && openSheet(null)
-    addEventListener('keydown', onKey)
-    return () => removeEventListener('keydown', onKey)
-  }, [openSheet])
+  const panel = useRef<HTMLElement>(null)
+  const reduce = useReducedMotion()
+  useOverlay(sheet?.type === 'devices', () => panel.current, () => openSheet(null))
 
   if (sheet?.type === 'course' || sheet?.type === 'network') return null
 
@@ -49,9 +48,9 @@ export function Sheet() {
         <>
           <motion.div className="scrim" onClick={() => openSheet(null)} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
           <motion.aside
-            className="sheet"
-            initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
-            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            className="sheet" ref={panel} role="dialog" aria-modal="true" aria-label="在线设备" tabIndex={-1}
+            initial={{ x: reduce ? 0 : '100%' }} animate={{ x: 0 }} exit={{ x: reduce ? 0 : '100%' }}
+            transition={{ duration: reduce ? 0 : 0.3, ease: [0.22, 1, 0.36, 1] }}
           >
             <button className="chip x" onClick={() => openSheet(null)} aria-label="关闭">✕</button>
             <DevicesBody />

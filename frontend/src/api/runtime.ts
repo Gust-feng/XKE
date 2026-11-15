@@ -133,7 +133,7 @@ export class RuntimeApi implements Api {
   async syncSchedule(week?: number, term?: string) {
     const historical = !!term && this.auth?.cached_schedule?.term.academic_term !== term
     const body = { mode: week === undefined ? 'current' : 'manual',
-      ...(week !== undefined ? { manual_week: String(week) } : {}), ...(historical ? { academic_term: term } : {}) }
+      ...(week !== undefined ? { manual_week: String(week) } : {}), ...(term ? { academic_term: term } : {}) }
     const dto = await this.school<WeekDto | CaptchaDto>('/api/schedule/preferred', body)
     if (isCaptchaDto(dto)) return challenge(dto, 'schedule')
     const result = adaptWeek(dto)

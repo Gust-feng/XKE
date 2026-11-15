@@ -1,5 +1,5 @@
 import { motion } from 'motion/react'
-import { useState, type CSSProperties, type ReactNode } from 'react'
+import { useState, useRef, type CSSProperties, type ReactNode } from 'react'
 import { useStore } from '../../lib/store-context'
 import { sinceLabel, useNow } from '../../lib/time'
 import { personalTerms, termLabel } from '../../lib/schedule-view'
@@ -7,6 +7,7 @@ import { SemesterField } from './SemesterField'
 import { ProfileName } from './ProfileName'
 import { AppUpdatePanel } from './AppUpdatePanel'
 import { useAppUpdates } from '../../lib/use-app-updates'
+import { DesktopNotificationSettings } from './DesktopNotificationSettings'
 import { useCaptchaRecognition } from '../../lib/use-captcha-recognition'
 import { reminderMinutes, reminderOptions, validRefreshInput } from '../../lib/settings-options'
 
@@ -19,7 +20,7 @@ export function SwToggle({ on, onChange, label, disabled = false }: { on: boolea
   </button>
 }
 
-function Row({ label, children, i, onClick, networkPopup = false }: { label: string; children?: ReactNode; i: number; onClick?(): void; networkPopup?: boolean }) {
+export function Row({ label, children, i, onClick, networkPopup = false }: { label: string; children?: ReactNode; i: number; onClick?(): void; networkPopup?: boolean }) {
   const { sheet } = useStore()
   const Tag = onClick ? 'button' : 'div'
   return <Tag className={`st-row sw-in${onClick ? ' is-link' : ''}`} style={d(i)} onClick={onClick} data-network-config-trigger={networkPopup ? '' : undefined} aria-haspopup={networkPopup ? 'dialog' : undefined} aria-expanded={networkPopup ? sheet?.type === 'network' : undefined} aria-controls={networkPopup ? 'network-config-panel' : undefined}>
@@ -28,7 +29,7 @@ function Row({ label, children, i, onClick, networkPopup = false }: { label: str
   </Tag>
 }
 
-/** 设置保持为低频操作：账号、课表显示、校园网入口和系统启动。 */
+/** 设置保持为低频操作：账号、课表（显示与自动更新）、校园网入口和系统桌面项。 */
 export function SwissSettings() {
   const { settings, schedule, user, updateSettings, openSheet, openAuth, preview, authBusy, syncing } = useStore()
   const updates = useAppUpdates()
@@ -42,6 +43,38 @@ export function SwissSettings() {
   const reminder = reminderMinutes(settings.remindBefore)
   const term = schedule?.term
   const termOptions = schedule ? personalTerms(schedule, user?.student.enrollment_date || '', term?.id || term?.name) : []
+  // 桌面提醒属于开发者预览：连续点击版本号七次解锁显示；单独单击版本号仍打开应用更新面板。
+  const [devNotifications, setDevNotifications] = useState(false)
+  const [versionHint, setVersionHint] = useState('')
+  const versionTaps = useRef({ count: 0, last: 0, openTimer: 0 })
+  const hintTimer = useRef<number>(0)
+  const handleVersionClick = () => {
+    if (devNotifications) { updates.openPanel(); return }
+    const now = Date.now()
+    const taps = versionTaps.current
+    const flash = (text: string, ms: number) => {
+      setVersionHint(text)
+      window.clearTimeout(hintTimer.current)
+      hintTimer.current = window.setTimeout(() => setVersionHint(''), ms)
+    }
+    window.clearTimeout(taps.openTimer)
+    if (now - taps.last < 700) {
+      taps.count += 1
+      taps.last = now
+      if (taps.count >= 7) {
+        taps.count = 0
+        taps.last = 0
+        setDevNotifications(true)
+        flash('已开启开发者预览', 2400)
+        return
+      }
+      if (taps.count >= 3) flash(`再点 ${7 - taps.count} 次开启开发者预览`, 1400)
+      return
+    }
+    taps.count = 1
+    taps.last = now
+    taps.openTimer = window.setTimeout(() => updates.openPanel(), 400)
+  }
   return <div className="st sw-grid">
     <section className="st-col st-a">
       <h2 className="st-h sw-in" style={d(0)}>课表</h2>
@@ -57,7 +90,7 @@ export function SwissSettings() {
       <Row i={3} label="显示周末">
         <SwToggle label="显示周末" on={settings.showWeekend} onChange={(value) => updateSettings({ showWeekend: value })} />
       </Row>
-      <Row i={4} label="课前提醒">
+      <Row i={3.5} label="课前提醒">
         <span className="st-seg st-reminder" role="radiogroup" aria-label="课前提醒">
           {reminderOptions(reminder).map((minutes) => <button key={minutes} role="radio" aria-label={minutes ? `上课前 ${minutes} 分钟提醒` : '关闭课前提醒'} disabled={settings.desktopSupported === false} aria-checked={reminder === minutes} className={reminder === minutes ? 'on' : ''} onClick={() => updateSettings({ remindBefore: minutes })}>
             {reminder === minutes && <motion.i layoutId="st-seg" transition={{ duration: 0.26, ease: EASE }} />}
@@ -65,6 +98,22 @@ export function SwissSettings() {
           </button>)}
         </span>
       </Row>
+      <Row i={4} label="自动更新课表">
+        <SwToggle label="自动更新课表" on={settings.autoRefresh === true} onChange={(value) => updateSettings({ autoRefresh: value })} />
+      </Row>
+      {settings.autoRefresh && <>
+        <Row i={4.5} label="更新频率">
+          <span className="st-seg" role="radiogroup" aria-label="更新频率">
+            {(['daily', 'interval'] as const).map((mode) => <button key={mode} role="radio" aria-checked={(settings.refreshMode || 'daily') === mode} className={(settings.refreshMode || 'daily') === mode ? 'on' : ''} onClick={() => updateSettings({ refreshMode: mode })}>
+              {(settings.refreshMode || 'daily') === mode && <motion.i layoutId="st-refresh-mode" transition={{ duration: 0.26, ease: EASE }} />}
+              <span>{mode === 'daily' ? '每天' : '间隔'}</span>
+            </button>)}
+          </span>
+        </Row>
+        {settings.refreshMode === 'interval'
+          ? <Row i={4.6} label="间隔小时"><RefreshInput key={settings.refreshHours ?? 4} kind="interval" value={String(settings.refreshHours ?? 4)} save={(value) => updateSettings({ refreshHours: Number(value) })} /></Row>
+          : <Row i={4.6} label="更新时间"><RefreshInput key={settings.refreshTime || '20:00'} kind="daily" value={settings.refreshTime || '20:00'} save={(value) => updateSettings({ refreshTime: value })} /></Row>}
+      </>}
 
     </section>
 
@@ -80,26 +129,11 @@ export function SwissSettings() {
     </section>
 
     <section className="st-col st-c">
-      <h2 className="st-h st-system-heading sw-in" style={d(8)}><span>系统</span><button type="button" className="st-version num" aria-label="应用版本与更新" aria-haspopup="dialog" aria-expanded={updates.open} data-ready={updates.data?.status === 'ready' || updates.data?.status === 'available'} onClick={updates.openPanel}>{updates.data?.current_version ? `v${updates.data.current_version.replace(/^v/i, '')}` : '版本'}</button></h2>
+      <h2 className="st-h st-system-heading sw-in" style={d(8)}><span>系统</span><button type="button" className="st-version num" onClick={handleVersionClick} aria-label={`应用版本与更新${versionHint ? `，${versionHint}` : ''}`} aria-haspopup="dialog" aria-expanded={updates.open} data-ready={updates.data?.status === 'ready' || updates.data?.status === 'available'}>{versionHint || (updates.data?.current_version ? `v${updates.data.current_version.replace(/^v/i, '')}` : '版本')}</button></h2>
       <Row i={9} label="开机启动">
         <SwToggle label="开机启动" on={settings.launchAtLogin} onChange={(value) => updateSettings({ launchAtLogin: value })} disabled={settings.desktopSupported === false} />
       </Row>
-      <Row i={10} label="自动更新课表">
-        <SwToggle label="自动更新课表" on={settings.autoRefresh === true} onChange={(value) => updateSettings({ autoRefresh: value })} />
-      </Row>
-      {settings.autoRefresh && <>
-        <Row i={11} label="更新频率">
-          <span className="st-seg" role="radiogroup" aria-label="更新频率">
-            {(['daily', 'interval'] as const).map((mode) => <button key={mode} role="radio" aria-checked={(settings.refreshMode || 'daily') === mode} className={(settings.refreshMode || 'daily') === mode ? 'on' : ''} onClick={() => updateSettings({ refreshMode: mode })}>
-              {(settings.refreshMode || 'daily') === mode && <motion.i layoutId="st-refresh-mode" transition={{ duration: 0.26, ease: EASE }} />}
-              <span>{mode === 'daily' ? '每天' : '间隔'}</span>
-            </button>)}
-          </span>
-        </Row>
-        {settings.refreshMode === 'interval'
-          ? <Row i={12} label="间隔小时"><RefreshInput key={settings.refreshHours ?? 4} kind="interval" value={String(settings.refreshHours ?? 4)} save={(value) => updateSettings({ refreshHours: Number(value) })} /></Row>
-          : <Row i={12} label="更新时间"><RefreshInput key={settings.refreshTime || '20:00'} kind="daily" value={settings.refreshTime || '20:00'} save={(value) => updateSettings({ refreshTime: value })} /></Row>}
-      </>}
+      {devNotifications && <DesktopNotificationSettings />}
     </section>
 
     <SemesterField />
