@@ -38,12 +38,8 @@ export function SwissSettings() {
   const recognitionLabel = recognitionState === 'disabled' ? '已关闭' : recognitionState === 'recognizing'
     ? `识别中 ${recognition?.attempt || 1}/3` : recognitionState === 'manual_required' ? '需手动'
       : recognitionState === 'unavailable' ? '不可用' : '已开启'
-  if (!settings) return <div className="st sw-grid"><section className="st-col"><h2 className="st-h sw-in" style={d(0)}>课表</h2><button className="st-btn" onClick={openAuth}>连接教务</button></section></div>
-
-  const reminder = reminderMinutes(settings.remindBefore)
-  const term = schedule?.term
-  const termOptions = schedule ? personalTerms(schedule, user?.student.enrollment_date || '', term?.id || term?.name) : []
   // 桌面提醒属于开发者预览：连续点击版本号七次解锁显示；单独单击版本号仍打开应用更新面板。
+  // Hooks 必须位于下方 settings 早退之前，避免条件渲染的 hook 数量变化。
   const [devNotifications, setDevNotifications] = useState(false)
   const [versionHint, setVersionHint] = useState('')
   const versionTaps = useRef({ count: 0, last: 0, openTimer: 0 })
@@ -75,6 +71,11 @@ export function SwissSettings() {
     taps.last = now
     taps.openTimer = window.setTimeout(() => updates.openPanel(), 400)
   }
+  if (!settings) return <div className="st sw-grid"><section className="st-col"><h2 className="st-h sw-in" style={d(0)}>课表</h2><button className="st-btn" onClick={openAuth}>连接教务</button></section></div>
+
+  const reminder = reminderMinutes(settings.remindBefore)
+  const term = schedule?.term
+  const termOptions = schedule ? personalTerms(schedule, user?.student.enrollment_date || '', term?.id || term?.name) : []
   return <div className="st sw-grid">
     <section className="st-col st-a">
       <h2 className="st-h sw-in" style={d(0)}>课表</h2>
