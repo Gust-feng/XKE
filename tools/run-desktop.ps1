@@ -28,6 +28,9 @@ try {
     $previousWebRoot = $env:XKE_WEB_ROOT
 
     try {
+        if ([string]::IsNullOrWhiteSpace($DataRoot) -and [string]::IsNullOrWhiteSpace($previousDataRoot)) {
+            $DataRoot = Join-Path $repoRoot '.runtime/development/data'
+        }
         if (-not [string]::IsNullOrWhiteSpace($DataRoot)) {
             Set-InheritedEnvVar -Name "XKE_DOTNET_DATA_DIR" -Value $DataRoot
         }

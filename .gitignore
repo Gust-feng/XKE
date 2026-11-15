@@ -20,6 +20,16 @@ xke.schedule-api-token.json.dpapi
 # Local editor plans and assistant state
 /.zcode/
 /.kilo/
+/.agents/
+
+# Android work is kept local until development resumes
+/android/
+/notes/development-docs/android/
+/xke-android-src.zip
+
+# Local CAPTCHA research tools; not part of the shipped runtime
+/tools/Xke.CaptchaProbe/
+/tools/prepare-captcha-probe.py
 
 # Imported design/source archives
 /XKE-frontend-*.zip
