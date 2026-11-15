@@ -1,5 +1,19 @@
 > 2026-10-10：现第七版合成已锚定产品第一版，用户授权React runtime对接。当前接手先读 [后端技术手册](05_backend_technical_manual.md)；独立云协议API见 [06](06_protocol_host.md)。本文件以下API字段仍须按当前代码使用；旧Vue验收/纯mock状态只代表当时记录，不作为本轮证据。
 
+## 2026-11-10 课表学期身份修复
+
+POST /api/schedule/preferred只要有所选学期就始终提交academic_term，不再根据登录cached_schedule省略。GET /api/schedule/local未指定学期时先按日期/最新已识别学期确定默认学期；指定week_label仅在该学期内查询，缺周返回404。日期命中保留完整记录。响应字段、学期总表及单周修订的新鲜度规则不变。
+
+## 2026-11-03 天气内置布局（最新）
+
+天气是不可关闭的内置设计，移除前后端enabled字段及disabled状态；WeatherSettings仅保存city，WeatherState没有enabled。左栏顶端为天气在左、日期在右的组合：图标/温度及下方城市名，不重复显示“天气/多云”等可见文字；可访问名称仍包含天气描述。详情标题直接使用城市名，未选时为“选择城市”；设置只保留“所在城市”。1280×720与1080×640预览已核对，前端394通过/1项默认跳过，天气后端9通过、类型与严格lint通过。下方日期下天气、默认关闭及显示开关的旧记录由本段覆盖。
+
+## 2026-11-03 天气、专属提醒与弹窗交互
+
+天气使用独立Open-Meteo客户端，不携带学校Cookie/账号；固定公开API、12秒超时、512KB响应上限。天气为固定内置设计，无显示开关；未选城市保留选城入口，不发预报请求，无自动定位。GET/POST `/api/weather/settings`、GET `/api/weather/cities?q=`、GET `/api/weather?refresh=true`复用本机会话和既有envelope；snake_case契约见WeatherModels。设置及天气缓存以普通JSON原子写入students/<student_id>/info/weather-settings.json、weather-cache.json。25分钟TTL、30秒刷新冷却、串行合并、失败保留缓存并明确stale；切城市不复用旧城缓存，注销后的结果不落盘。个人非商业使用与CC BY 4.0署名保留，正式商业分发前须重新评估服务条款。
+
+Windows托盘图标/菜单保留，气泡展示改为独立WPF NotificationWindow：非激活、无任务栏项、工作区右下、悬停暂停、关闭与查看课表。实际展示才回传true并记课前回执；排队展示前和可见期间复核账号、配置、取消及有效窗口。免打扰保存于数据根.desktop/notification-settings.json（仅布尔普通JSON），bridge提供get_notification_settings、set_notification_settings(string bool)、preview_notification。后台提醒尊重Windows通知忙碌/全屏等状态；用户显式预览允许在忙碌状态展示，但不绕过应用DND或锁屏。多显示器/DPI、长时休眠、系统策略组合仍需实机验收。
+
 ## 当前契约：桌面自动验证码
 
 - 账号偏好auth.auto_captcha_enabled为boolean，默认true；只有已有DPAPI可信token且提交密码与保存密码一致的本机账号可自动认证，偏好不能授予首次登录权限。用户关闭后，普通设置patch/恢复/重认证保留false。

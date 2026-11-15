@@ -1,5 +1,9 @@
 # 敏感边界总览
 
+2026-10-10当前接手见 [后端技术手册](../development-docs/personal-runtime/05_backend_technical_manual.md)：
+表单登录与Cookie数据提取为当前实现，独立ProtocolHost采用ddddocr；下文OCR/Cookie纯后置状态是历史范围。
+资料/账号偏好/课表为普通业务JSON/CSV，桌面凭据/Cookie/会话保留DPAPI；云协议版登录材料只在内存。
+
 本目录只保存敏感边界的**元数据索引**，不保存真实内容。
 
 ## 目标

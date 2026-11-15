@@ -1,5 +1,17 @@
 # 后端技术手册与 Agent 接手入口
 
+## 2026-11-10 课表学期身份修复
+
+ScheduleService.LoadLocal直接使用XkeScheduleStore.LoadScheduleForDate完整记录，不把日期匹配退化为周号后跨学期重选。无日期命中优先LoadLatestTermSourceSchedule；指定周而未传学期时先确定默认学期，缺周返回404。仅有未识别学期数据仍可读取；有已识别学期时不让无学期新快照抢占默认基线。路径保持schedules/<academic_term>/{semester,weeks}，前端合并学期安排与同学期较新周修订。
+
+runtime刷新始终传所选academic_term；TraditionalJwClient确认首页学期，当前学期使用首页周目录和日期参数，历史学期仍走学期页并校验返回学期/周次。tools/run-desktop.ps1无显式参数/环境时默认.runtime/development/data；直接运行宿主的默认根不变。不复制DPAPI材料，不修改安装目录。
+
+## 2026-11-03 天气、专属提醒与弹窗交互
+
+天气使用独立Open-Meteo客户端，不携带学校Cookie/账号；固定公开API、12秒超时、512KB响应上限。天气为固定内置设计，无显示开关；未选城市保留选城入口，不发预报请求，无自动定位。GET/POST `/api/weather/settings`、GET `/api/weather/cities?q=`、GET `/api/weather?refresh=true`复用本机会话和既有envelope；snake_case契约见WeatherModels。设置及天气缓存以普通JSON原子写入students/<student_id>/info/weather-settings.json、weather-cache.json。25分钟TTL、30秒刷新冷却、串行合并、失败保留缓存并明确stale；切城市不复用旧城缓存，注销后的结果不落盘。个人非商业使用与CC BY 4.0署名保留，正式商业分发前须重新评估服务条款。
+
+Windows托盘图标/菜单保留，气泡展示改为独立WPF NotificationWindow：非激活、无任务栏项、工作区右下、悬停暂停、关闭与查看课表。实际展示才回传true并记课前回执；排队展示前和可见期间复核账号、配置、取消及有效窗口。免打扰保存于数据根.desktop/notification-settings.json（仅布尔普通JSON），bridge提供get_notification_settings、set_notification_settings(string bool)、preview_notification。后台提醒尊重Windows通知忙碌/全屏等状态；用户显式预览允许在忙碌状态展示，但不绕过应用DND或锁屏。多显示器/DPI、长时休眠、系统策略组合仍需实机验收。
+
 ## 2026-10-20 桌面首窗口内容就绪
 
 App通过PrepareStartupPresentation创建最小化且不占任务栏的窗口，以满足WebView2初始化；不在这一阶段展示原生“退出”或独立启动画面。前端useDesktopBridge在phase离开loading、实际DOM提交后一次性调用可选content_ready；MainWindow仅接受当前带构建/启动参数的文档确认，完成后呈现WebView与正常窗口。NavigationCompleted仅处理导航错误，不再提前显露尚未恢复的页面。
